@@ -39,6 +39,17 @@ def _extract_json(text: str) -> dict:
     return value
 
 
+def _approval_required(task: str, steps: list[str]) -> bool:
+    """Enforce approval from policy-sensitive language, independent of LLM output."""
+    text = f"{task} {' '.join(steps)}".lower()
+    sensitive_terms = (
+        "write", "modify", "change", "edit", "create file", "delete", "remove",
+        "fix", "implement", "refactor", "deploy", "deployment", "merge", "push",
+        "credential", "secret", "token", "password", "production", "destructive",
+    )
+    return any(term in text for term in sensitive_terms)
+
+
 def plan_with_free_llm(task: str, candidates: list[ModelCandidate]) -> LLMPlan | None:
     """Use only a currently verified-free Gemini candidate; never fall back to paid access."""
     decision = choose_model([c for c in candidates if c.access_status is AccessStatus.VERIFIED_FREE], task)
@@ -66,11 +77,10 @@ def plan_with_free_llm(task: str, candidates: list[ModelCandidate]) -> LLMPlan |
         parsed = _extract_json(text)
         steps = parsed.get("steps", [])
         summary = parsed.get("summary", "")
-        requires_approval = parsed.get("requires_approval", True)
         if not isinstance(summary, str) or not isinstance(steps, list) or not all(isinstance(step, str) for step in steps):
             return None
-        if not isinstance(requires_approval, bool):
-            requires_approval = True
+        # Never trust the model's approval flag: derive it from the requested task and generated actions.
+        requires_approval = _approval_required(task, steps)
         return LLMPlan(task=task, model=model, provider=decision.model.provider, summary=summary, steps=tuple(steps[:12]), requires_approval=requires_approval, raw=text)
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
         return None
