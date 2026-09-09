@@ -12,6 +12,7 @@ from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
 from .reporting import render_markdown
 from .state import StateStore
+from .task_engine import execute_task
 from .verify import verify_candidate
 from .emailer import send_report
 
@@ -38,6 +39,10 @@ def run() -> ScoutReport:
     registry = load_registry()
     store = StateStore(STATE_PATH)
     previous = store.load()
+
+    task_request = os.getenv("TASK_REQUEST", "").strip()
+    task_result = execute_task(task_request, ROOT) if task_request else None
+
     previous_sources = previous.get("source_hashes", {})
     candidates = candidates_from_registry(registry.get("providers", []))
     candidates = discover_official_changes(candidates, previous_sources)
@@ -65,6 +70,11 @@ def run() -> ScoutReport:
     report.meaningful_change = fingerprint != previous.get("fingerprint", "")
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
+    if task_result:
+        report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
+        report.notes.append(f"Task plan: {task_result.plan.explanation}")
+        if task_result.status == "approval_required":
+            report.notes.append("The requested task reached the write boundary; no source modification, merge, or deployment was performed without approval.")
     return report
 
 
@@ -83,6 +93,7 @@ def main() -> int:
         "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"],
         "report_path": str(REPORT_PATH),
         "github_repository": os.getenv("GITHUB_REPOSITORY", ""),
+        "last_task": os.getenv("TASK_REQUEST", "").strip(),
     })
     if report.meaningful_change and os.getenv("REPORT_EMAIL"):
         send_report("Autonomous AI Scout — meaningful update", rendered)

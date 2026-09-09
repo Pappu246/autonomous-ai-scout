@@ -2,6 +2,12 @@ name: Hourly Autonomous AI Scout
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: "Natural-language digital task for the agent"
+        required: false
+        type: string
+        default: ""
   schedule:
     - cron: "0 * * * *"
 
@@ -32,6 +38,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ github.token }}
           SCOUT_OWNER: Pappu246
+          TASK_REQUEST: ${{ github.event.inputs.task || '' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
