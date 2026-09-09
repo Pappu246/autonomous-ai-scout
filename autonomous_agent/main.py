@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from .action_queue import build_action_proposal
+from .action_queue import build_action_proposal, enqueue_proposal
 from .benchmark import benchmark_gemini
 from .discovery import candidates_from_registry, discover_official_changes
 from .github_audit import audit_owner
@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "providers.json"
 REPORT_PATH = ROOT / "state" / "latest_report.md"
 STATE_PATH = ROOT / "state" / "scout_state.json"
+ACTION_QUEUE_PATH = ROOT / "state" / "approval_queue.json"
 
 
 def load_registry() -> dict:
@@ -96,6 +97,9 @@ def run() -> ScoutReport:
         report.notes.append("No optional free LLM plan was produced; deterministic bounded task planning remains the fallback and no paid model is used.")
     if action_proposal:
         report.notes.append(f"Action boundary: status={action_proposal.status.value}; approval_required={action_proposal.requires_approval}; reason={action_proposal.reason}")
+        queued = enqueue_proposal(ACTION_QUEUE_PATH, action_proposal, task_result.plan.risk if task_result else "medium")
+        if queued:
+            report.notes.append(f"Approval queue: pending action {queued.id} recorded; execution remains blocked until an explicit approval flow is added.")
     return report
 
 
