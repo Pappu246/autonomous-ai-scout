@@ -12,6 +12,7 @@ from .github_audit import audit_owner
 from .llm_planner import plan_with_free_llm
 from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
+from .patch_proposals import build_patch_proposal, save_proposal
 from .project_intelligence import analyze_project
 from .reporting import render_markdown
 from .state import StateStore
@@ -24,6 +25,7 @@ REGISTRY_PATH = ROOT / "config" / "providers.json"
 REPORT_PATH = ROOT / "state" / "latest_report.md"
 STATE_PATH = ROOT / "state" / "scout_state.json"
 ACTION_QUEUE_PATH = ROOT / "state" / "approval_queue.json"
+PATCH_PROPOSAL_PATH = ROOT / "state" / "patch_proposal.json"
 
 
 def load_registry() -> dict:
@@ -100,6 +102,11 @@ def run() -> ScoutReport:
         queued = enqueue_proposal(ACTION_QUEUE_PATH, action_proposal, task_result.plan.risk if task_result else "medium")
         if queued:
             report.notes.append(f"Approval queue: pending action {queued.id} recorded; execution remains blocked until an explicit approval flow is added.")
+        if action_proposal.requires_approval:
+            proposal_steps = llm_plan.steps if llm_plan else tuple(task_result.plan.actions) if task_result else ()
+            patch = build_patch_proposal(task_request, proposal_steps, llm_plan.summary if llm_plan else "Sandboxed proposal generated from deterministic planning.")
+            save_proposal(PATCH_PROPOSAL_PATH, patch)
+            report.notes.append(f"Sandboxed patch proposal: {patch.id} saved for review; no source patch was generated or applied.")
     return report
 
 
