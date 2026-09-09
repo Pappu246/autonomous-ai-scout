@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from autonomous_agent.models import AccessStatus, ModelCandidate
 from autonomous_agent.opportunities import score_opportunity
+from autonomous_agent.project_intelligence import analyze_project
 from autonomous_agent.router import choose_model
 from autonomous_agent.sources import SourceCheck, source_has_free_signal
 from autonomous_agent.task_engine import TaskIntent, plan_task
@@ -46,3 +49,16 @@ def test_router_never_selects_paid_or_unknown_candidates():
     assert decision.model is not None
     assert decision.model.provider == "free"
     assert decision.score > 0
+
+
+def test_project_intelligence_detects_missing_lockfile(tmp_path: Path):
+    (tmp_path / "package.json").write_text('{"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
+    (tmp_path / "app.js").write_text("console.log('ok')", encoding="utf-8")
+    findings = analyze_project(tmp_path, "demo")
+    assert any(f.title == "Node project has no lockfile" for f in findings)
+
+
+def test_project_intelligence_detects_possible_secret(tmp_path: Path):
+    (tmp_path / "app.py").write_text("api_key = '12345678901234567890'", encoding="utf-8")
+    findings = analyze_project(tmp_path, "demo")
+    assert any(f.title == "Possible hard-coded secret" and f.severity == "high" for f in findings)
