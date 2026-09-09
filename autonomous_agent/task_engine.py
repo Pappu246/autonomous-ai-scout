@@ -35,11 +35,7 @@ class TaskResult:
 
 
 def plan_task(task: str) -> TaskPlan:
-    """Turn a natural-language digital request into a bounded execution plan.
-
-    This is deliberately deterministic when no LLM is configured. It prevents
-    arbitrary shell commands from being inferred from user text.
-    """
+    """Map natural language to a bounded, allow-listed digital plan."""
     raw = " ".join(task.strip().split())
     text = raw.lower()
     if not raw:
@@ -51,22 +47,23 @@ def plan_task(task: str) -> TaskPlan:
     if has("test", "tests", "pytest", "check tests"):
         return TaskPlan(raw, TaskIntent.TEST, ("inspect", "test"), "low", False, "Inspect the workspace and run the test suite.")
     if has("audit", "review project", "review repo", "review repository"):
-        return TaskPlan(raw, TaskIntent.AUDIT, ("inspect", "audit"), "low", False, "Inspect the repository and run the existing project audit.")
+        return TaskPlan(raw, TaskIntent.AUDIT, ("inspect", "scout"), "low", False, "Inspect the workspace and run the existing audit pipeline.")
     if has("discover", "find ai", "find model", "find models", "new tools"):
-        return TaskPlan(raw, TaskIntent.DISCOVER, ("discover",), "low", False, "Run the free-first discovery and verification pipeline.")
+        return TaskPlan(raw, TaskIntent.DISCOVER, ("scout",), "low", False, "Run the free-first discovery pipeline.")
     if has("inspect", "analyze", "analyse", "understand", "look at"):
         return TaskPlan(raw, TaskIntent.INSPECT, ("inspect",), "low", False, "Inspect repository structure and summarize actionable signals.")
     if has("fix", "bug", "debug", "repair"):
-        return TaskPlan(raw, TaskIntent.FIX, ("inspect", "test"), "medium", True, "Inspect and test first; code changes require an approval-gated patch step.")
+        return TaskPlan(raw, TaskIntent.FIX, ("inspect", "test"), "medium", True, "Inspect and test first; source changes require an approval-gated patch step.")
     if has("improve", "implement", "add feature", "change code", "refactor", "build"):
         return TaskPlan(raw, TaskIntent.IMPROVE, ("inspect", "test"), "medium", True, "Inspect and test first; implementation/deployment requires an approval-gated patch step.")
     return TaskPlan(raw, TaskIntent.UNKNOWN, ("inspect",), "low", False, "Inspect the workspace first because the request does not map to a known safe action.")
 
 
 def _inspect(root: Path) -> str:
-    files = []
+    files: list[str] = []
+    ignored = {"__pycache__", ".pytest_cache", "node_modules"}
     for path in sorted(root.rglob("*")):
-        if path.is_file() and ".git" not in path.parts and not any(part in {"__pycache__", ".pytest_cache", "node_modules"} for part in path.parts):
+        if path.is_file() and ".git" not in path.parts and not any(part in ignored for part in path.parts):
             files.append(str(path.relative_to(root)))
     preview = files[:80]
     suffix = f"\n... and {len(files) - len(preview)} more files" if len(files) > len(preview) else ""
@@ -87,10 +84,10 @@ def _test(root: Path) -> str:
     return f"pytest exit code: {completed.returncode}\n{output[-6000:]}"
 
 
-def execute_task(task: str, root: Path, scout_runner=None) -> TaskResult:
-    """Execute only allow-listed, non-destructive digital actions."""
+def execute_task(task: str, root: Path) -> TaskResult:
+    """Execute only non-destructive actions; source writes remain approval-gated."""
     plan = plan_task(task)
-    if plan.intent is TaskIntent.UNKNOWN and not plan.actions:
+    if not plan.actions:
         return TaskResult(plan, "ignored", plan.explanation)
 
     outputs: list[str] = []
@@ -102,18 +99,8 @@ def execute_task(task: str, root: Path, scout_runner=None) -> TaskResult:
                 outputs.append(_test(root))
             except subprocess.TimeoutExpired:
                 outputs.append("pytest timed out; no changes were made.")
-        elif action == "audit":
-            if scout_runner is None:
-                outputs.append("Audit runner is not available in this execution context.")
-            else:
-                scout_runner()
-                outputs.append("Existing autonomous scout audit completed.")
-        elif action == "discover":
-            if scout_runner is None:
-                outputs.append("Discovery runner is not available in this execution context.")
-            else:
-                scout_runner()
-                outputs.append("Existing free-first discovery pipeline completed.")
+        elif action == "scout":
+            outputs.append("The main scout pipeline will perform discovery/audit in this run.")
 
     if plan.requires_approval:
         outputs.append("WRITE/DEPLOY STEP BLOCKED: approval is required before modifying source, merging, or deploying.")
