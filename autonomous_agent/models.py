@@ -24,6 +24,10 @@ class ModelCandidate(BaseModel):
     limits: dict[str, Any] = Field(default_factory=dict)
     discovered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime | None = None
+    source_hash: str = ""
+    source_changed: bool = False
+    benchmark_latency_ms: int | None = None
+    benchmark_ok: bool | None = None
 
 
 class ProjectFinding(BaseModel):
@@ -32,7 +36,7 @@ class ProjectFinding(BaseModel):
     title: str
     detail: str
     recommendation: str
-    confidence: float = Field(ge=0, le=1)
+    confidence: float = Field(default=0.8, ge=0, le=1)
 
 
 class Opportunity(BaseModel):
