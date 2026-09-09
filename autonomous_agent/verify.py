@@ -9,13 +9,8 @@ def verify_candidate(candidate: ModelCandidate) -> ModelCandidate:
     if not check.reachable:
         return candidate.model_copy(update={"access_status": AccessStatus.UNKNOWN, "evidence": "Official source was not reachable during this run."})
     if source_has_free_signal(check):
-        return candidate.model_copy(
-            update={
-                "access_status": AccessStatus.VERIFIED_FREE,
-                "evidence": f"Official source reachable: {check.title or candidate.source_url}",
-            }
-        )
-    return candidate.model_copy(update={"access_status": AccessStatus.PAID_ONLY, "evidence": "No explicit free-access signal found on the official source."})
+        return candidate.model_copy(update={"access_status": AccessStatus.VERIFIED_FREE, "evidence": check.title or "Official source explicitly exposes a free-access signal.", "source_hash": check.digest})
+    return candidate.model_copy(update={"access_status": AccessStatus.PAID_ONLY, "evidence": "Official source did not expose a qualifying free-access signal."})
 
 
 def free_candidates(candidates: list[ModelCandidate]) -> list[ModelCandidate]:

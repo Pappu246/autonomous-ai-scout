@@ -1,29 +1,26 @@
+from __future__ import annotations
+
 from autonomous_agent.models import AccessStatus, ModelCandidate
-from autonomous_agent.ranking import choose_model
-from autonomous_agent.state import StateStore
+from autonomous_agent.opportunities import score_opportunity
+from autonomous_agent.sources import SourceCheck, source_has_free_signal
+from autonomous_agent.verify import free_candidates
 
 
-def candidate(status: AccessStatus) -> ModelCandidate:
-    return ModelCandidate(
-        provider="test",
-        model="fast-model",
-        source_url="https://example.com/pricing",
-        access_status=status,
-    )
+def test_free_signal_requires_positive_and_no_negative_signal():
+    assert source_has_free_signal(SourceCheck("x", True, text="Free tier and free usage"))
+    assert not source_has_free_signal(SourceCheck("x", True, text="No free tier; paid only"))
 
 
-def test_router_rejects_non_free_candidates():
-    assert choose_model([candidate(AccessStatus.PAID_ONLY)], "general") is None
+def test_free_candidates_filters_unknown_and_paid():
+    base = dict(provider="x", model="m", source_url="https://example.com")
+    values = [
+        ModelCandidate(**base, access_status=AccessStatus.VERIFIED_FREE),
+        ModelCandidate(**base, access_status=AccessStatus.UNKNOWN),
+        ModelCandidate(**base, access_status=AccessStatus.PAID_ONLY),
+    ]
+    assert len(free_candidates(values)) == 1
 
 
-def test_router_selects_verified_free_candidate():
-    selected = choose_model([candidate(AccessStatus.VERIFIED_FREE)], "general")
-    assert selected is not None
-    assert selected.access_status is AccessStatus.VERIFIED_FREE
-
-
-def test_state_round_trip(tmp_path):
-    store = StateStore(tmp_path / "state.json")
-    payload = {"run": 1, "models": ["x"]}
-    store.save(payload)
-    assert store.load() == payload
+def test_opportunity_score_is_bounded():
+    assert 0 <= score_opportunity(0, 0, 0) <= 100
+    assert score_opportunity(100, 100, 100) == 100
