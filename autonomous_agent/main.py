@@ -8,6 +8,7 @@ from pathlib import Path
 from .benchmark import benchmark_gemini
 from .discovery import candidates_from_registry, discover_official_changes
 from .github_audit import audit_owner
+from .llm_planner import plan_with_free_llm
 from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
 from .project_intelligence import analyze_project
@@ -60,6 +61,8 @@ def run() -> ScoutReport:
             if b:
                 verified[i] = candidate.model_copy(update={"benchmark_latency_ms": b.latency_ms, "benchmark_ok": b.success})
 
+    llm_plan = plan_with_free_llm(task_request, verified) if task_request else None
+
     owner = os.getenv("SCOUT_OWNER", "Pappu246")
     exclude = {os.getenv("GITHUB_REPOSITORY", ""), "Pappu246/autonomous-ai-scout"}
     raw_findings = audit_owner(owner, exclude=exclude)
@@ -79,6 +82,13 @@ def run() -> ScoutReport:
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
         if task_result.status == "approval_required":
             report.notes.append("The requested task reached the write boundary; no source modification, merge, or deployment was performed without approval.")
+    if llm_plan:
+        report.notes.append(f"LLM plan selected {llm_plan.provider}/{llm_plan.model}: {llm_plan.summary}")
+        report.notes.append("LLM-proposed steps: " + " | ".join(llm_plan.steps))
+        if llm_plan.requires_approval:
+            report.notes.append("LLM plan requires approval before any write, merge, deployment, credential change, or destructive action.")
+    elif task_request:
+        report.notes.append("No optional free LLM plan was produced; deterministic bounded task planning remains the fallback and no paid model is used.")
     return report
 
 
