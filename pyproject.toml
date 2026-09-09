@@ -1,6 +1,6 @@
 [project]
 name = "autonomous-ai-scout"
-version = "0.2.0"
+version = "0.2.1"
 description = "Free-first autonomous AI scout, project auditor, benchmarker and opportunity agent"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,6 +11,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+include = ["autonomous_agent*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
