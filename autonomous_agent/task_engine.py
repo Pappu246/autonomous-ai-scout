@@ -54,7 +54,7 @@ def plan_task(task: str) -> TaskPlan:
         return TaskPlan(raw, TaskIntent.INSPECT, ("inspect",), "low", False, "Inspect repository structure and summarize actionable signals.")
     if has("fix", "bug", "debug", "repair"):
         return TaskPlan(raw, TaskIntent.FIX, ("inspect", "test"), "medium", True, "Inspect and test first; source changes require an approval-gated patch step.")
-    if has("improve", "implement", "add feature", "change code", "refactor", "build"):
+    if has("improve", "implement", "add feature", "add a feature", "change code", "refactor", "build"):
         return TaskPlan(raw, TaskIntent.IMPROVE, ("inspect", "test"), "medium", True, "Inspect and test first; implementation/deployment requires an approval-gated patch step.")
     return TaskPlan(raw, TaskIntent.UNKNOWN, ("inspect",), "low", False, "Inspect the workspace first because the request does not map to a known safe action.")
 
