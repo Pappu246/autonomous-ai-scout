@@ -1,14 +1,14 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-09T21:18:14.491318+00:00
+Generated: 2026-09-09T23:35:05.299681+00:00
 Meaningful change: YES
 
 ## Verified free candidates
 
-- **gemini / gemini-3.7-flash** — benchmark: not run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
-- **gemini / gemini-3.6-flash** — benchmark: not run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
-- **groq / openai/gpt-oss-120b** — benchmark: not run — [official source](https://console.groq.com/docs/rate-limits)
-- **groq / openai/gpt-oss-20b** — benchmark: not run — [official source](https://console.groq.com/docs/rate-limits)
+- **gemini / gemini-3.7-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
+- **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
+- **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
+- **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 
 ## Project findings
 

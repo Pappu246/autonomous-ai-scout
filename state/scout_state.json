@@ -1,13 +1,13 @@
 {
-  "fingerprint": "52c32ad8b71332a9a3301e0c4611858efecbdf5840523135a9612d47fc408ace",
+  "fingerprint": "4c2493b19a68b14f1b1781b3e95bef8be4333e7aec900f3690ec712fe0013f60",
   "github_repository": "Pappu246/autonomous-ai-scout",
-  "last_run": "2026-09-09T21:18:14.491318+00:00",
+  "last_run": "2026-09-09T23:35:05.299681+00:00",
   "last_task": "",
   "meaningful_change": true,
   "report_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/latest_report.md",
   "source_hashes": {
-    "https://ai.google.dev/gemini-api/docs/pricing": "a8c4261398a73d92b23798a80e9470289d522ce62479e364c6cb1ad941dee51d",
-    "https://console.groq.com/docs/rate-limits": "1260af62b09da5e43efce73c2d399712cd8c9521a008928b50cf467b5345e7aa"
+    "https://ai.google.dev/gemini-api/docs/pricing": "56e0002eb5708c17817cc194653046d9008e3dd8949c165bd00654b7b8ddb020",
+    "https://console.groq.com/docs/rate-limits": "4c74974ebda3574698ec2b18b1d15dc5106c6e58ca07273dba42b3ced58915c0"
   },
   "verified_free_models": [
     "gemini/gemini-3.7-flash",
