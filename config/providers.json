@@ -1,0 +1,25 @@
+{
+  "policy": {
+    "free_only": true,
+    "never_bypass_access_controls": true,
+    "never_enable_paid_billing": true,
+    "official_source_required_for_activation": true,
+    "community_sources_are_leads_only": true
+  },
+  "providers": [
+    {
+      "id": "gemini",
+      "label": "Google Gemini Developer API",
+      "docs": "https://ai.google.dev/gemini-api/docs/pricing",
+      "api_key_env": "GEMINI_API_KEY",
+      "enabled": true
+    },
+    {
+      "id": "huggingface",
+      "label": "Hugging Face Inference Providers",
+      "docs": "https://huggingface.co/docs/inference-providers/pricing",
+      "api_key_env": "HF_TOKEN",
+      "enabled": false
+    }
+  ]
+}
