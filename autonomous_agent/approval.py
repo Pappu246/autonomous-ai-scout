@@ -8,6 +8,7 @@ from .action_queue import PendingAction, load_queue
 
 
 VALID_DECISIONS = {"approved", "rejected"}
+TERMINAL_STATUSES = {"approved", "rejected"}
 
 
 def set_decision(path: Path, action_id: str, decision: str) -> PendingAction:
@@ -18,6 +19,8 @@ def set_decision(path: Path, action_id: str, decision: str) -> PendingAction:
     queue = load_queue(path)
     for index, action in enumerate(queue):
         if action.id == action_id:
+            if action.status in TERMINAL_STATUSES:
+                raise ValueError(f"approval action is already {action.status}")
             updated = PendingAction(action.id, action.task, action.steps, action.risk, action.reason, decision)
             queue[index] = updated
             path.parent.mkdir(parents=True, exist_ok=True)
