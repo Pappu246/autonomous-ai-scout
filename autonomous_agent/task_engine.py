@@ -48,13 +48,13 @@ def plan_task(task: str) -> TaskPlan:
         return TaskPlan(raw, TaskIntent.TEST, ("inspect", "test"), "low", False, "Inspect the workspace and run the test suite.")
     if has("audit", "review project", "review repo", "review repository"):
         return TaskPlan(raw, TaskIntent.AUDIT, ("inspect", "scout"), "low", False, "Inspect the workspace and run the existing audit pipeline.")
-    if has("discover", "find ai", "find model", "find models", "new tools"):
+    if has("discover", "find ai", "find model", "find models", "new tools", "new ai", "free ai"):
         return TaskPlan(raw, TaskIntent.DISCOVER, ("scout",), "low", False, "Run the free-first discovery pipeline.")
     if has("inspect", "analyze", "analyse", "understand", "look at"):
         return TaskPlan(raw, TaskIntent.INSPECT, ("inspect",), "low", False, "Inspect repository structure and summarize actionable signals.")
     if has("fix", "bug", "debug", "repair"):
         return TaskPlan(raw, TaskIntent.FIX, ("inspect", "test"), "medium", True, "Inspect and test first; source changes require an approval-gated patch step.")
-    if has("improve", "implement", "add feature", "change code", "refactor", "build"):
+    if has("improve", "implement", "add feature", "add a feature", "change code", "refactor", "build"):
         return TaskPlan(raw, TaskIntent.IMPROVE, ("inspect", "test"), "medium", True, "Inspect and test first; implementation/deployment requires an approval-gated patch step.")
     return TaskPlan(raw, TaskIntent.UNKNOWN, ("inspect",), "low", False, "Inspect the workspace first because the request does not map to a known safe action.")
 
@@ -71,7 +71,10 @@ def _inspect(root: Path) -> str:
 
 
 def _test(root: Path) -> str:
-    timeout = int(os.getenv("TASK_TEST_TIMEOUT_SECONDS", "180"))
+    try:
+        timeout = max(1, int(os.getenv("TASK_TEST_TIMEOUT_SECONDS", "180")))
+    except ValueError:
+        timeout = 180
     completed = subprocess.run(
         ["python", "-m", "pytest", "-q"],
         cwd=root,
