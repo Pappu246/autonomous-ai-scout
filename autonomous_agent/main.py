@@ -10,6 +10,7 @@ from .discovery import candidates_from_registry, discover_official_changes
 from .github_audit import audit_owner
 from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
+from .project_intelligence import analyze_project
 from .reporting import render_markdown
 from .state import StateStore
 from .task_engine import execute_task
@@ -63,6 +64,8 @@ def run() -> ScoutReport:
     exclude = {os.getenv("GITHUB_REPOSITORY", ""), "Pappu246/autonomous-ai-scout"}
     raw_findings = audit_owner(owner, exclude=exclude)
     findings = [ProjectFinding(repository=x.get("repository", ""), severity=x.get("severity", "info"), title=x["title"], detail=x["detail"], recommendation=x["recommendation"]) for x in raw_findings]
+    findings.extend(analyze_project(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
+
     free_count = sum(1 for c in verified if c.access_status.value == "verified_free")
     opportunities = build_opportunities(owner, len({f.repository for f in findings}), sum(1 for f in findings if f.severity == "high"), free_count)
     report = ScoutReport(models=verified, project_findings=findings, opportunities=opportunities)
@@ -70,6 +73,7 @@ def run() -> ScoutReport:
     report.meaningful_change = fingerprint != previous.get("fingerprint", "")
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
+    report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     if task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
