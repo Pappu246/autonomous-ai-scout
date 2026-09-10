@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-10T11:53:43.834668+00:00
+Generated: 2026-09-10T15:17:39.499359+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -9,7 +9,7 @@ Meaningful change: YES
 - **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 - **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
-- **openrouter / openrouter/free** — benchmark: not run — [official source](https://openrouter.ai/pricing)
+- **openrouter / openrouter/free** — benchmark: not run; official source changed since last run — [official source](https://openrouter.ai/pricing)
 
 ## Project findings
 
@@ -31,7 +31,16 @@ Meaningful change: YES
 - Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.
 - Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.
 - Free benchmarks are capped at 2 calls per run; results are scored deterministically for routing and reporting.
+- Autonomous improvement engine generated 3 bounded proposals from actionable findings; all write/deploy steps remain approval-gated.
+- PR proposal engine generated 3 review-ready metadata proposals; no GitHub PR, branch, commit, merge, or deployment was created automatically.
+- Approval queue received 3 improvement proposals; duplicate pending actions are suppressed and execution remains approval-gated.
+- Improvement proposal: Pappu246/autonomous-ai-scout — Remove hard-coded secret risk [high risk]
+- Improvement proposal: Pappu246/SOLO-AI — Add an explicit open-source license [medium risk]
+- Improvement proposal: Pappu246/solo-ai-v2 — Add an explicit open-source license [medium risk]
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
+- Official release change: gemini — <link rel="apple-touch-icon" href="https://www.gstatic.com/devrel-devsite/prod/v5e941f15ff6710591bee254538202655020220785b40a3f4d932e94adb9f6037/googledevai/images/touchicon-180-new.png"><link rel="canonical" href="https://ai.google.dev/gem (https://ai.google.dev/gemini-api/docs/changelog)
+- Official release change: groq — <!DOCTYPE html><html lang="en" class="__variable_f367f3 __variable_dd5b2f"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/><link rel="preload" href="/_next/static/media/17e5 (https://console.groq.com/docs/changelog)
+- Official release change: openrouter — $RC=function(a,b){if(b=document.getElementById(b))(a=document.getElementById(a))?(a.previousSibling.data="$~",$RB.push(a,b),2===$RB.length&&("number"!==typeof $RT?requestAnimationFrame($RV.bind(null,$RB)):(a=performance.now(),setTimeout($RV (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.

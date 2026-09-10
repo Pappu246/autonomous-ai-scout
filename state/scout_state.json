@@ -1,19 +1,101 @@
 {
-  "fingerprint": "38f30ec7edf58a9bfaba787e3c60ff4a74f5d74007f40222e771a1d0750ebd12",
-  "last_run": "2026-09-10T11:53:43.834668+00:00",
+  "fingerprint": "31cfd28a544ad9ec60652a55dfabc0031cd5277cdab9b53ec733f369cb5d7dbe",
+  "improvement_proposals": [
+    {
+      "actions": [
+        "identify the secret source and affected files",
+        "move credentials to environment/secret storage",
+        "add a regression check for secret-pattern detection"
+      ],
+      "rationale": "A secret-like assignment was detected in tests/test_core.py.",
+      "repository": "Pappu246/autonomous-ai-scout",
+      "requires_approval": true,
+      "risk": "high",
+      "title": "Remove hard-coded secret risk"
+    },
+    {
+      "actions": [
+        "confirm the intended license",
+        "add the license file",
+        "verify repository metadata"
+      ],
+      "rationale": "GitHub does not detect a repository license.",
+      "repository": "Pappu246/SOLO-AI",
+      "requires_approval": true,
+      "risk": "medium",
+      "title": "Add an explicit open-source license"
+    },
+    {
+      "actions": [
+        "confirm the intended license",
+        "add the license file",
+        "verify repository metadata"
+      ],
+      "rationale": "GitHub does not detect a repository license.",
+      "repository": "Pappu246/solo-ai-v2",
+      "requires_approval": true,
+      "risk": "medium",
+      "title": "Add an explicit open-source license"
+    }
+  ],
+  "last_run": "2026-09-10T15:17:39.499359+00:00",
   "last_task": "",
   "meaningful_change": true,
   "opportunity_history_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/opportunity_history.json",
+  "pr_proposals": [
+    {
+      "body": "## Proposed improvement\n\nA secret-like assignment was detected in tests/test_core.py.\n\n### Planned steps\n- identify the secret source and affected files\n- move credentials to environment/secret storage\n- add a regression check for secret-pattern detection\n\n**Risk:** high\n**Approval required:** yes\n\nNo branch, commit, merge, or deployment is created automatically.",
+      "id": "5aec7ef1e187e08b",
+      "repository": "Pappu246/autonomous-ai-scout",
+      "requires_approval": true,
+      "status": "proposed",
+      "steps": [
+        "identify the secret source and affected files",
+        "move credentials to environment/secret storage",
+        "add a regression check for secret-pattern detection"
+      ],
+      "test_command": "python -m pytest -q",
+      "title": "Remove hard-coded secret risk"
+    },
+    {
+      "body": "## Proposed improvement\n\nGitHub does not detect a repository license.\n\n### Planned steps\n- confirm the intended license\n- add the license file\n- verify repository metadata\n\n**Risk:** medium\n**Approval required:** yes\n\nNo branch, commit, merge, or deployment is created automatically.",
+      "id": "7caa4c343bee62fd",
+      "repository": "Pappu246/SOLO-AI",
+      "requires_approval": true,
+      "status": "proposed",
+      "steps": [
+        "confirm the intended license",
+        "add the license file",
+        "verify repository metadata"
+      ],
+      "test_command": "python -m pytest -q",
+      "title": "Add an explicit open-source license"
+    },
+    {
+      "body": "## Proposed improvement\n\nGitHub does not detect a repository license.\n\n### Planned steps\n- confirm the intended license\n- add the license file\n- verify repository metadata\n\n**Risk:** medium\n**Approval required:** yes\n\nNo branch, commit, merge, or deployment is created automatically.",
+      "id": "350aa869c68fca90",
+      "repository": "Pappu246/solo-ai-v2",
+      "requires_approval": true,
+      "status": "proposed",
+      "steps": [
+        "confirm the intended license",
+        "add the license file",
+        "verify repository metadata"
+      ],
+      "test_command": "python -m pytest -q",
+      "title": "Add an explicit open-source license"
+    }
+  ],
   "release_hashes": {
-    "https://ai.google.dev/gemini-api/docs/changelog": "2e2c4fa2fc1f1957563b1500a6b2fcece3c8e7ca774cc25d5f1935222cfe18d2",
-    "https://console.groq.com/docs/changelog": "c18c7f5117e8ad286d48e899b7868897c8b702acc198303fd11f67e6f1275075",
-    "https://openrouter.ai/models?pricing=free": "ee5df36b8949e370ae92cf59f8d80d11122cc7e56aba0f5d74270544ac9ed38b"
+    "https://ai.google.dev/gemini-api/docs/changelog": "2c9c40537da2336a92af248cc1b88123eac9a342ee4e71991f91a4a7d7f48a16",
+    "https://console.groq.com/docs/changelog": "d64ea7c3e58a39067aa8c0437d55b5a8d60224f3e95afa74dbe186abca20b205",
+    "https://openrouter.ai/models?pricing=free": "683f5f5d09901a7cda701da64d66d1b6668b52008e36fd7fa4672772df1d0335"
   },
   "report_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/latest_report.md",
   "source_hashes": {
-    "https://ai.google.dev/gemini-api/docs/pricing": "726f59af0068a7380a29bc3409e040f3f334882fda91fde2bc69ad159017ac16",
-    "https://console.groq.com/docs/rate-limits": "98a995244a7c97ebf4fc4ebb961e6a2fbeca64c93dda5fe44fc6670bc5f516d5",
-    "https://openrouter.ai/pricing": "a700cb7853306a89a45b59246387f92ee3b84f7f41f238e0efbc8ebce9ce31f4"
+    "https://ai.google.dev/gemini-api/docs/pricing": "47a974ac3d20f9117c69425bb920aad73514c7b532b1616c8e6181317977d203",
+    "https://console.groq.com/docs/rate-limits": "1dcad313897aaf7d1b3c97a0009a07479acd316fb3abb8496219542bc0df8d48",
+    "https://openrouter.ai/pricing": "cdea86ea88ffff752c5d0e2d682567fee69ba23381dc7ac82ecae427d7b46ff6"
   },
   "verified_free_models": [
     "gemini/gemini-3.7-flash",
