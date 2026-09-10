@@ -26,7 +26,6 @@ from .reporting import render_markdown
 from .router import choose_model
 from .state import StateStore
 from .startup_reconciliation import reconcile_startup
-from .queue_lifecycle_sync import reconcile_queue_lifecycle, has_blocking_drift
 from .task_engine import execute_task
 from .verify import verify_candidate
 from .emailer import send_report
@@ -80,13 +79,10 @@ def run() -> ScoutReport:
     previous = store.load()
 
     reconciliation = reconcile_startup(ACTION_QUEUE_PATH, LIFECYCLE_PATH)
-    sync_decisions = reconcile_queue_lifecycle(ACTION_QUEUE_PATH, LIFECYCLE_PATH)
     startup_blocks = sum(1 for item in reconciliation if item.decision == "blocked")
-    sync_blocks = has_blocking_drift(sync_decisions)
-    safety_blocks = startup_blocks > 0 or sync_blocks
 
     task_request = os.getenv("TASK_REQUEST", "").strip()
-    task_result = execute_task(task_request, ROOT) if task_request and not safety_blocks else None
+    task_result = execute_task(task_request, ROOT) if task_request and startup_blocks == 0 else None
 
     previous_sources = previous.get("source_hashes", {})
     candidates = candidates_from_registry(registry.get("providers", []))
@@ -110,9 +106,9 @@ def run() -> ScoutReport:
                 verified[i] = candidate.model_copy(update={"benchmark_latency_ms": b.latency_ms, "benchmark_ok": b.success, "benchmark_score": evaluation.score})
 
     route_decision = choose_model(verified, task_request) if task_request else None
-    llm_plan = plan_with_free_llm(task_request, verified) if task_request and not safety_blocks else None
+    llm_plan = plan_with_free_llm(task_request, verified) if task_request and startup_blocks == 0 else None
     action_proposal = None
-    if task_request and not safety_blocks:
+    if task_request and startup_blocks == 0:
         if llm_plan:
             action_proposal = build_action_proposal(task_request, llm_plan.steps, llm_plan.requires_approval)
         else:
@@ -152,11 +148,8 @@ def run() -> ScoutReport:
     report.notes.append(f"PR proposal engine generated {len(pr_proposals)} review-ready metadata proposals; no GitHub PR, branch, commit, merge, or deployment was created automatically.")
     report.notes.append(f"Approval queue received {queued_improvements} improvement proposals; duplicate pending actions are suppressed and execution remains approval-gated.")
     report.notes.append(f"Startup reconciliation inspected {len(reconciliation)} persisted lifecycle records and blocked {startup_blocks} interrupted or invalid actions before task execution.")
-    report.notes.append(f"Queue/lifecycle synchronization inspected {len(sync_decisions)} queued actions and detected {sum(1 for item in sync_decisions if item.decision in {'blocked', 'drift'})} blocking drift conditions.")
     for item in reconciliation[:10]:
         report.notes.append(f"Startup reconciliation: {item.action_id} — {item.decision} ({item.reason})")
-    for item in sync_decisions[:10]:
-        report.notes.append(f"Queue/lifecycle sync: {item.action_id} — {item.decision} ({item.reason})")
     for proposal in improvement_proposals[:5]:
         report.notes.append(f"Improvement proposal: {proposal.repository} — {proposal.title} [{proposal.risk} risk]")
     if route_decision:
@@ -171,8 +164,8 @@ def run() -> ScoutReport:
         if finding.changed:
             report.notes.append(f"Official release change: {finding.provider} — {finding.headline} ({finding.source_url})")
     report.notes.extend(trend_notes(history))
-    if task_request and safety_blocks:
-        report.notes.append("Task execution was withheld because startup/lifecycle synchronization detected blocked or inconsistent persisted state.")
+    if task_request and startup_blocks > 0:
+        report.notes.append("Task execution was withheld because startup reconciliation found blocked/interrupted lifecycle state.")
     elif task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
@@ -181,7 +174,7 @@ def run() -> ScoutReport:
     if llm_plan:
         report.notes.append(f"LLM plan selected {llm_plan.provider}/{llm_plan.model}: {llm_plan.summary}")
         report.notes.append("LLM-proposed steps: " + " | ".join(llm_plan.steps))
-    elif task_request and not safety_blocks:
+    elif task_request and startup_blocks == 0:
         report.notes.append("No optional free LLM plan was produced; deterministic bounded task planning remains the fallback and no paid model is used.")
     if action_proposal:
         report.notes.append(f"Action boundary: status={action_proposal.status.value}; approval_required={action_proposal.requires_approval}; reason={action_proposal.reason}")
