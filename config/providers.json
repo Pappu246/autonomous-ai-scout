@@ -27,6 +27,15 @@
       "models": ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     },
     {
+      "id": "openrouter",
+      "label": "OpenRouter Free Models",
+      "docs": "https://openrouter.ai/pricing",
+      "release_sources": ["https://openrouter.ai/models?pricing=free"],
+      "api_key_env": "OPENROUTER_API_KEY",
+      "enabled": true,
+      "models": ["openrouter/free"]
+    },
+    {
       "id": "huggingface",
       "label": "Hugging Face Inference Providers",
       "docs": "https://huggingface.co/docs/inference-providers/pricing",
