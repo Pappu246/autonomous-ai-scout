@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.models import AccessStatus, ModelCandidate
 from autonomous_agent.opportunities import score_opportunity
 from autonomous_agent.project_intelligence import analyze_project
@@ -62,3 +63,15 @@ def test_project_intelligence_detects_possible_secret(tmp_path: Path):
     (tmp_path / "app.py").write_text("api_key = '12345678901234567890'", encoding="utf-8")
     findings = analyze_project(tmp_path, "demo")
     assert any(f.title == "Possible hard-coded secret" and f.severity == "high" for f in findings)
+
+
+def test_dependency_security_detects_unpinned_python_dependency(tmp_path: Path):
+    (tmp_path / "requirements.txt").write_text("httpx\npydantic==2.0.0\n", encoding="utf-8")
+    findings = analyze_dependencies(tmp_path, "demo")
+    assert any(f.title == "Python dependencies are not fully version-constrained" for f in findings)
+
+
+def test_dependency_security_detects_node_install_hook(tmp_path: Path):
+    (tmp_path / "package.json").write_text('{"scripts":{"postinstall":"node setup.js"},"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
+    findings = analyze_dependencies(tmp_path, "demo")
+    assert any(f.title == "Node install lifecycle scripts present" and f.severity == "medium" for f in findings)
