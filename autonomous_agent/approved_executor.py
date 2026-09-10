@@ -176,12 +176,8 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
         trusted, reason = require_state(lifecycle_path, action.id, LifecycleState.APPROVED)
         if not trusted:
             return ExecutionDecision(False, reason)
-
-    claimed = claim_approval(approval, claim_store)
-    if not claimed.allowed:
-        return claimed
-
-    if lifecycle_enabled:
+        # Persist state before consuming the claim. A crash after this point is
+        # recoverable as CLAIMED and will never replay the action automatically.
         persisted, transition_reason = record_transition(
             lifecycle_path,
             action.id,
@@ -190,6 +186,12 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
         )
         if not persisted:
             return ExecutionDecision(False, transition_reason)
+
+    claimed = claim_approval(approval, claim_store)
+    if not claimed.allowed:
+        if lifecycle_enabled:
+            record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
+        return claimed
 
     records: list[ExecutionRecord] = []
     approval_id = approval_claim_id(approval)
