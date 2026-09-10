@@ -121,9 +121,10 @@ def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, A
                 "recommendation": "Exclude it from active improvement work unless explicitly reactivated.",
             })
 
-    for repo in inventory_repositories(owner):
-        name = repo.get("full_name", "")
-        if name in exclude:
+    # Use the authoritative project registry for deep audits. This means authorized
+    # private repositories discovered through /user/repos are not silently skipped.
+    for name, profile in sorted(projects.items()):
+        if name in exclude or profile.get("fork") or profile.get("archived"):
             continue
         for finding in audit_repository(name):
             finding["repository"] = name
