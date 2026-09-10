@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from autonomous_agent.benchmark import benchmark_groq
+from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
+from autonomous_agent.evaluation import rank_benchmarks, score_benchmark
 from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity
 from autonomous_agent.opportunities import score_opportunity
 from autonomous_agent.opportunity_history import trend_notes, update_history
@@ -73,6 +74,31 @@ def test_router_returns_safe_empty_decision_without_free_candidates():
     decision = choose_model([candidate], "anything")
     assert decision.model is None
     assert decision.score == 0.0
+
+
+def test_benchmark_evaluation_scores_success_and_latency():
+    result = BenchmarkResult("groq", "openai/gpt-oss-20b", True, True, 500, "ok")
+    score = score_benchmark(result)
+    assert score.score == 100.0
+    assert "benchmark passed" in score.strengths
+    assert "low latency" in score.strengths
+
+
+def test_benchmark_evaluation_penalizes_rate_limit_without_retry():
+    result = BenchmarkResult("groq", "openai/gpt-oss-20b", True, False, 6000, "Rate limited; no paid retry attempted.")
+    score = score_benchmark(result)
+    assert score.score < 50.0
+    assert "rate limited" in score.weaknesses
+    assert "high latency" in score.weaknesses
+
+
+def test_benchmark_ranking_is_deterministic():
+    results = [
+        BenchmarkResult("b", "model-b", True, True, 1200, "ok"),
+        BenchmarkResult("a", "model-a", True, True, 500, "ok"),
+    ]
+    ranked = rank_benchmarks(results)
+    assert ranked[0].model == "model-a"
 
 
 def test_project_intelligence_detects_missing_lockfile(tmp_path: Path):
