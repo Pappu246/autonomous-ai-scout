@@ -4,8 +4,6 @@ import hashlib
 import json
 from typing import Any
 
-from .github_audit import gh_get
-
 PROFILE_FILES = (
     "README.md",
     "LICENSE",
@@ -28,6 +26,8 @@ PROFILE_FILES = (
 
 
 def _root_entries(full_name: str) -> set[str]:
+    from .github_audit import gh_get
+
     data = gh_get(f"/repos/{full_name}/contents/")
     if not isinstance(data, list):
         return set()
@@ -35,6 +35,8 @@ def _root_entries(full_name: str) -> set[str]:
 
 
 def _languages(full_name: str) -> dict[str, int]:
+    from .github_audit import gh_get
+
     data = gh_get(f"/repos/{full_name}/languages")
     if not isinstance(data, dict):
         return {}
