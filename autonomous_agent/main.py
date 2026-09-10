@@ -16,6 +16,7 @@ from .opportunities import build_opportunities
 from .opportunity_history import trend_notes, update_history
 from .patch_proposals import build_patch_proposal, save_proposal
 from .project_intelligence import analyze_project
+from .release_discovery import discover_releases
 from .reporting import render_markdown
 from .state import StateStore
 from .task_engine import execute_task
@@ -57,6 +58,8 @@ def run() -> ScoutReport:
     candidates = discover_official_changes(candidates, previous_sources)
     verified = [verify_candidate(c) for c in candidates]
 
+    release_findings = discover_releases(registry.get("providers", []), previous.get("release_hashes", {}))
+
     if os.getenv("ENABLE_FREE_BENCHMARKS", "false").lower() == "true":
         benchmarks = []
         for candidate in verified:
@@ -92,11 +95,15 @@ def run() -> ScoutReport:
     history = update_history(OPPORTUNITY_HISTORY_PATH, opportunities)
     report = ScoutReport(models=verified, project_findings=findings, opportunities=opportunities)
     fingerprint = _fingerprint(report)
-    report.meaningful_change = fingerprint != previous.get("fingerprint", "")
+    report.meaningful_change = fingerprint != previous.get("fingerprint", "") or any(f.changed for f in release_findings)
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
+    report.notes.append("Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.")
+    for finding in release_findings:
+        if finding.changed:
+            report.notes.append(f"Official release change: {finding.provider} — {finding.headline} ({finding.source_url})")
     report.notes.extend(trend_notes(history))
     if task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
@@ -128,11 +135,13 @@ def main() -> int:
     REPORT_PATH.write_text(rendered, encoding="utf-8")
     previous = StateStore(STATE_PATH).load()
     hashes = {str(m.source_url): m.source_hash for m in report.models if m.source_hash}
+    release_hashes = {f.source_url: f.digest for f in discover_releases(load_registry().get("providers", []), previous.get("release_hashes", {}))}
     StateStore(STATE_PATH).save({
         "last_run": report.generated_at.isoformat(),
         "meaningful_change": report.meaningful_change,
         "fingerprint": _fingerprint(report),
         "source_hashes": {**previous.get("source_hashes", {}), **hashes},
+        "release_hashes": {**previous.get("release_hashes", {}), **release_hashes},
         "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"],
         "report_path": str(REPORT_PATH),
         "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH),

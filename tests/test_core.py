@@ -8,6 +8,7 @@ from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity
 from autonomous_agent.opportunities import score_opportunity
 from autonomous_agent.opportunity_history import trend_notes, update_history
 from autonomous_agent.project_intelligence import analyze_project
+from autonomous_agent.release_discovery import discover_releases
 from autonomous_agent.router import choose_model
 from autonomous_agent.sources import SourceCheck, source_has_free_signal
 from autonomous_agent.task_engine import TaskIntent, plan_task
@@ -104,3 +105,31 @@ def test_groq_benchmark_skips_without_key(monkeypatch):
     assert not result.attempted
     assert not result.success
     assert result.latency_ms is None
+
+
+def test_official_release_discovery_only_uses_enabled_config(monkeypatch):
+    def fake_fetch(url: str):
+        return SourceCheck(url, True, text="# Release notes\n\n## September 10, 2026\nReleased model x")
+
+    monkeypatch.setattr("autonomous_agent.release_discovery.fetch_source", fake_fetch)
+    items = [
+        {"id": "gemini", "enabled": True, "release_sources": ["https://official.example/changelog"]},
+        {"id": "disabled", "enabled": False, "release_sources": ["https://ignored.example/changelog"]},
+    ]
+    findings = discover_releases(items, {})
+    assert len(findings) == 1
+    assert findings[0].provider == "gemini"
+    assert not findings[0].changed
+    assert "Release notes" in findings[0].headline
+
+
+def test_official_release_discovery_detects_hash_change(monkeypatch):
+    monkeypatch.setattr(
+        "autonomous_agent.release_discovery.fetch_source",
+        lambda url: SourceCheck(url, True, text="## Release\nnew model"),
+    )
+    findings = discover_releases(
+        [{"id": "groq", "enabled": True, "release_sources": ["https://official.example/changelog"]}],
+        {"https://official.example/changelog": "old-hash"},
+    )
+    assert findings[0].changed
