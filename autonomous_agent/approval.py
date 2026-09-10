@@ -5,13 +5,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .action_queue import PendingAction, load_queue
+from .approval_audit import append_decision
 
 
 VALID_DECISIONS = {"approved", "rejected"}
 TERMINAL_STATUSES = {"approved", "rejected"}
 
 
-def set_decision(path: Path, action_id: str, decision: str) -> PendingAction:
+def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | None = None) -> PendingAction:
     """Record an explicit approval decision; this never executes the action."""
     decision = decision.strip().lower()
     if decision not in VALID_DECISIONS:
@@ -25,6 +26,8 @@ def set_decision(path: Path, action_id: str, decision: str) -> PendingAction:
             queue[index] = updated
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
+            if audit_path is not None:
+                append_decision(audit_path, action_id, decision)
             return updated
     raise KeyError(f"approval action not found: {action_id}")
 
