@@ -25,9 +25,14 @@ PROFILE_FILES = (
 )
 
 
-def _root_entries(full_name: str) -> set[str]:
-    from .github_audit import gh_get
+def gh_get(path: str, params: dict[str, Any] | None = None) -> Any:
+    """Lazily delegate to the shared GitHub reader to avoid import cycles."""
+    from .github_audit import gh_get as shared_gh_get
 
+    return shared_gh_get(path, params)
+
+
+def _root_entries(full_name: str) -> set[str]:
     data = gh_get(f"/repos/{full_name}/contents/")
     if not isinstance(data, list):
         return set()
@@ -35,8 +40,6 @@ def _root_entries(full_name: str) -> set[str]:
 
 
 def _languages(full_name: str) -> dict[str, int]:
-    from .github_audit import gh_get
-
     data = gh_get(f"/repos/{full_name}/languages")
     if not isinstance(data, dict):
         return {}
