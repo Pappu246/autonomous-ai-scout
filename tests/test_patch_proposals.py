@@ -1,3 +1,5 @@
+import pytest
+
 from autonomous_agent.patch_proposals import build_patch_proposal
 
 
@@ -13,3 +15,13 @@ def test_same_request_gets_stable_id():
     first = build_patch_proposal("improve tests", ("inspect", "test"))
     second = build_patch_proposal("improve tests", ("inspect", "test"))
     assert first.id == second.id
+
+
+def test_sensitive_step_is_rejected():
+    with pytest.raises(ValueError):
+        build_patch_proposal("improve project", ("deploy the change",))
+
+
+def test_blank_steps_are_removed():
+    proposal = build_patch_proposal("inspect project", ("", "inspect files", "  "))
+    assert proposal.steps == ("inspect files",)
