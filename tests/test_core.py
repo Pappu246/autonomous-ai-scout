@@ -55,6 +55,25 @@ def test_router_never_selects_paid_or_unknown_candidates():
     assert decision.score > 0
 
 
+def test_router_prefers_reasoning_fit_when_quality_is_available():
+    base = dict(source_url="https://example.com", access_status=AccessStatus.VERIFIED_FREE, benchmark_ok=True, benchmark_latency_ms=1500)
+    candidates = [
+        ModelCandidate(provider="a", model="generic-model", **base),
+        ModelCandidate(provider="b", model="gpt-oss-20b", **base),
+    ]
+    decision = choose_model(candidates, "analyze this research and reason about the result")
+    assert decision.model is not None
+    assert decision.model.model == "gpt-oss-20b"
+    assert any("reasoning" in reason for reason in decision.reasons)
+
+
+def test_router_returns_safe_empty_decision_without_free_candidates():
+    candidate = ModelCandidate(provider="paid", model="best", source_url="https://example.com", access_status=AccessStatus.PAID_ONLY)
+    decision = choose_model([candidate], "anything")
+    assert decision.model is None
+    assert decision.score == 0.0
+
+
 def test_project_intelligence_detects_missing_lockfile(tmp_path: Path):
     (tmp_path / "package.json").write_text('{"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
     (tmp_path / "app.js").write_text("console.log('ok')", encoding="utf-8")
