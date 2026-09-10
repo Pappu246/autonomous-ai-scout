@@ -37,12 +37,23 @@ def test_discover_repositories_paginates_and_keeps_archived_and_forks(monkeypatc
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     repos = discover_repositories("Pappu246")
 
+    assert repos is not None
     assert len(repos) == 101
     assert any(item["fork"] for item in repos)
     assert any(item["archived"] for item in repos)
     assert calls[0][0] == "/users/Pappu246/repos"
     assert calls[0][1]["page"] == 1
     assert calls[1][1]["page"] == 2
+
+
+def test_discovery_failure_is_distinguished_from_empty_account(monkeypatch):
+    monkeypatch.setattr("autonomous_agent.project_registry.gh_get", lambda path, params=None: None)
+    assert discover_repositories("Pappu246") is None
+
+    previous = {"Pappu246/existing": {"full_name": "Pappu246/existing", "fingerprint": "old"}}
+    projects, changes = build_project_registry("Pappu246", previous)
+    assert projects == previous
+    assert changes == {"new": [], "changed": [], "removed": []}
 
 
 def test_authenticated_discovery_uses_owner_affiliation(monkeypatch):
@@ -56,6 +67,7 @@ def test_authenticated_discovery_uses_owner_affiliation(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "present-but-never-logged")
     repos = discover_repositories("Pappu246")
 
+    assert repos is not None
     assert repos[0]["full_name"] == "Pappu246/private-project"
     assert calls[0][0] == "/user/repos"
     assert calls[0][1]["affiliation"] == "owner"
