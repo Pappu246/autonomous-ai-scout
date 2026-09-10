@@ -308,9 +308,12 @@ def _approved_action(steps=("inspect repository",)):
 
 def _approval(action=None, action_id="action-123", expired=False):
     now = datetime.now(timezone.utc)
-    expires = now - timedelta(minutes=1) if expired else now + timedelta(hours=1)
     if action is not None:
-        return ApprovalRecord.for_action(action, "user-approved-token", approved_at=now, ttl=timedelta(minutes=-1) if expired else timedelta(hours=1))
+        if expired:
+            approved_at = now - timedelta(minutes=2)
+            return ApprovalRecord.for_action(action, "user-approved-token", approved_at=approved_at, ttl=timedelta(minutes=1))
+        return ApprovalRecord.for_action(action, "user-approved-token", approved_at=now, ttl=timedelta(hours=1))
+    expires = now - timedelta(minutes=1) if expired else now + timedelta(hours=1)
     return ApprovalRecord(action_id, now.isoformat(), expires.isoformat(), "user-approved-token")
 
 
