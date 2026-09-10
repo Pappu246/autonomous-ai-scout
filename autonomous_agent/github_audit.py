@@ -7,12 +7,15 @@ from typing import Any
 
 import httpx
 
+from .project_profile import build_project_profile
 from .project_registry import build_project_registry
 
 
 API = "https://api.github.com"
 TIMEOUT = httpx.Timeout(15.0, connect=8.0)
 PROJECT_REGISTRY_PATH = Path(os.getenv("SCOUT_PROJECT_REGISTRY_PATH", "state/project_registry.json"))
+PROJECT_PROFILES_PATH = Path(os.getenv("SCOUT_PROJECT_PROFILES_PATH", "state/project_profiles.json"))
+DEFAULT_MAX_PROJECT_PROFILES = 50
 
 
 def _headers() -> dict[str, str]:
@@ -58,34 +61,42 @@ def audit_repository(full_name: str) -> list[dict[str, Any]]:
             findings.append({"severity": "low", "title": "Default branch is not protected", "detail": f"{repo['default_branch']} is not reported as protected.", "recommendation": "Consider branch protection and required CI checks before production work."})
     issues = gh_get(f"/repos/{full_name}/issues", {"state": "open", "per_page": 10, "sort": "updated"}) or []
     if isinstance(issues, list):
-        bug_count = sum(1 for i in issues if "bug" in " ".join(i.get("labels", []) and [x.get("name", "") for x in i.get("labels", [])]).lower())
+        bug_count = sum(1 for i in issues if "bug" in " ".join([x.get("name", "") for x in i.get("labels", [])]).lower())
         if bug_count:
             findings.append({"severity": "high", "title": "Open bug issues detected", "detail": f"At least {bug_count} recent open issue(s) are labelled as bugs.", "recommendation": "Review the highest-impact bug first and add regression tests before changes."})
     return findings
 
 
-def _load_project_registry() -> dict[str, dict[str, Any]]:
+def _load_state(path: Path) -> dict[str, dict[str, Any]]:
     try:
-        data = json.loads(PROJECT_REGISTRY_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def _save_project_registry(projects: dict[str, dict[str, Any]]) -> None:
-    PROJECT_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = PROJECT_REGISTRY_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(projects, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(PROJECT_REGISTRY_PATH)
+def _save_state(path: Path, data: dict[str, dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _max_project_profiles() -> int:
+    raw = os.getenv("SCOUT_MAX_PROJECT_PROFILES", str(DEFAULT_MAX_PROJECT_PROFILES)).strip()
+    try:
+        return max(1, min(int(raw), 500))
+    except ValueError:
+        return DEFAULT_MAX_PROJECT_PROFILES
 
 
 def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, Any]]:
     exclude = exclude or set()
     results: list[dict[str, Any]] = []
 
-    previous_registry = _load_project_registry()
+    previous_registry = _load_state(PROJECT_REGISTRY_PATH)
     projects, changes = build_project_registry(owner, previous_registry)
-    _save_project_registry(projects)
+    _save_state(PROJECT_REGISTRY_PATH, projects)
 
     for name in changes["new"]:
         results.append({
@@ -120,6 +131,34 @@ def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, A
                 "detail": "GitHub marks this repository as archived.",
                 "recommendation": "Exclude it from active improvement work unless explicitly reactivated.",
             })
+
+    previous_profiles = _load_state(PROJECT_PROFILES_PATH)
+    profiles = dict(previous_profiles)
+    candidates = sorted(set(changes["new"]) | set(changes["changed"]) | {name for name in projects if name not in previous_profiles})
+    for name in candidates[: _max_project_profiles()]:
+        metadata = projects.get(name, {})
+        if metadata.get("fork") or metadata.get("archived") or name in exclude:
+            continue
+        profile = build_project_profile(name, metadata)
+        old = previous_profiles.get(name)
+        profiles[name] = profile
+        if old is None:
+            results.append({
+                "repository": name,
+                "severity": "info",
+                "title": "Project technical profile created",
+                "detail": f"Detected ecosystems: {', '.join(profile['ecosystems']) or 'unknown'}; languages: {', '.join(profile['languages']) or 'unknown'}.",
+                "recommendation": "Use the profile to target deeper checks and safe improvement proposals.",
+            })
+        elif old.get("fingerprint") != profile.get("fingerprint"):
+            results.append({
+                "repository": name,
+                "severity": "info",
+                "title": "Project technical profile changed",
+                "detail": "Root manifests, language composition, lockfile signals, or repository flags changed.",
+                "recommendation": "Re-evaluate project-specific health and security checks before proposing improvements.",
+            })
+    _save_state(PROJECT_PROFILES_PATH, profiles)
 
     # Use the authoritative project registry for deep audits. This means authorized
     # private repositories discovered through /user/repos are not silently skipped.
