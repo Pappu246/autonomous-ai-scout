@@ -7,10 +7,11 @@ from autonomous_agent.action_queue import PendingAction, build_action_proposal, 
 from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.evaluation import rank_benchmarks, score_benchmark
-from autonomous_agent.improvement_engine import build_improvement_proposals
+from autonomous_agent.improvement_engine import ImprovementProposal, build_improvement_proposals
 from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity, ProjectFinding
 from autonomous_agent.opportunities import score_opportunity
 from autonomous_agent.opportunity_history import trend_notes, update_history
+from autonomous_agent.pr_proposals import build_pr_proposal, save_pr_proposals
 from autonomous_agent.project_intelligence import analyze_project
 from autonomous_agent.release_discovery import discover_releases
 from autonomous_agent.router import choose_model
@@ -158,6 +159,50 @@ def test_improvement_engine_deduplicates_and_caps_output():
     finding = ProjectFinding(repository="demo", severity="medium", title="Node project has no lockfile", detail="missing", recommendation="add one")
     proposals = build_improvement_proposals([finding, finding], limit=20)
     assert len(proposals) == 1
+
+
+def test_pr_proposal_is_deterministic_and_approval_gated():
+    improvement = ImprovementProposal(
+        repository="demo",
+        title="Add dependency lockfile",
+        rationale="Dependencies are not reproducible.",
+        actions=("Create the lockfile", "Run the test suite"),
+        risk="medium",
+        requires_approval=True,
+    )
+    first = build_pr_proposal(improvement)
+    second = build_pr_proposal(improvement)
+    assert first.id == second.id
+    assert first.requires_approval is True
+    assert first.status == "proposed"
+    assert "No branch, commit, merge, or deployment" in first.body
+
+
+def test_pr_proposal_rejects_non_gated_proposal():
+    improvement = ImprovementProposal(
+        repository="demo",
+        title="Safe metadata change",
+        rationale="test",
+        actions=("update metadata",),
+        risk="low",
+        requires_approval=False,
+    )
+    try:
+        build_pr_proposal(improvement)
+    except ValueError as exc:
+        assert "approval-gated" in str(exc)
+    else:
+        raise AssertionError("non-gated PR proposal was accepted")
+
+
+def test_pr_proposal_persistence_is_bounded(tmp_path: Path):
+    improvement = ImprovementProposal("demo", "Fix", "reason", ("edit",), "low", True)
+    proposals = [build_pr_proposal(improvement) for _ in range(30)]
+    path = tmp_path / "pr_proposals.json"
+    save_pr_proposals(path, proposals, limit=50)
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert len(stored) <= 20
+    assert stored[0]["requires_approval"] is True
 
 
 def test_approval_queue_deduplicates_identical_pending_actions(tmp_path: Path):
