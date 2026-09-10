@@ -21,14 +21,17 @@ def _score(candidate: ModelCandidate, task: str) -> tuple[float, list[str]]:
     score = 50.0
     reasons = ["verified free"]
 
-    if candidate.benchmark_ok is True:
+    if candidate.benchmark_score is not None:
+        score = candidate.benchmark_score
+        reasons.append("deterministic benchmark score")
+    elif candidate.benchmark_ok is True:
         score += 20
         reasons.append("benchmark passed")
     elif candidate.benchmark_ok is False:
         score -= 25
         reasons.append("benchmark failed")
 
-    if candidate.benchmark_latency_ms is not None:
+    if candidate.benchmark_latency_ms is not None and candidate.benchmark_score is None:
         if candidate.benchmark_latency_ms < 1000:
             score += 15
             reasons.append("low measured latency")
