@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .action_queue import PendingAction
 from .approval_audit import load_audit_log, verify_audit_chain
+from .capability_policy import Capability, check_capability
 from .sandbox import ExecutionRecord, run_safe_operation, to_execution_record
 
 
@@ -29,22 +30,10 @@ class ApprovalRecord:
     action_digest: str = ""
 
     @classmethod
-    def for_action(
-        cls,
-        action: PendingAction,
-        approval_token: str,
-        approved_at: datetime | None = None,
-        ttl: timedelta = APPROVAL_TTL,
-    ) -> "ApprovalRecord":
+    def for_action(cls, action: PendingAction, approval_token: str, approved_at: datetime | None = None, ttl: timedelta = APPROVAL_TTL) -> "ApprovalRecord":
         approved = approved_at or datetime.now(timezone.utc)
         expires = approved + ttl
-        return cls(
-            action_id=action.id,
-            approved_at=approved.isoformat(),
-            expires_at=expires.isoformat(),
-            approval_token=approval_token,
-            action_digest=action_fingerprint(action),
-        )
+        return cls(action.id, approved.isoformat(), expires.isoformat(), approval_token, action_fingerprint(action))
 
 
 @dataclass(frozen=True)
@@ -55,23 +44,11 @@ class ExecutionDecision:
 
 
 def action_fingerprint(action: PendingAction) -> str:
-    """Stable digest of the complete action identity and requested work."""
-    payload = json.dumps(
-        {
-            "id": action.id,
-            "task": action.task,
-            "steps": list(action.steps),
-            "risk": action.risk,
-            "reason": action.reason,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    payload = json.dumps({"id": action.id, "task": action.task, "steps": list(action.steps), "risk": action.risk, "reason": action.reason}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def approval_claim_id(approval: ApprovalRecord) -> str:
-    """Return a non-sensitive, stable identifier used to consume an approval once."""
     token = approval.approval_token.strip()
     if not token:
         raise ValueError("approval token is missing")
@@ -79,17 +56,13 @@ def approval_claim_id(approval: ApprovalRecord) -> str:
 
 
 def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
-    """Atomically consume an approval token; a claimed token can never be replayed."""
     if not approval.approval_token.strip():
         return ExecutionDecision(False, "approval token is missing")
     try:
         store.mkdir(parents=True, exist_ok=True)
         marker = store / f"{approval_claim_id(approval)}.claimed"
         with marker.open("x", encoding="utf-8") as handle:
-            handle.write(json.dumps({
-                "action_id": approval.action_id,
-                "claimed_at": datetime.now(timezone.utc).isoformat(),
-            }, sort_keys=True) + "\n")
+            handle.write(json.dumps({"action_id": approval.action_id, "claimed_at": datetime.now(timezone.utc).isoformat()}, sort_keys=True) + "\n")
     except FileExistsError:
         return ExecutionDecision(False, "approval has already been consumed")
     except OSError as exc:
@@ -98,8 +71,7 @@ def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
 
 
 def _blocked(text: str) -> bool:
-    lowered = text.lower()
-    return any(term in lowered for term in _BLOCKED_TERMS)
+    return any(term in text.lower() for term in _BLOCKED_TERMS)
 
 
 def _safe_step(step: str) -> bool:
@@ -113,8 +85,7 @@ def _step_operation(step: str) -> tuple[str, str | None] | None:
     text = step.strip()
     lowered = text.lower()
     if lowered.startswith("read file:"):
-        target = text.split(":", 1)[1].strip()
-        return ("read_file", target or None)
+        return ("read_file", text.split(":", 1)[1].strip() or None)
     if "inspect" in lowered:
         return ("inspect", None)
     if "test" in lowered or "pytest" in lowered:
@@ -136,13 +107,7 @@ def _parse_timestamp(value: str) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def validate_approval(
-    action: PendingAction,
-    approval: ApprovalRecord,
-    now: datetime | None = None,
-    audit_path: Path | None = None,
-) -> ExecutionDecision:
-    """Require exact identity, immutable action binding, valid timestamps and optional verified audit."""
+def validate_approval(action: PendingAction, approval: ApprovalRecord, now: datetime | None = None, audit_path: Path | None = None) -> ExecutionDecision:
     if action.status != "approved":
         return ExecutionDecision(False, "action is not explicitly approved")
     if approval.action_id != action.id:
@@ -163,22 +128,13 @@ def validate_approval(
     if audit_path is not None:
         if not verify_audit_chain(audit_path):
             return ExecutionDecision(False, "approval audit chain is invalid")
-        approvals = [
-            entry for entry in load_audit_log(audit_path)
-            if entry["action_id"] == action.id
-        ]
+        approvals = [entry for entry in load_audit_log(audit_path) if entry["action_id"] == action.id]
         if not approvals or approvals[-1]["decision"] != "approved":
             return ExecutionDecision(False, "approval is not backed by the latest audit decision")
     return ExecutionDecision(True, "explicit approval is valid")
 
 
-def authorize_execution(
-    action: PendingAction,
-    approval: ApprovalRecord,
-    now: datetime | None = None,
-    audit_path: Path | None = None,
-) -> ExecutionDecision:
-    """Validate approval and independently re-check every requested step at execution time."""
+def authorize_execution(action: PendingAction, approval: ApprovalRecord, now: datetime | None = None, audit_path: Path | None = None) -> ExecutionDecision:
     decision = validate_approval(action, approval, now, audit_path)
     if not decision.allowed:
         return decision
@@ -190,18 +146,21 @@ def authorize_execution(
         return ExecutionDecision(False, "one or more steps are outside the safe execution allowlist")
     if any(_step_operation(step) is None for step in action.steps):
         return ExecutionDecision(False, "one or more steps cannot be mapped to a fixed sandbox operation")
-    return ExecutionDecision(True, "approved action is limited to safe local sandbox operations")
+    granted = [Capability.INSPECT, Capability.TEST, Capability.LINT, Capability.METRICS, Capability.READ_FILE, Capability.BENCHMARK]
+    for step in action.steps:
+        operation = _step_operation(step)
+        assert operation is not None
+        try:
+            capability = Capability(operation[0])
+        except ValueError:
+            return ExecutionDecision(False, "sandbox operation has no registered capability")
+        decision = check_capability(capability, granted)
+        if not decision.allowed:
+            return ExecutionDecision(False, decision.reason)
+    return ExecutionDecision(True, "approved action is limited to explicitly granted safe capabilities")
 
 
-def execute_approved_action(
-    action: PendingAction,
-    approval: ApprovalRecord,
-    root: Path,
-    now: datetime | None = None,
-    audit_path: Path | None = None,
-    claim_store: Path | None = None,
-) -> ExecutionDecision:
-    """Consume the approved token once, then execute only fixed sandbox operations."""
+def execute_approved_action(action: PendingAction, approval: ApprovalRecord, root: Path, now: datetime | None = None, audit_path: Path | None = None, claim_store: Path | None = None) -> ExecutionDecision:
     decision = authorize_execution(action, approval, now, audit_path)
     if not decision.allowed:
         return decision
@@ -209,11 +168,9 @@ def execute_approved_action(
         return ExecutionDecision(False, "execution root is not a valid project directory")
     if claim_store is None:
         return ExecutionDecision(False, "approval consumption store is required")
-
     claimed = claim_approval(approval, claim_store)
     if not claimed.allowed:
         return claimed
-
     records: list[ExecutionRecord] = []
     approval_id = approval_claim_id(approval)
     for step in action.steps:
@@ -225,5 +182,4 @@ def execute_approved_action(
         records.append(to_execution_record(action.id, approval_id, result))
         if not result.success:
             return ExecutionDecision(False, f"sandbox operation '{op}' failed; progression stopped", tuple(records))
-
     return ExecutionDecision(True, "approved action executed through the safe sandbox", tuple(records))
