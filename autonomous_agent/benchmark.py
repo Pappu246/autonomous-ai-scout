@@ -17,6 +17,21 @@ class BenchmarkResult:
     note: str
 
 
+def _marker_result(provider: str, model: str, response: httpx.Response, elapsed: int) -> BenchmarkResult:
+    if response.status_code == 429:
+        return BenchmarkResult(provider, model, True, False, elapsed, "Rate limited; no paid retry attempted.")
+    response.raise_for_status()
+    text = response.text.lower()
+    return BenchmarkResult(
+        provider,
+        model,
+        True,
+        "scout_ok" in text,
+        elapsed,
+        "Free-tier benchmark request completed." if "scout_ok" in text else "Request completed but expected marker was not observed.",
+    )
+
+
 def benchmark_gemini(model: str) -> BenchmarkResult:
     key = os.getenv("GEMINI_API_KEY", "").strip()
     if not key:
@@ -25,13 +40,30 @@ def benchmark_gemini(model: str) -> BenchmarkResult:
     payload = {"contents": [{"parts": [{"text": "Return exactly: SCOUT_OK"}]}]}
     started = time.perf_counter()
     try:
-        r = httpx.post(url, params={"key": key}, json=payload, timeout=20)
+        response = httpx.post(url, params={"key": key}, json=payload, timeout=20)
         elapsed = int((time.perf_counter() - started) * 1000)
-        if r.status_code == 429:
-            return BenchmarkResult("gemini", model, True, False, elapsed, "Rate limited; no paid retry attempted.")
-        r.raise_for_status()
-        text = r.text.lower()
-        return BenchmarkResult("gemini", model, True, "scout_ok" in text, elapsed, "Free-tier benchmark request completed." if "scout_ok" in text else "Request completed but expected marker was not observed.")
+        return _marker_result("gemini", model, response, elapsed)
     except httpx.HTTPError as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return BenchmarkResult("gemini", model, True, False, elapsed, f"Benchmark failed without retry: {type(exc).__name__}.")
+
+
+def benchmark_groq(model: str) -> BenchmarkResult:
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        return BenchmarkResult("groq", model, False, False, None, "GROQ_API_KEY not configured; benchmark skipped to avoid paid/unknown access.")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Return exactly: SCOUT_OK"}],
+        "temperature": 0,
+        "max_tokens": 8,
+    }
+    started = time.perf_counter()
+    try:
+        response = httpx.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=20)
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return _marker_result("groq", model, response, elapsed)
+    except httpx.HTTPError as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return BenchmarkResult("groq", model, True, False, elapsed, f"Benchmark failed without retry: {type(exc).__name__}.")
