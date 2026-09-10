@@ -6,7 +6,8 @@ from pathlib import Path
 from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.evaluation import rank_benchmarks, score_benchmark
-from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity
+from autonomous_agent.improvement_engine import build_improvement_proposals
+from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity, ProjectFinding
 from autonomous_agent.opportunities import score_opportunity
 from autonomous_agent.opportunity_history import trend_notes, update_history
 from autonomous_agent.project_intelligence import analyze_project
@@ -137,6 +138,25 @@ def test_dependency_security_detects_node_install_hook(tmp_path: Path):
     (tmp_path / "package.json").write_text('{"scripts":{"postinstall":"node setup.js"},"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
     findings = analyze_dependencies(tmp_path, "demo")
     assert any(f.title == "Node install lifecycle scripts present" and f.severity == "medium" for f in findings)
+
+
+def test_improvement_engine_generates_bounded_approval_gated_proposals():
+    findings = [
+        ProjectFinding(repository="demo", severity="medium", title="Node project has no lockfile", detail="missing", recommendation="add one"),
+        ProjectFinding(repository="demo", severity="high", title="Possible hard-coded secret", detail="secret-like value", recommendation="move it"),
+        ProjectFinding(repository="demo", severity="info", title="Unrelated informational item", detail="none", recommendation="none"),
+    ]
+    proposals = build_improvement_proposals(findings, limit=1)
+    assert len(proposals) == 1
+    assert proposals[0].title == "Remove hard-coded secret risk"
+    assert proposals[0].risk == "high"
+    assert proposals[0].requires_approval is True
+
+
+def test_improvement_engine_deduplicates_and_caps_output():
+    finding = ProjectFinding(repository="demo", severity="medium", title="Node project has no lockfile", detail="missing", recommendation="add one")
+    proposals = build_improvement_proposals([finding, finding], limit=20)
+    assert len(proposals) == 1
 
 
 def test_opportunity_history_records_score_delta_and_caps_length(tmp_path: Path):
