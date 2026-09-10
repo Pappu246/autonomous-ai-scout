@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from .action_queue import build_action_proposal, enqueue_proposal
-from .benchmark import benchmark_gemini
+from .benchmark import benchmark_gemini, benchmark_groq
 from .dependency_security import analyze_dependencies
 from .discovery import candidates_from_registry, discover_official_changes
 from .github_audit import audit_owner
@@ -60,8 +60,12 @@ def run() -> ScoutReport:
     if os.getenv("ENABLE_FREE_BENCHMARKS", "false").lower() == "true":
         benchmarks = []
         for candidate in verified:
-            if candidate.access_status.value == "verified_free" and candidate.provider == "gemini" and candidate.model != "discovery-pending":
+            if candidate.access_status.value != "verified_free" or candidate.model == "discovery-pending":
+                continue
+            if candidate.provider == "gemini":
                 benchmarks.append(benchmark_gemini(candidate.model))
+            elif candidate.provider == "groq":
+                benchmarks.append(benchmark_groq(candidate.model))
         by_model = {(b.provider, b.model): b for b in benchmarks}
         for i, candidate in enumerate(verified):
             b = by_model.get((candidate.provider, candidate.model))

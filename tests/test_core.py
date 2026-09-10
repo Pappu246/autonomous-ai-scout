@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from autonomous_agent.benchmark import benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity
 from autonomous_agent.opportunities import score_opportunity
@@ -95,3 +96,11 @@ def test_opportunity_trend_notes_report_changes(tmp_path: Path):
     update_history(path, [Opportunity(title="A", description="a", score=40, next_step="x")])
     history = update_history(path, [Opportunity(title="A", description="a", score=45, next_step="x")])
     assert any("A is up 5 points" in note for note in trend_notes(history))
+
+
+def test_groq_benchmark_skips_without_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    result = benchmark_groq("openai/gpt-oss-20b")
+    assert not result.attempted
+    assert not result.success
+    assert result.latency_ms is None
