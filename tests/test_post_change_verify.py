@@ -19,70 +19,34 @@ class FakeBackend:
 
 def test_post_change_verification_passes():
     result = verify_post_change(
-        "Pappu246/autonomous-ai-scout",
-        "agent/change-1",
-        "commit-sha",
-        "https://github.com/Pappu246/autonomous-ai-scout/pull/1",
-        {"app.py": "print('new')\n"},
-        {"app.py": "print('new')\n"},
-        FakeBackend(),
+        "Pappu246/autonomous-ai-scout", "agent/change-1", "commit-sha", "pr",
+        {"app.py": "print('new')\n"}, {"app.py": "print('new')\n"}, FakeBackend()
     )
     assert result.passed
-    assert len(result.checks) == 4
+    assert [c.name for c in result.checks] == [
+        "commit_identity", "pull_request_state", "file_snapshot", "post_change_tests"
+    ]
 
 
-def test_post_change_verification_blocks_on_commit_drift():
-    result = verify_post_change(
-        "repo",
-        "agent/change-1",
-        "expected",
-        "pr",
-        {"app.py": "new"},
-        {"app.py": "new"},
-        FakeBackend(head="different"),
-    )
+def test_commit_drift_blocks():
+    result = verify_post_change("repo", "agent/change", "expected", "pr", {"a": "x"}, {"a": "x"}, FakeBackend(head="different"))
     assert not result.passed
-    assert result.checks[0].name == "commit_identity"
     assert not result.checks[0].passed
 
 
-def test_post_change_verification_blocks_on_file_drift():
-    result = verify_post_change(
-        "repo",
-        "agent/change-1",
-        "commit-sha",
-        "pr",
-        {"app.py": "expected"},
-        {"app.py": "tampered"},
-        FakeBackend(),
-    )
+def test_file_drift_blocks():
+    result = verify_post_change("repo", "agent/change", "commit-sha", "pr", {"a": "expected"}, {"a": "tampered"}, FakeBackend())
     assert not result.passed
     assert not result.checks[2].passed
 
 
-def test_post_change_verification_blocks_on_test_failure():
-    result = verify_post_change(
-        "repo",
-        "agent/change-1",
-        "commit-sha",
-        "pr",
-        {"app.py": "expected"},
-        {"app.py": "expected"},
-        FakeBackend(tests_ok=False),
-    )
+def test_test_failure_blocks():
+    result = verify_post_change("repo", "agent/change", "commit-sha", "pr", {"a": "x"}, {"a": "x"}, FakeBackend(tests_ok=False))
     assert not result.passed
     assert not result.checks[3].passed
 
 
-def test_post_change_verification_rejects_closed_pr():
-    result = verify_post_change(
-        "repo",
-        "agent/change-1",
-        "commit-sha",
-        "pr",
-        {"app.py": "expected"},
-        {"app.py": "expected"},
-        FakeBackend(state="closed"),
-    )
+def test_closed_pr_blocks():
+    result = verify_post_change("repo", "agent/change", "commit-sha", "pr", {"a": "x"}, {"a": "x"}, FakeBackend(state="closed"))
     assert not result.passed
     assert not result.checks[1].passed
