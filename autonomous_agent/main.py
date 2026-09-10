@@ -9,6 +9,7 @@ from .action_queue import build_action_proposal, enqueue_proposal
 from .benchmark import benchmark_gemini, benchmark_groq
 from .dependency_security import analyze_dependencies
 from .discovery import candidates_from_registry, discover_official_changes
+from .evaluation import score_benchmark
 from .github_audit import audit_owner
 from .llm_planner import plan_with_free_llm
 from .models import ProjectFinding, ScoutReport
@@ -73,7 +74,14 @@ def run() -> ScoutReport:
         for i, candidate in enumerate(verified):
             b = by_model.get((candidate.provider, candidate.model))
             if b:
-                verified[i] = candidate.model_copy(update={"benchmark_latency_ms": b.latency_ms, "benchmark_ok": b.success})
+                evaluation = score_benchmark(b)
+                verified[i] = candidate.model_copy(
+                    update={
+                        "benchmark_latency_ms": b.latency_ms,
+                        "benchmark_ok": b.success,
+                        "benchmark_score": evaluation.score,
+                    }
+                )
 
     llm_plan = plan_with_free_llm(task_request, verified) if task_request else None
     action_proposal = None
@@ -98,6 +106,7 @@ def run() -> ScoutReport:
     report.meaningful_change = fingerprint != previous.get("fingerprint", "") or any(f.changed for f in release_findings)
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
+    report.notes.append("Benchmark results are scored deterministically and stored on each candidate for routing and reporting.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
     report.notes.append("Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.")
