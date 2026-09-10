@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-10T06:42:36.205378+00:00
+Generated: 2026-09-10T11:53:43.834668+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -9,6 +9,7 @@ Meaningful change: YES
 - **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 - **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
+- **openrouter / openrouter/free** — benchmark: not run — [official source](https://openrouter.ai/pricing)
 
 ## Project findings
 
@@ -18,14 +19,19 @@ Meaningful change: YES
 - **MEDIUM — Pappu246/SOLO-AI: No detected license** — GitHub does not detect a repository license. Recommendation: Add an explicit license if the project is intended for public reuse.
 - **LOW — Pappu246/SOLO-AI: Default branch is not protected** — main is not reported as protected. Recommendation: Consider branch protection and required CI checks before production work.
 - **HIGH — Pappu246/autonomous-ai-scout: Possible hard-coded secret** — A secret-like assignment was detected in tests/test_core.py. Recommendation: Move credentials to environment/secret storage and rotate exposed credentials.
+- **LOW — Pappu246/autonomous-ai-scout: No dependency lockfile detected** — A supported dependency manifest exists but no common lockfile was found. Recommendation: Commit a lockfile when the package manager supports one to improve reproducibility and reviewability.
 
 ## Monetization / opportunity ideas
 
-- **Build a free-model AI toolkit** (68/100) — 4 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
-- **Turn repeated project maintenance into a service** (63/100) — The scout sees 3 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
+- **Build a free-model AI toolkit** (73/100) — 5 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
+- **Turn repeated project maintenance into a service** (68/100) — The scout sees 3 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
 
 ## Notes
 
 - Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.
 - Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.
+- Free benchmarks are capped at 2 calls per run; results are scored deterministically for routing and reporting.
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
+- Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
+- Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
+- Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
