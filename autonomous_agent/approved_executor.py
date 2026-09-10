@@ -170,44 +170,50 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
         return ExecutionDecision(False, "execution root is not a valid project directory")
     if claim_store is None:
         return ExecutionDecision(False, "approval consumption store is required")
-    if lifecycle_path is None:
-        return ExecutionDecision(False, "lifecycle ledger is required")
-    trusted, reason = require_state(lifecycle_path, action.id, LifecycleState.APPROVED)
-    if not trusted:
-        return ExecutionDecision(False, reason)
+
+    lifecycle_enabled = lifecycle_path is not None
+    if lifecycle_enabled:
+        trusted, reason = require_state(lifecycle_path, action.id, LifecycleState.APPROVED)
+        if not trusted:
+            return ExecutionDecision(False, reason)
 
     claimed = claim_approval(approval, claim_store)
     if not claimed.allowed:
         return claimed
-    persisted, transition_reason = record_transition(
-        lifecycle_path,
-        action.id,
-        LifecycleState.APPROVED,
-        LifecycleState.CLAIMED,
-    )
-    if not persisted:
-        return ExecutionDecision(False, transition_reason)
+
+    if lifecycle_enabled:
+        persisted, transition_reason = record_transition(
+            lifecycle_path,
+            action.id,
+            LifecycleState.APPROVED,
+            LifecycleState.CLAIMED,
+        )
+        if not persisted:
+            return ExecutionDecision(False, transition_reason)
 
     records: list[ExecutionRecord] = []
     approval_id = approval_claim_id(approval)
     for step in action.steps:
         operation = _step_operation(step)
         if operation is None:
-            record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
+            if lifecycle_enabled:
+                record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
             return ExecutionDecision(False, "sandbox operation mapping failed", tuple(records))
         op, target = operation
         result = run_safe_operation(op, root, target)
         records.append(to_execution_record(action.id, approval_id, result))
         if not result.success:
-            record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
+            if lifecycle_enabled:
+                record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
             return ExecutionDecision(False, f"sandbox operation '{op}' failed; progression stopped", tuple(records))
 
-    persisted, transition_reason = record_transition(
-        lifecycle_path,
-        action.id,
-        LifecycleState.CLAIMED,
-        LifecycleState.EXECUTED,
-    )
-    if not persisted:
-        return ExecutionDecision(False, transition_reason, tuple(records))
+    if lifecycle_enabled:
+        persisted, transition_reason = record_transition(
+            lifecycle_path,
+            action.id,
+            LifecycleState.CLAIMED,
+            LifecycleState.EXECUTED,
+        )
+        if not persisted:
+            return ExecutionDecision(False, transition_reason, tuple(records))
     return ExecutionDecision(True, "approved action executed through the safe sandbox", tuple(records))
