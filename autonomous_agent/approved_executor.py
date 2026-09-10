@@ -68,6 +68,33 @@ def action_fingerprint(action: PendingAction) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def approval_claim_id(approval: ApprovalRecord) -> str:
+    """Return a non-sensitive, stable identifier used to consume an approval once."""
+    token = approval.approval_token.strip()
+    if not token:
+        raise ValueError("approval token is missing")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
+    """Atomically consume an approval token; a claimed token can never be replayed."""
+    if not approval.approval_token.strip():
+        return ExecutionDecision(False, "approval token is missing")
+    try:
+        store.mkdir(parents=True, exist_ok=True)
+        marker = store / f"{approval_claim_id(approval)}.claimed"
+        with marker.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "action_id": approval.action_id,
+                "claimed_at": datetime.now(timezone.utc).isoformat(),
+            }, sort_keys=True) + "\n")
+    except FileExistsError:
+        return ExecutionDecision(False, "approval has already been consumed")
+    except OSError as exc:
+        return ExecutionDecision(False, f"approval consumption store is unavailable: {exc}")
+    return ExecutionDecision(True, "approval consumed exactly once")
+
+
 def _blocked(text: str) -> bool:
     lowered = text.lower()
     return any(term in lowered for term in _BLOCKED_TERMS)
@@ -150,7 +177,7 @@ def execute_approved_action(
     now: datetime | None = None,
     audit_path: Path | None = None,
 ) -> ExecutionDecision:
-    """Authorization boundary only: no shell, network, source-write, merge, deploy, or billing execution."""
+    """Authorization boundary only; concrete sandbox execution is implemented separately."""
     decision = authorize_execution(action, approval, now, audit_path)
     if not decision.allowed:
         return decision
