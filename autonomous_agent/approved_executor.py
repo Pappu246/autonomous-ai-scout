@@ -166,15 +166,15 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
     decision = authorize_execution(action, approval, now, audit_path)
     if not decision.allowed:
         return decision
+    if not root.exists() or not root.is_dir():
+        return ExecutionDecision(False, "execution root is not a valid project directory")
+    if claim_store is None:
+        return ExecutionDecision(False, "approval consumption store is required")
     if lifecycle_path is None:
         return ExecutionDecision(False, "lifecycle ledger is required")
     trusted, reason = require_state(lifecycle_path, action.id, LifecycleState.APPROVED)
     if not trusted:
         return ExecutionDecision(False, reason)
-    if not root.exists() or not root.is_dir():
-        return ExecutionDecision(False, "execution root is not a valid project directory")
-    if claim_store is None:
-        return ExecutionDecision(False, "approval consumption store is required")
 
     claimed = claim_approval(approval, claim_store)
     if not claimed.allowed:
