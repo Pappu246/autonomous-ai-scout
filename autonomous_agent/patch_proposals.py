@@ -17,10 +17,18 @@ class PatchProposal:
     applied: bool = False
 
 
+def _safe_step(step: str) -> bool:
+    lowered = step.lower()
+    blocked = ("deploy", "merge", "billing", "payment", "credential", "secret", "password")
+    return not any(marker in lowered for marker in blocked)
+
+
 def build_patch_proposal(task: str, steps: tuple[str, ...], summary: str = "") -> PatchProposal:
     """Describe a possible code change without creating or applying source patches."""
     normalized = " ".join(task.split())
-    bounded_steps = tuple(steps[:12])
+    bounded_steps = tuple(step.strip() for step in steps[:12] if step.strip())
+    if not all(_safe_step(step) for step in bounded_steps):
+        raise ValueError("Sandbox proposal contains a blocked sensitive step")
     raw = json.dumps([normalized, bounded_steps], separators=(",", ":"), sort_keys=True)
     proposal_id = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return PatchProposal(
