@@ -56,6 +56,16 @@ def test_rejection_is_recorded(tmp_path: Path):
     assert set_decision(path, action.id, "rejected").status == "rejected"
 
 
+def test_terminal_approval_cannot_be_changed(tmp_path: Path):
+    path = tmp_path / "queue.json"
+    proposal = build_action_proposal("change code", ("edit source",))
+    action = enqueue_proposal(path, proposal)
+    assert action is not None
+    set_decision(path, action.id, "approved")
+    with pytest.raises(ValueError, match="already approved"):
+        set_decision(path, action.id, "rejected")
+
+
 def test_invalid_decision_is_rejected(tmp_path: Path):
     path = tmp_path / "queue.json"
     proposal = build_action_proposal("change code", ("edit source",))
