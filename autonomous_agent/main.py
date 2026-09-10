@@ -18,6 +18,7 @@ from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
 from .opportunity_history import trend_notes, update_history
 from .patch_proposals import build_patch_proposal, save_proposal
+from .pr_proposals import build_pr_proposal, save_pr_proposals
 from .project_intelligence import analyze_project
 from .release_discovery import discover_releases
 from .reporting import render_markdown
@@ -34,6 +35,7 @@ STATE_PATH = ROOT / "state" / "scout_state.json"
 OPPORTUNITY_HISTORY_PATH = ROOT / "state" / "opportunity_history.json"
 ACTION_QUEUE_PATH = ROOT / "state" / "approval_queue.json"
 PATCH_PROPOSAL_PATH = ROOT / "state" / "patch_proposal.json"
+PR_PROPOSAL_PATH = ROOT / "state" / "pr_proposals.json"
 
 
 def load_registry() -> dict:
@@ -113,6 +115,20 @@ def run() -> ScoutReport:
     findings.extend(analyze_dependencies(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
 
     improvement_proposals = build_improvement_proposals(findings)
+    pr_proposals = [build_pr_proposal(proposal) for proposal in improvement_proposals]
+    save_pr_proposals(PR_PROPOSAL_PATH, pr_proposals)
+
+    # Improvement proposals also enter the existing approval queue. Queue insertion is
+    # deterministic and deduplicated; it never approves or executes the action.
+    queued_improvements = 0
+    for proposal in improvement_proposals:
+        improvement_action = build_action_proposal(
+            f"Improve {proposal.repository}: {proposal.title}",
+            proposal.actions,
+            proposal.requires_approval,
+        )
+        if enqueue_proposal(ACTION_QUEUE_PATH, improvement_action, proposal.risk):
+            queued_improvements += 1
 
     free_count = sum(1 for c in verified if c.access_status.value == "verified_free")
     opportunities = build_opportunities(owner, len({f.repository for f in findings}), sum(1 for f in findings if f.severity == "high"), free_count)
@@ -124,6 +140,8 @@ def run() -> ScoutReport:
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append(f"Free benchmarks are capped at {_benchmark_limit()} calls per run; results are scored deterministically for routing and reporting.")
     report.notes.append(f"Autonomous improvement engine generated {len(improvement_proposals)} bounded proposals from actionable findings; all write/deploy steps remain approval-gated.")
+    report.notes.append(f"PR proposal engine generated {len(pr_proposals)} review-ready metadata proposals; no GitHub PR, branch, commit, merge, or deployment was created automatically.")
+    report.notes.append(f"Approval queue received {queued_improvements} improvement proposals; duplicate pending actions are suppressed and execution remains approval-gated.")
     for proposal in improvement_proposals[:5]:
         report.notes.append(f"Improvement proposal: {proposal.repository} — {proposal.title} [{proposal.risk} risk]")
     if route_decision:
@@ -169,7 +187,9 @@ def main() -> int:
     previous = StateStore(STATE_PATH).load()
     hashes = {str(m.source_url): m.source_hash for m in report.models if m.source_hash}
     release_hashes = {f.source_url: f.digest for f in discover_releases(load_registry().get("providers", []), previous.get("release_hashes", {}))}
-    StateStore(STATE_PATH).save({"last_run": report.generated_at.isoformat(), "meaningful_change": report.meaningful_change, "fingerprint": _fingerprint(report), "source_hashes": {**previous.get("source_hashes", {}), **hashes}, "release_hashes": {**previous.get("release_hashes", {}), **release_hashes}, "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"], "report_path": str(REPORT_PATH), "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH), "last_task": os.getenv("TASK_REQUEST", "").strip(), "improvement_proposals": [asdict(p) for p in build_improvement_proposals(report.project_findings)]})
+    improvement_proposals = build_improvement_proposals(report.project_findings)
+    pr_proposals = [build_pr_proposal(proposal) for proposal in improvement_proposals]
+    StateStore(STATE_PATH).save({"last_run": report.generated_at.isoformat(), "meaningful_change": report.meaningful_change, "fingerprint": _fingerprint(report), "source_hashes": {**previous.get("source_hashes", {}), **hashes}, "release_hashes": {**previous.get("release_hashes", {}), **release_hashes}, "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"], "report_path": str(REPORT_PATH), "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH), "last_task": os.getenv("TASK_REQUEST", "").strip(), "improvement_proposals": [asdict(p) for p in improvement_proposals], "pr_proposals": [asdict(p) for p in pr_proposals]})
     if report.meaningful_change and os.getenv("REPORT_EMAIL"):
         send_report("Autonomous AI Scout — meaningful update", rendered)
     print(rendered)
