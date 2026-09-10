@@ -45,6 +45,15 @@ def _fingerprint(report: ScoutReport) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _benchmark_limit() -> int:
+    """Bound opt-in benchmark calls so one run cannot consume an unbounded free quota."""
+    raw = os.getenv("MAX_FREE_BENCHMARKS", "2").strip()
+    try:
+        return max(0, min(10, int(raw)))
+    except ValueError:
+        return 2
+
+
 def run() -> ScoutReport:
     registry = load_registry()
     store = StateStore(STATE_PATH)
@@ -62,9 +71,12 @@ def run() -> ScoutReport:
 
     if os.getenv("ENABLE_FREE_BENCHMARKS", "false").lower() == "true":
         benchmarks = []
-        for candidate in verified:
-            if candidate.access_status.value != "verified_free" or candidate.model == "discovery-pending":
-                continue
+        limit = _benchmark_limit()
+        eligible = [
+            candidate for candidate in verified
+            if candidate.access_status.value == "verified_free" and candidate.model != "discovery-pending"
+        ]
+        for candidate in eligible[:limit]:
             if candidate.provider == "gemini":
                 benchmarks.append(benchmark_gemini(candidate.model))
             elif candidate.provider == "groq":
@@ -98,6 +110,7 @@ def run() -> ScoutReport:
     report.meaningful_change = fingerprint != previous.get("fingerprint", "") or any(f.changed for f in release_findings)
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
+    report.notes.append(f"Opt-in free benchmarks are capped at { _benchmark_limit() } calls per run; no automatic paid fallback or quota bypass is used.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
     report.notes.append("Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.")
