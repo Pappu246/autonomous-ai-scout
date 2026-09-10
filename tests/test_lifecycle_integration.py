@@ -125,8 +125,16 @@ def test_failed_execution_is_terminally_blocked(tmp_path: Path, monkeypatch):
     _seed_to_approved(lifecycle)
 
     class Result:
+        operation = "inspect"
         success = False
+        exit_status = 1
         output = "sandbox failure"
+        output_truncated = False
+        command = ("inspect",)
+        verification_status = "failed"
+        started_at = "2026-09-10T10:01:00+00:00"
+        finished_at = "2026-09-10T10:01:01+00:00"
+        network_disabled = True
 
     monkeypatch.setattr("autonomous_agent.approved_executor.run_safe_operation", lambda *args: Result())
     root = tmp_path / "project"
