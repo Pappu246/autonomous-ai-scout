@@ -40,7 +40,7 @@ def test_ledger_rejects_invalid_transition(tmp_path: Path):
     try:
         append_transition(path, ACTION_ID, LifecycleState.PROPOSED, LifecycleState.TESTED)
     except ValueError as exc:
-        assert "ledger current state" in str(exc)
+        assert "invalid lifecycle transition" in str(exc)
     else:
         raise AssertionError("invalid transition was accepted")
 
