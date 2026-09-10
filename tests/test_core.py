@@ -76,6 +76,19 @@ def test_router_returns_safe_empty_decision_without_free_candidates():
     assert decision.score == 0.0
 
 
+def test_router_uses_deterministic_benchmark_score_when_available():
+    base = dict(source_url="https://example.com", access_status=AccessStatus.VERIFIED_FREE, benchmark_ok=True, benchmark_latency_ms=500)
+    candidates = [
+        ModelCandidate(provider="a", model="fast-model", **base, benchmark_score=100),
+        ModelCandidate(provider="b", model="gpt-oss-20b", **base, benchmark_score=85),
+    ]
+    decision = choose_model(candidates, "general task")
+    assert decision.model is not None
+    assert decision.model.provider == "a"
+    assert decision.score == 100
+    assert "deterministic benchmark score" in decision.reasons
+
+
 def test_benchmark_evaluation_scores_success_and_latency():
     result = BenchmarkResult("groq", "openai/gpt-oss-20b", True, True, 500, "ok")
     score = score_benchmark(result)
