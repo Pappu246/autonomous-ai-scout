@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,15 +87,10 @@ def verify_audit_chain(path: Path) -> bool:
         if not stored_hash or record.get("previous_hash", "") != previous_hash:
             return False
         expected_hash = hashlib.sha256(_canonical_payload(record).encode("utf-8")).hexdigest()
-        if not hmac_compare(stored_hash, expected_hash):
+        if not hmac.compare_digest(stored_hash, expected_hash):
             return False
         previous_hash = stored_hash
     return True
-
-
-def hmac_compare(left: str, right: str) -> bool:
-    """Constant-time string comparison without exposing secrets."""
-    return hashlib.sha256(left.encode()).digest() == hashlib.sha256(right.encode()).digest()
 
 
 def load_audit_log(path: Path) -> list[dict[str, str]]:
