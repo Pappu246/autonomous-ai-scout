@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from autonomous_agent.benchmark import benchmark_groq
@@ -152,3 +153,12 @@ def test_official_release_discovery_detects_hash_change(monkeypatch):
         {"https://official.example/changelog": "old-hash"},
     )
     assert findings[0].changed
+
+
+def test_provider_registry_includes_only_explicitly_free_openrouter_router():
+    config = json.loads(Path("config/providers.json").read_text(encoding="utf-8"))
+    provider = next(item for item in config["providers"] if item["id"] == "openrouter")
+    assert provider["enabled"] is True
+    assert provider["models"] == ["openrouter/free"]
+    assert config["policy"]["free_only"] is True
+    assert config["policy"]["never_enable_paid_billing"] is True
