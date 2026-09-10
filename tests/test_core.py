@@ -306,42 +306,47 @@ def _approved_action(steps=("inspect repository",)):
     return PendingAction("action-123", "Inspect project", tuple(steps), "low", "explicit approval", "approved", datetime.now(timezone.utc).isoformat())
 
 
-def _approval(action_id="action-123", expired=False):
+def _approval(action=None, action_id="action-123", expired=False):
     now = datetime.now(timezone.utc)
+    if action is not None:
+        if expired:
+            approved_at = now - timedelta(minutes=2)
+            return ApprovalRecord.for_action(action, "user-approved-token", approved_at=approved_at, ttl=timedelta(minutes=1))
+        return ApprovalRecord.for_action(action, "user-approved-token", approved_at=now, ttl=timedelta(hours=1))
     expires = now - timedelta(minutes=1) if expired else now + timedelta(hours=1)
     return ApprovalRecord(action_id, now.isoformat(), expires.isoformat(), "user-approved-token")
 
 
 def test_approved_executor_requires_exact_approval_identity():
     action = _approved_action()
-    decision = authorize_execution(action, _approval("different"))
+    decision = authorize_execution(action, _approval(action_id="different"))
     assert not decision.allowed
     assert "identity" in decision.reason
 
 
 def test_approved_executor_rejects_expired_approval():
     action = _approved_action()
-    decision = authorize_execution(action, _approval(expired=True))
+    decision = authorize_execution(action, _approval(action=action, expired=True))
     assert not decision.allowed
     assert "expired" in decision.reason
 
 
 def test_approved_executor_rejects_forbidden_operations():
     action = _approved_action(("deploy production",))
-    decision = authorize_execution(action, _approval())
+    decision = authorize_execution(action, _approval(action=action))
     assert not decision.allowed
     assert "allowlist" in decision.reason or "forbidden" in decision.reason
 
 
 def test_approved_executor_allows_only_safe_boundary(tmp_path: Path):
     action = _approved_action(("inspect repository", "run test suite"))
-    decision = execute_approved_action(action, _approval(), tmp_path)
+    decision = execute_approved_action(action, _approval(action=action), tmp_path)
     assert decision.allowed
     assert "read-only" in decision.reason
 
 
 def test_approved_executor_never_auto_approves(tmp_path: Path):
     action = PendingAction("action-123", "Inspect project", ("inspect repository",), "low", "reason", "pending")
-    decision = execute_approved_action(action, _approval(), tmp_path)
+    decision = execute_approved_action(action, _approval(action=action), tmp_path)
     assert not decision.allowed
     assert "not explicitly approved" in decision.reason
