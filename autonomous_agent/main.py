@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .action_queue import build_action_proposal, enqueue_proposal
 from .benchmark import benchmark_gemini
+from .dependency_security import analyze_dependencies
 from .discovery import candidates_from_registry, discover_official_changes
 from .github_audit import audit_owner
 from .llm_planner import plan_with_free_llm
@@ -78,6 +79,7 @@ def run() -> ScoutReport:
     raw_findings = audit_owner(owner, exclude=exclude)
     findings = [ProjectFinding(repository=x.get("repository", ""), severity=x.get("severity", "info"), title=x["title"], detail=x["detail"], recommendation=x["recommendation"]) for x in raw_findings]
     findings.extend(analyze_project(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
+    findings.extend(analyze_dependencies(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
 
     free_count = sum(1 for c in verified if c.access_status.value == "verified_free")
     opportunities = build_opportunities(owner, len({f.repository for f in findings}), sum(1 for f in findings if f.severity == "high"), free_count)
@@ -87,6 +89,7 @@ def run() -> ScoutReport:
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
+    report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
     if task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
