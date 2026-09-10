@@ -338,15 +338,25 @@ def test_approved_executor_rejects_forbidden_operations():
     assert "allowlist" in decision.reason or "forbidden" in decision.reason
 
 
-def test_approved_executor_allows_only_safe_boundary(tmp_path: Path):
-    action = _approved_action(("inspect repository", "run test suite"))
+def test_approved_executor_requires_consumption_store(tmp_path: Path):
+    action = _approved_action()
     decision = execute_approved_action(action, _approval(action=action), tmp_path)
+    assert not decision.allowed
+    assert "consumption store" in decision.reason
+
+
+def test_approved_executor_runs_safe_sandbox_operation(tmp_path: Path):
+    (tmp_path / "README.txt").write_text("hello", encoding="utf-8")
+    action = _approved_action(("inspect repository",))
+    decision = execute_approved_action(action, _approval(action=action), tmp_path, claim_store=tmp_path / "claims")
     assert decision.allowed
-    assert "read-only" in decision.reason
+    assert "sandbox" in decision.reason
+    assert len(decision.records) == 1
+    assert decision.records[0].category == "inspect"
 
 
 def test_approved_executor_never_auto_approves(tmp_path: Path):
     action = PendingAction("action-123", "Inspect project", ("inspect repository",), "low", "reason", "pending")
-    decision = execute_approved_action(action, _approval(action=action), tmp_path)
+    decision = execute_approved_action(action, _approval(action=action), tmp_path, claim_store=tmp_path / "claims")
     assert not decision.allowed
     assert "not explicitly approved" in decision.reason
