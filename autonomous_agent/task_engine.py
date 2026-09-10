@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
-import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+from .capability_policy import Capability, check_capability
+from .sandbox import run_safe_operation
 
 
 class TaskIntent(str, Enum):
@@ -45,7 +46,7 @@ def plan_task(task: str) -> TaskPlan:
         return any(term in text for term in terms)
 
     if has("test", "tests", "pytest", "check tests"):
-        return TaskPlan(raw, TaskIntent.TEST, ("inspect", "test"), "low", False, "Inspect the workspace and run the test suite.")
+        return TaskPlan(raw, TaskIntent.TEST, ("inspect", "test"), "low", False, "Inspect the workspace and run the test suite through the sandbox.")
     if has("audit", "review project", "review repo", "review repository"):
         return TaskPlan(raw, TaskIntent.AUDIT, ("inspect", "scout"), "low", False, "Inspect the workspace and run the existing audit pipeline.")
     if has("discover", "find ai", "find model", "find models", "new tools", "new ai", "free ai"):
@@ -59,36 +60,28 @@ def plan_task(task: str) -> TaskPlan:
     return TaskPlan(raw, TaskIntent.UNKNOWN, ("inspect",), "low", False, "Inspect the workspace first because the request does not map to a known safe action.")
 
 
+def _run_capability(operation: str, root: Path) -> str:
+    try:
+        capability = Capability(operation)
+    except ValueError:
+        return "capability blocked: unknown operation"
+    decision = check_capability(capability, (capability,))
+    if not decision.allowed:
+        return f"capability blocked: {decision.reason}"
+    result = run_safe_operation(operation, root)
+    return result.output if result.success else f"{operation} failed: {result.output}"
+
+
 def _inspect(root: Path) -> str:
-    files: list[str] = []
-    ignored = {"__pycache__", ".pytest_cache", "node_modules"}
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and ".git" not in path.parts and not any(part in ignored for part in path.parts):
-            files.append(str(path.relative_to(root)))
-    preview = files[:80]
-    suffix = f"\n... and {len(files) - len(preview)} more files" if len(files) > len(preview) else ""
-    return "Workspace files:\n" + "\n".join(f"- {item}" for item in preview) + suffix
+    return _run_capability("inspect", root)
 
 
 def _test(root: Path) -> str:
-    try:
-        timeout = max(1, int(os.getenv("TASK_TEST_TIMEOUT_SECONDS", "180")))
-    except ValueError:
-        timeout = 180
-    completed = subprocess.run(
-        ["python", "-m", "pytest", "-q"],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
-    output = (completed.stdout + "\n" + completed.stderr).strip()
-    return f"pytest exit code: {completed.returncode}\n{output[-6000:]}"
+    return _run_capability("test", root)
 
 
 def execute_task(task: str, root: Path) -> TaskResult:
-    """Execute only non-destructive actions; source writes remain approval-gated."""
+    """Execute only non-destructive actions through the centralized capability/sandbox boundary."""
     plan = plan_task(task)
     if not plan.actions:
         return TaskResult(plan, "ignored", plan.explanation)
@@ -98,10 +91,7 @@ def execute_task(task: str, root: Path) -> TaskResult:
         if action == "inspect":
             outputs.append(_inspect(root))
         elif action == "test":
-            try:
-                outputs.append(_test(root))
-            except subprocess.TimeoutExpired:
-                outputs.append("pytest timed out; no changes were made.")
+            outputs.append(_test(root))
         elif action == "scout":
             outputs.append("The main scout pipeline will perform discovery/audit in this run.")
 
