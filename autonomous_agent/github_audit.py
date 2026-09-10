@@ -9,12 +9,14 @@ import httpx
 
 from .project_profile import build_project_profile
 from .project_registry import build_project_registry
+from .universal_project_intelligence import build_universal_intelligence
 
 
 API = "https://api.github.com"
 TIMEOUT = httpx.Timeout(15.0, connect=8.0)
 PROJECT_REGISTRY_PATH = Path(os.getenv("SCOUT_PROJECT_REGISTRY_PATH", "state/project_registry.json"))
 PROJECT_PROFILES_PATH = Path(os.getenv("SCOUT_PROJECT_PROFILES_PATH", "state/project_profiles.json"))
+PROJECT_INTELLIGENCE_PATH = Path(os.getenv("SCOUT_PROJECT_INTELLIGENCE_PATH", "state/project_intelligence.json"))
 DEFAULT_MAX_PROJECT_PROFILES = 50
 
 
@@ -134,6 +136,8 @@ def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, A
 
     previous_profiles = _load_state(PROJECT_PROFILES_PATH)
     profiles = dict(previous_profiles)
+    previous_intelligence = _load_state(PROJECT_INTELLIGENCE_PATH)
+    intelligence = dict(previous_intelligence)
     candidates = sorted(set(changes["new"]) | set(changes["changed"]) | {name for name in projects if name not in previous_profiles})
     for name in candidates[: _max_project_profiles()]:
         metadata = projects.get(name, {})
@@ -158,7 +162,22 @@ def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, A
                 "detail": "Root manifests, language composition, lockfile signals, or repository flags changed.",
                 "recommendation": "Re-evaluate project-specific health and security checks before proposing improvements.",
             })
+
+        intelligence_profile = build_universal_intelligence(profile)
+        previous_intel = previous_intelligence.get(name)
+        intelligence[name] = intelligence_profile
+        if previous_intel is None or previous_intel.get("fingerprint") != intelligence_profile.get("fingerprint"):
+            if intelligence_profile["signals"]:
+                results.append({
+                    "repository": name,
+                    "severity": "medium",
+                    "title": "Universal project intelligence identified actionable gaps",
+                    "detail": f"Health score {intelligence_profile['score']}/100; signals: {', '.join(intelligence_profile['signals'])}.",
+                    "recommendation": f"Prioritize: {', '.join(intelligence_profile['priorities']) or 'review'} before proposing changes.",
+                })
+
     _save_state(PROJECT_PROFILES_PATH, profiles)
+    _save_state(PROJECT_INTELLIGENCE_PATH, intelligence)
 
     # Use the authoritative project registry for deep audits. This means authorized
     # private repositories discovered through /user/repos are not silently skipped.
