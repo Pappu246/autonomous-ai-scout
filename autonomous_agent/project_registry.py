@@ -42,24 +42,33 @@ def _max_repositories() -> int:
         return DEFAULT_MAX_REPOSITORIES
 
 
-def _owned_repository_page(owner: str, page: int) -> list[dict[str, Any]]:
+def _owned_repository_page(owner: str, page: int) -> list[dict[str, Any]] | None:
     # Authenticated /user/repos is required for authorized private repositories.
     # affiliation=owner prevents collaborator/org repositories from entering the registry.
     if os.getenv("GITHUB_TOKEN", "").strip():
         data = gh_get("/user/repos", {"affiliation": "owner", "per_page": DEFAULT_PAGE_SIZE, "page": page, "sort": "updated"})
     else:
         data = gh_get(f"/users/{owner}/repos", {"per_page": DEFAULT_PAGE_SIZE, "page": page, "sort": "updated"})
-    return data if isinstance(data, list) else []
+    if data is None:
+        return None
+    return data if isinstance(data, list) else None
 
 
-def discover_repositories(owner: str) -> list[dict[str, Any]]:
-    """Discover all repositories owned by the configured account, including archived/forks."""
+def discover_repositories(owner: str) -> list[dict[str, Any]] | None:
+    """Discover all repositories owned by the configured account, including archived/forks.
+
+    None means discovery was unavailable/incomplete; an empty list means a successful
+    discovery returned no repositories. This distinction prevents transient API failures
+    from being misclassified as mass repository deletion.
+    """
     repositories: list[dict[str, Any]] = []
     seen: set[str] = set()
     max_repositories = _max_repositories()
 
     for page in range(1, (max_repositories + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE + 1):
         batch = _owned_repository_page(owner, page)
+        if batch is None:
+            return None
         if not batch:
             break
         for repo in batch:
@@ -104,7 +113,15 @@ def _profile(repo: dict[str, Any]) -> dict[str, Any]:
 def build_project_registry(owner: str, previous: dict[str, dict[str, Any]] | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
     """Return current project profiles plus deterministic new/changed/removed sets."""
     previous = previous or {}
-    current = {_profile(repo)["full_name"]: _profile(repo) for repo in discover_repositories(owner)}
+    discovered = discover_repositories(owner)
+    if discovered is None:
+        # Preserve the last known-good baseline on transient discovery failure.
+        return dict(previous), {"new": [], "changed": [], "removed": []}
+
+    current: dict[str, dict[str, Any]] = {}
+    for repo in discovered:
+        profile = _profile(repo)
+        current[profile["full_name"]] = profile
 
     new = sorted(set(current) - set(previous))
     removed = sorted(set(previous) - set(current))
