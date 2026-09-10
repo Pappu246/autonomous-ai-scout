@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import re
 from dataclasses import dataclass
 from typing import Iterable
@@ -21,12 +22,23 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _visible_lines(text: str) -> list[str]:
+    """Convert common HTML release pages into bounded, readable text lines."""
+    cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\1>", " ", text)
+    cleaned = re.sub(r"<[^>]+>", "\n", cleaned)
+    cleaned = html.unescape(cleaned)
+    lines: list[str] = []
+    for line in cleaned.splitlines():
+        clean = re.sub(r"\s+", " ", line).strip(" #*-\t\r")
+        if clean:
+            lines.append(clean)
+    return lines
+
+
 def _headline(text: str) -> str:
-    """Extract a short deterministic release marker without interpreting arbitrary prose."""
-    for line in text.splitlines():
-        clean = re.sub(r"\s+", " ", line).strip(" #*-\t")
-        if not clean:
-            continue
+    """Extract a short deterministic release marker without leaking raw page markup."""
+    lines = _visible_lines(text)
+    for clean in lines:
         if re.match(r"^(?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2})$", clean, re.I):
             return clean
         if re.search(r"\b(?:release|released|changelog|version|launch|launched|deprecat|shutdown)\b", clean, re.I):
