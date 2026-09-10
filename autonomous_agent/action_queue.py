@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -31,10 +32,12 @@ class PendingAction:
     risk: str
     reason: str
     status: str = "pending"
+    created_at: str = ""
 
 
 RISK_PRIORITY = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 MAX_PENDING_ACTIONS = 50
+MAX_PENDING_AGE = timedelta(days=7)
 
 
 def _sensitive(text: str) -> bool:
@@ -79,10 +82,33 @@ def load_queue(path: Path) -> list[PendingAction]:
             continue
         try:
             result.append(PendingAction(str(item["id"]), str(item["task"]), tuple(item.get("steps", [])),
-                                       str(item["risk"]), str(item["reason"]), str(item.get("status", "pending"))))
+                                       str(item["risk"]), str(item["reason"]), str(item.get("status", "pending")),
+                                       str(item.get("created_at", ""))))
         except (KeyError, TypeError):
             continue
     return result
+
+
+def _is_stale(item: PendingAction, now: datetime) -> bool:
+    if item.status != "pending" or not item.created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(item.created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return now - created > MAX_PENDING_AGE
+
+
+def expire_stale_actions(queue: list[PendingAction], now: datetime | None = None) -> list[PendingAction]:
+    """Mark stale pending actions blocked; never auto-approves or executes them."""
+    current = now or datetime.now(timezone.utc)
+    return [
+        PendingAction(item.id, item.task, item.steps, item.risk, item.reason,
+                      "blocked" if _is_stale(item, current) else item.status, item.created_at)
+        for item in queue
+    ]
 
 
 def prioritize_queue(queue: list[PendingAction]) -> list[PendingAction]:
@@ -94,15 +120,16 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     if not proposal.requires_approval:
         return None
     normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
-    action = PendingAction(_id(proposal, normalized_risk), proposal.task, proposal.steps, normalized_risk, proposal.reason)
-    queue = load_queue(path)
+    action = PendingAction(_id(proposal, normalized_risk), proposal.task, proposal.steps, normalized_risk,
+                           proposal.reason, "pending", datetime.now(timezone.utc).isoformat())
+    queue = expire_stale_actions(load_queue(path))
     for item in queue:
         if item.id == action.id and item.status == "pending":
             return item
     queue.append(action)
     pending = prioritize_queue([item for item in queue if item.status == "pending"])
     non_pending = [item for item in queue if item.status != "pending"]
-    queue = (pending[:MAX_PENDING_ACTIONS] + non_pending)
+    queue = pending[:MAX_PENDING_ACTIONS] + non_pending
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
     return action
