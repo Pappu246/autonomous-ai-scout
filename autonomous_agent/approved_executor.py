@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .action_queue import PendingAction
 from .approval_audit import load_audit_log, verify_audit_chain
+from .sandbox import ExecutionRecord, run_safe_operation, to_execution_record
 
 
 APPROVAL_TTL = timedelta(hours=24)
@@ -50,6 +51,7 @@ class ApprovalRecord:
 class ExecutionDecision:
     allowed: bool
     reason: str
+    records: tuple[ExecutionRecord, ...] = ()
 
 
 def action_fingerprint(action: PendingAction) -> str:
@@ -105,6 +107,25 @@ def _safe_step(step: str) -> bool:
         return False
     words = {part.strip(".,:;()[]{}") for part in step.lower().split()}
     return bool(words & _ALLOWED_ACTIONS)
+
+
+def _step_operation(step: str) -> tuple[str, str | None] | None:
+    text = step.strip()
+    lowered = text.lower()
+    if lowered.startswith("read file:"):
+        target = text.split(":", 1)[1].strip()
+        return ("read_file", target or None)
+    if "inspect" in lowered:
+        return ("inspect", None)
+    if "test" in lowered or "pytest" in lowered:
+        return ("test", None)
+    if "lint" in lowered or "static analysis" in lowered:
+        return ("lint", None)
+    if "metric" in lowered or "calculate" in lowered:
+        return ("metrics", None)
+    if "benchmark" in lowered:
+        return ("benchmark", None)
+    return None
 
 
 def _parse_timestamp(value: str) -> datetime | None:
@@ -167,7 +188,9 @@ def authorize_execution(
         return ExecutionDecision(False, "no executable steps were supplied")
     if any(not _safe_step(step) for step in action.steps):
         return ExecutionDecision(False, "one or more steps are outside the safe execution allowlist")
-    return ExecutionDecision(True, "approved action is limited to safe local read-only/test operations")
+    if any(_step_operation(step) is None for step in action.steps):
+        return ExecutionDecision(False, "one or more steps cannot be mapped to a fixed sandbox operation")
+    return ExecutionDecision(True, "approved action is limited to safe local sandbox operations")
 
 
 def execute_approved_action(
@@ -176,11 +199,31 @@ def execute_approved_action(
     root: Path,
     now: datetime | None = None,
     audit_path: Path | None = None,
+    claim_store: Path | None = None,
 ) -> ExecutionDecision:
-    """Authorization boundary only; concrete sandbox execution is implemented separately."""
+    """Consume the approved token once, then execute only fixed sandbox operations."""
     decision = authorize_execution(action, approval, now, audit_path)
     if not decision.allowed:
         return decision
     if not root.exists() or not root.is_dir():
         return ExecutionDecision(False, "execution root is not a valid project directory")
-    return ExecutionDecision(True, "authorized; concrete executor remains intentionally read-only/test-only")
+    if claim_store is None:
+        return ExecutionDecision(False, "approval consumption store is required")
+
+    claimed = claim_approval(approval, claim_store)
+    if not claimed.allowed:
+        return claimed
+
+    records: list[ExecutionRecord] = []
+    approval_id = approval_claim_id(approval)
+    for step in action.steps:
+        operation = _step_operation(step)
+        if operation is None:
+            return ExecutionDecision(False, "sandbox operation mapping failed", tuple(records))
+        op, target = operation
+        result = run_safe_operation(op, root, target)
+        records.append(to_execution_record(action.id, approval_id, result))
+        if not result.success:
+            return ExecutionDecision(False, f"sandbox operation '{op}' failed; progression stopped", tuple(records))
+
+    return ExecutionDecision(True, "approved action executed through the safe sandbox", tuple(records))
