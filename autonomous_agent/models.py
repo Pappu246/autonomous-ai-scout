@@ -28,6 +28,7 @@ class ModelCandidate(BaseModel):
     source_changed: bool = False
     benchmark_latency_ms: int | None = None
     benchmark_ok: bool | None = None
+    benchmark_score: float | None = Field(default=None, ge=0, le=100)
 
 
 class ProjectFinding(BaseModel):
