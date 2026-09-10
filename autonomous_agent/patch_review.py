@@ -6,12 +6,6 @@ from dataclasses import dataclass
 
 MAX_PATCH_BYTES = 512_000
 MAX_FILES = 20
-_FORBIDDEN_PATH_PARTS = {
-    ".git",
-    ".github/workflows",
-    ".env",
-    "state/secrets",
-}
 
 
 @dataclass(frozen=True)
@@ -25,7 +19,20 @@ class PatchReview:
 
 
 def _normalize_path(path: str) -> str:
-    return path.strip().replace("\\", "/").lstrip("./")
+    return path.strip().replace("\\", "/").removeprefix("./")
+
+
+def _is_forbidden_path(path: str) -> bool:
+    normalized = _normalize_path(path)
+    return (
+        normalized == ".git"
+        or normalized.startswith(".git/")
+        or normalized == ".github/workflows"
+        or normalized.startswith(".github/workflows/")
+        or normalized == ".env"
+        or normalized.startswith(".env.")
+        or normalized.startswith("state/secrets/")
+    )
 
 
 def extract_changed_files(unified_diff: str) -> tuple[str, ...]:
@@ -50,7 +57,7 @@ def review_patch(unified_diff: str) -> PatchReview:
     files = extract_changed_files(unified_diff)
     if len(files) > MAX_FILES:
         return PatchReview(False, "patch touches too many files", digest, files, 0, 0)
-    if any(any(part in path for part in _FORBIDDEN_PATH_PARTS) for path in files):
+    if any(_is_forbidden_path(path) for path in files):
         return PatchReview(False, "patch touches a forbidden path", digest, files, 0, 0)
     if "\x00" in unified_diff:
         return PatchReview(False, "patch contains NUL bytes", digest, files, 0, 0)
