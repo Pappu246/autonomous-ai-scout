@@ -25,6 +25,7 @@ from .release_discovery import discover_releases
 from .reporting import render_markdown
 from .router import choose_model
 from .state import StateStore
+from .startup_reconciliation import reconcile_startup
 from .task_engine import execute_task
 from .verify import verify_candidate
 from .emailer import send_report
@@ -36,6 +37,7 @@ DASHBOARD_PATH = ROOT / "state" / "dashboard.md"
 STATE_PATH = ROOT / "state" / "scout_state.json"
 OPPORTUNITY_HISTORY_PATH = ROOT / "state" / "opportunity_history.json"
 ACTION_QUEUE_PATH = ROOT / "state" / "approval_queue.json"
+LIFECYCLE_PATH = ROOT / "state" / "lifecycle.jsonl"
 PATCH_PROPOSAL_PATH = ROOT / "state" / "patch_proposal.json"
 PR_PROPOSAL_PATH = ROOT / "state" / "pr_proposals.json"
 
@@ -76,8 +78,11 @@ def run() -> ScoutReport:
     store = StateStore(STATE_PATH)
     previous = store.load()
 
+    reconciliation = reconcile_startup(ACTION_QUEUE_PATH, LIFECYCLE_PATH)
+    startup_blocks = sum(1 for item in reconciliation if item.decision == "blocked")
+
     task_request = os.getenv("TASK_REQUEST", "").strip()
-    task_result = execute_task(task_request, ROOT) if task_request else None
+    task_result = execute_task(task_request, ROOT) if task_request and startup_blocks == 0 else None
 
     previous_sources = previous.get("source_hashes", {})
     candidates = candidates_from_registry(registry.get("providers", []))
@@ -101,9 +106,9 @@ def run() -> ScoutReport:
                 verified[i] = candidate.model_copy(update={"benchmark_latency_ms": b.latency_ms, "benchmark_ok": b.success, "benchmark_score": evaluation.score})
 
     route_decision = choose_model(verified, task_request) if task_request else None
-    llm_plan = plan_with_free_llm(task_request, verified) if task_request else None
+    llm_plan = plan_with_free_llm(task_request, verified) if task_request and startup_blocks == 0 else None
     action_proposal = None
-    if task_request:
+    if task_request and startup_blocks == 0:
         if llm_plan:
             action_proposal = build_action_proposal(task_request, llm_plan.steps, llm_plan.requires_approval)
         else:
@@ -142,6 +147,9 @@ def run() -> ScoutReport:
     report.notes.append(f"Autonomous improvement engine generated {len(improvement_proposals)} bounded proposals from actionable findings; all write/deploy steps remain approval-gated.")
     report.notes.append(f"PR proposal engine generated {len(pr_proposals)} review-ready metadata proposals; no GitHub PR, branch, commit, merge, or deployment was created automatically.")
     report.notes.append(f"Approval queue received {queued_improvements} improvement proposals; duplicate pending actions are suppressed and execution remains approval-gated.")
+    report.notes.append(f"Startup reconciliation inspected {len(reconciliation)} persisted lifecycle records and blocked {startup_blocks} interrupted or invalid actions before task execution.")
+    for item in reconciliation[:10]:
+        report.notes.append(f"Startup reconciliation: {item.action_id} — {item.decision} ({item.reason})")
     for proposal in improvement_proposals[:5]:
         report.notes.append(f"Improvement proposal: {proposal.repository} — {proposal.title} [{proposal.risk} risk]")
     if route_decision:
@@ -156,7 +164,9 @@ def run() -> ScoutReport:
         if finding.changed:
             report.notes.append(f"Official release change: {finding.provider} — {finding.headline} ({finding.source_url})")
     report.notes.extend(trend_notes(history))
-    if task_result:
+    if task_request and startup_blocks > 0:
+        report.notes.append("Task execution was withheld because startup reconciliation found blocked/interrupted lifecycle state.")
+    elif task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
         if task_result.status == "approval_required":
@@ -164,7 +174,7 @@ def run() -> ScoutReport:
     if llm_plan:
         report.notes.append(f"LLM plan selected {llm_plan.provider}/{llm_plan.model}: {llm_plan.summary}")
         report.notes.append("LLM-proposed steps: " + " | ".join(llm_plan.steps))
-    elif task_request:
+    elif task_request and startup_blocks == 0:
         report.notes.append("No optional free LLM plan was produced; deterministic bounded task planning remains the fallback and no paid model is used.")
     if action_proposal:
         report.notes.append(f"Action boundary: status={action_proposal.status.value}; approval_required={action_proposal.requires_approval}; reason={action_proposal.reason}")
