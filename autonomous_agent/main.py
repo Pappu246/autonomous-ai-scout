@@ -65,7 +65,7 @@ def _benchmark_candidates(candidates):
     return eligible[:_benchmark_limit()]
 
 
-def run() -> ScoutReport:
+def run(release_findings=None) -> ScoutReport:
     registry = load_registry()
     store = StateStore(STATE_PATH)
     previous = store.load()
@@ -78,7 +78,8 @@ def run() -> ScoutReport:
     candidates = discover_official_changes(candidates, previous_sources)
     verified = [verify_candidate(c) for c in candidates]
 
-    release_findings = discover_releases(registry.get("providers", []), previous.get("release_hashes", {}))
+    if release_findings is None:
+        release_findings = discover_releases(registry.get("providers", []), previous.get("release_hashes", {}))
 
     if os.getenv("ENABLE_FREE_BENCHMARKS", "false").lower() == "true":
         benchmarks = []
@@ -162,13 +163,16 @@ def run() -> ScoutReport:
 
 
 def main() -> int:
-    report = run()
+    registry = load_registry()
+    previous = StateStore(STATE_PATH).load()
+    release_findings = discover_releases(registry.get("providers", []), previous.get("release_hashes", {}))
+    report = run(release_findings=release_findings)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     rendered = render_markdown(report)
     REPORT_PATH.write_text(rendered, encoding="utf-8")
     previous = StateStore(STATE_PATH).load()
     hashes = {str(m.source_url): m.source_hash for m in report.models if m.source_hash}
-    release_hashes = {f.source_url: f.digest for f in discover_releases(load_registry().get("providers", []), previous.get("release_hashes", {}))}
+    release_hashes = {f.source_url: f.digest for f in release_findings}
     StateStore(STATE_PATH).save({
         "last_run": report.generated_at.isoformat(),
         "meaningful_change": report.meaningful_change,
