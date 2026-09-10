@@ -12,6 +12,7 @@ def test_project_profile_classifies_ecosystems_and_signals(monkeypatch):
                 {"name": "package-lock.json", "type": "file"},
                 {"name": "Dockerfile", "type": "file"},
                 {"name": "LICENSE", "type": "file"},
+                {"name": ".github", "type": "dir"},
             ]
         if path.endswith("/languages"):
             return {"TypeScript": 1200, "JavaScript": 300}
@@ -27,7 +28,7 @@ def test_project_profile_classifies_ecosystems_and_signals(monkeypatch):
     assert profile["lockfiles"] == ["package-lock.json"]
     assert profile["has_readme"] is True
     assert profile["has_license"] is True
-    assert profile["has_ci_hint"] is False
+    assert profile["has_ci_hint"] is True
     assert profile["languages"] == {"TypeScript": 1200, "JavaScript": 300}
     assert len(profile["fingerprint"]) == 64
 
@@ -39,3 +40,4 @@ def test_project_profile_handles_api_failures_as_empty_signals(monkeypatch):
     assert profile["languages"] == {}
     assert profile["ecosystems"] == []
     assert profile["has_readme"] is False
+    assert profile["has_ci_hint"] is False
