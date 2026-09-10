@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from autonomous_agent.action_queue import PendingAction, build_action_proposal, enqueue_proposal, load_queue, prioritize_queue
+from autonomous_agent.approved_executor import ApprovalRecord, authorize_execution, execute_approved_action
 from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.evaluation import rank_benchmarks, score_benchmark
@@ -298,3 +300,48 @@ def test_provider_registry_includes_only_explicitly_free_openrouter_router():
     assert provider["models"] == ["openrouter/free"]
     assert config["policy"]["free_only"] is True
     assert config["policy"]["never_enable_paid_billing"] is True
+
+
+def _approved_action(steps=("inspect repository",)):
+    return PendingAction("action-123", "Inspect project", tuple(steps), "low", "explicit approval", "approved", datetime.now(timezone.utc).isoformat())
+
+
+def _approval(action_id="action-123", expired=False):
+    now = datetime.now(timezone.utc)
+    expires = now - timedelta(minutes=1) if expired else now + timedelta(hours=1)
+    return ApprovalRecord(action_id, now.isoformat(), expires.isoformat(), "user-approved-token")
+
+
+def test_approved_executor_requires_exact_approval_identity():
+    action = _approved_action()
+    decision = authorize_execution(action, _approval("different"))
+    assert not decision.allowed
+    assert "identity" in decision.reason
+
+
+def test_approved_executor_rejects_expired_approval():
+    action = _approved_action()
+    decision = authorize_execution(action, _approval(expired=True))
+    assert not decision.allowed
+    assert "expired" in decision.reason
+
+
+def test_approved_executor_rejects_forbidden_operations():
+    action = _approved_action(("deploy production",))
+    decision = authorize_execution(action, _approval())
+    assert not decision.allowed
+    assert "allowlist" in decision.reason or "forbidden" in decision.reason
+
+
+def test_approved_executor_allows_only_safe_boundary(tmp_path: Path):
+    action = _approved_action(("inspect repository", "run test suite"))
+    decision = execute_approved_action(action, _approval(), tmp_path)
+    assert decision.allowed
+    assert "read-only" in decision.reason
+
+
+def test_approved_executor_never_auto_approves(tmp_path: Path):
+    action = PendingAction("action-123", "Inspect project", ("inspect repository",), "low", "reason", "pending")
+    decision = execute_approved_action(action, _approval(), tmp_path)
+    assert not decision.allowed
+    assert "not explicitly approved" in decision.reason
