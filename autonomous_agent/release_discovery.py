@@ -38,6 +38,13 @@ def _visible_lines(text: str) -> list[str]:
 def _headline(text: str) -> str:
     """Extract a short deterministic release marker without leaking raw page markup."""
     lines = _visible_lines(text)
+
+    # Prefer an explicit release/changelog heading. A date heading often follows
+    # and is useful metadata, but is too generic to be the headline on its own.
+    for clean in lines:
+        if re.search(r"\b(?:release|released|changelog|version|launch|launched|deprecat|shutdown)\b", clean, re.I):
+            return clean[:240]
+
     visible_text = " ".join(lines)
     date_match = re.search(
         r"\b(?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2})\b",
@@ -46,9 +53,6 @@ def _headline(text: str) -> str:
     )
     if date_match:
         return date_match.group(0)
-    for clean in lines:
-        if re.search(r"\b(?:release|released|changelog|version|launch|launched|deprecat|shutdown)\b", clean, re.I):
-            return clean[:240]
     return "Official release source changed."
 
 
