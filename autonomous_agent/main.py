@@ -11,6 +11,7 @@ from .dependency_security import analyze_dependencies
 from .discovery import candidates_from_registry, discover_official_changes
 from .evaluation import score_benchmark
 from .github_audit import audit_owner
+from .improvement_engine import build_improvement_proposals
 from .llm_planner import plan_with_free_llm
 from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
@@ -92,16 +93,9 @@ def run() -> ScoutReport:
             b = by_model.get((candidate.provider, candidate.model))
             if b:
                 evaluation = score_benchmark(b)
-                verified[i] = candidate.model_copy(
-                    update={
-                        "benchmark_latency_ms": b.latency_ms,
-                        "benchmark_ok": b.success,
-                        "benchmark_score": evaluation.score,
-                    }
-                )
+                verified[i] = candidate.model_copy(update={"benchmark_latency_ms": b.latency_ms, "benchmark_ok": b.success, "benchmark_score": evaluation.score})
 
     route_decision = choose_model(verified, task_request) if task_request else None
-
     llm_plan = plan_with_free_llm(task_request, verified) if task_request else None
     action_proposal = None
     if task_request:
@@ -117,6 +111,8 @@ def run() -> ScoutReport:
     findings.extend(analyze_project(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
     findings.extend(analyze_dependencies(ROOT, repository=os.getenv("GITHUB_REPOSITORY", "local")))
 
+    improvement_proposals = build_improvement_proposals(findings)
+
     free_count = sum(1 for c in verified if c.access_status.value == "verified_free")
     opportunities = build_opportunities(owner, len({f.repository for f in findings}), sum(1 for f in findings if f.severity == "high"), free_count)
     history = update_history(OPPORTUNITY_HISTORY_PATH, opportunities)
@@ -126,6 +122,9 @@ def run() -> ScoutReport:
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append(f"Free benchmarks are capped at {_benchmark_limit()} calls per run; results are scored deterministically for routing and reporting.")
+    report.notes.append(f"Autonomous improvement engine generated {len(improvement_proposals)} bounded proposals from actionable findings; all write/deploy steps remain approval-gated.")
+    for proposal in improvement_proposals[:5]:
+        report.notes.append(f"Improvement proposal: {proposal.repository} — {proposal.title} [{proposal.risk} risk]")
     if route_decision:
         if route_decision.model:
             report.notes.append(f"Task router selected {route_decision.model.provider}/{route_decision.model.model} with score {route_decision.score:.1f}: " + "; ".join(route_decision.reasons))
@@ -169,17 +168,7 @@ def main() -> int:
     previous = StateStore(STATE_PATH).load()
     hashes = {str(m.source_url): m.source_hash for m in report.models if m.source_hash}
     release_hashes = {f.source_url: f.digest for f in discover_releases(load_registry().get("providers", []), previous.get("release_hashes", {}))}
-    StateStore(STATE_PATH).save({
-        "last_run": report.generated_at.isoformat(),
-        "meaningful_change": report.meaningful_change,
-        "fingerprint": _fingerprint(report),
-        "source_hashes": {**previous.get("source_hashes", {}), **hashes},
-        "release_hashes": {**previous.get("release_hashes", {}), **release_hashes},
-        "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"],
-        "report_path": str(REPORT_PATH),
-        "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH),
-        "last_task": os.getenv("TASK_REQUEST", "").strip(),
-    })
+    StateStore(STATE_PATH).save({"last_run": report.generated_at.isoformat(), "meaningful_change": report.meaningful_change, "fingerprint": _fingerprint(report), "source_hashes": {**previous.get("source_hashes", {}), **hashes}, "release_hashes": {**previous.get("release_hashes", {}), **release_hashes}, "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"], "report_path": str(REPORT_PATH), "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH), "last_task": os.getenv("TASK_REQUEST", "").strip()})
     if report.meaningful_change and os.getenv("REPORT_EMAIL"):
         send_report("Autonomous AI Scout — meaningful update", rendered)
     print(rendered)
