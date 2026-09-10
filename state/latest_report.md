@@ -1,10 +1,11 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-10T19:17:31.221180+00:00
+Generated: 2026-09-10T19:36:12.417647+00:00
 Meaningful change: YES
 
 ## Verified free candidates
 
+- **gemini / gemini-3.7-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 - **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
@@ -22,8 +23,8 @@ Meaningful change: YES
 
 ## Monetization / opportunity ideas
 
-- **Build a free-model AI toolkit** (68/100) — 4 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
-- **Turn repeated project maintenance into a service** (63/100) — The scout sees 3 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
+- **Build a free-model AI toolkit** (73/100) — 5 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
+- **Turn repeated project maintenance into a service** (68/100) — The scout sees 3 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
 
 ## Notes
 
@@ -43,5 +44,4 @@ Meaningful change: YES
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — <link rel="apple-touch-icon" href="https://www.gstatic.com/devrel-devsite/prod/v5e941f15ff6710591bee254538202655020220785b40a3f4d932e94adb9f6037/googledevai/images/touchicon-180-new.png"><link rel="canonical" href="https://ai.google.dev/gem (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — <!DOCTYPE html><html lang="en" class="__variable_f367f3 __variable_dd5b2f"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/><link rel="preload" href="/_next/static/media/17e5 (https://console.groq.com/docs/changelog)
-- Official release change: openrouter — $RC=function(a,b){if(b=document.getElementById(b))(a=document.getElementById(a))?(a.previousSibling.data="$~",$RB.push(a,b),2===$RB.length&&("number"!==typeof $RT?requestAnimationFrame($RV.bind(null,$RB)):(a=performance.now(),setTimeout($RV (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
