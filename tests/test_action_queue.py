@@ -4,6 +4,7 @@ import pytest
 
 from autonomous_agent.action_queue import ActionStatus, build_action_proposal, enqueue_proposal, load_queue
 from autonomous_agent.approval import pending_actions, set_decision
+from autonomous_agent.approval_audit import read_audit
 
 
 def test_sensitive_task_cannot_lower_approval():
@@ -78,3 +79,30 @@ def test_invalid_decision_is_rejected(tmp_path: Path):
 def test_unknown_action_cannot_be_approved(tmp_path: Path):
     with pytest.raises(KeyError):
         set_decision(tmp_path / "queue.json", "missing", "approved")
+
+
+def test_approval_can_write_a_metadata_only_audit_record(tmp_path: Path):
+    queue_path = tmp_path / "queue.json"
+    audit_path = tmp_path / "audit.jsonl"
+    proposal = build_action_proposal("fix bug", ("inspect", "edit source"))
+    action = enqueue_proposal(queue_path, proposal)
+    assert action is not None
+    set_decision(queue_path, action.id, "approved", audit_path=audit_path)
+    records = read_audit(audit_path)
+    assert len(records) == 1
+    assert records[0]["action_id"] == action.id
+    assert records[0]["decision"] == "approved"
+    assert "timestamp" in records[0]
+    assert "hash" in records[0]
+    assert "task" not in records[0]
+    assert "steps" not in records[0]
+
+
+def test_audit_records_chain_in_order(tmp_path: Path):
+    audit_path = tmp_path / "audit.jsonl"
+    from autonomous_agent.approval_audit import append_decision
+    append_decision(audit_path, "one", "approved")
+    append_decision(audit_path, "two", "rejected")
+    records = read_audit(audit_path)
+    assert records[0]["previous_hash"] == ""
+    assert records[1]["previous_hash"] == records[0]["hash"]
