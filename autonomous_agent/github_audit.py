@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from .project_registry import build_project_registry
+
 
 API = "https://api.github.com"
 TIMEOUT = httpx.Timeout(15.0, connect=8.0)
+PROJECT_REGISTRY_PATH = Path(os.getenv("SCOUT_PROJECT_REGISTRY_PATH", "state/project_registry.json"))
 
 
 def _headers() -> dict[str, str]:
@@ -59,12 +64,67 @@ def audit_repository(full_name: str) -> list[dict[str, Any]]:
     return findings
 
 
+def _load_project_registry() -> dict[str, dict[str, Any]]:
+    try:
+        data = json.loads(PROJECT_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_project_registry(projects: dict[str, dict[str, Any]]) -> None:
+    PROJECT_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PROJECT_REGISTRY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(projects, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(PROJECT_REGISTRY_PATH)
+
+
 def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, Any]]:
     exclude = exclude or set()
     results: list[dict[str, Any]] = []
-    for repo in inventory_repositories(owner):
-        name = repo.get("full_name", "")
-        if name in exclude:
+
+    previous_registry = _load_project_registry()
+    projects, changes = build_project_registry(owner, previous_registry)
+    _save_project_registry(projects)
+
+    for name in changes["new"]:
+        results.append({
+            "repository": name,
+            "severity": "info",
+            "title": "New GitHub repository discovered",
+            "detail": "The project registry detected a repository not present in the previous persisted baseline.",
+            "recommendation": "Classify and establish a health baseline during the next project-intelligence cycle.",
+        })
+    for name in changes["changed"]:
+        results.append({
+            "repository": name,
+            "severity": "info",
+            "title": "GitHub repository metadata changed",
+            "detail": "Tracked repository metadata differs from the previous persisted baseline.",
+            "recommendation": "Re-run project-specific intelligence and compare health/security signals.",
+        })
+    for name in changes["removed"]:
+        results.append({
+            "repository": name,
+            "severity": "warning",
+            "title": "GitHub repository no longer discovered",
+            "detail": "The repository existed in the previous project registry but is not present now.",
+            "recommendation": "Confirm whether it was deleted, transferred, or access was revoked before taking action.",
+        })
+    for name, profile in sorted(projects.items()):
+        if profile.get("archived"):
+            results.append({
+                "repository": name,
+                "severity": "info",
+                "title": "Repository is archived",
+                "detail": "GitHub marks this repository as archived.",
+                "recommendation": "Exclude it from active improvement work unless explicitly reactivated.",
+            })
+
+    # Use the authoritative project registry for deep audits. This means authorized
+    # private repositories discovered through /user/repos are not silently skipped.
+    for name, profile in sorted(projects.items()):
+        if name in exclude or profile.get("fork") or profile.get("archived"):
             continue
         for finding in audit_repository(name):
             finding["repository"] = name
