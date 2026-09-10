@@ -47,6 +47,24 @@ def _fingerprint(report: ScoutReport) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _benchmark_limit() -> int:
+    """Return a bounded per-run cap for free benchmark calls."""
+    raw = os.getenv("MAX_FREE_BENCHMARKS", "2").strip()
+    try:
+        return max(0, min(int(raw), 10))
+    except ValueError:
+        return 2
+
+
+def _benchmark_candidates(candidates):
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.access_status.value == "verified_free" and candidate.model != "discovery-pending"
+    ]
+    return eligible[:_benchmark_limit()]
+
+
 def run() -> ScoutReport:
     registry = load_registry()
     store = StateStore(STATE_PATH)
@@ -64,9 +82,7 @@ def run() -> ScoutReport:
 
     if os.getenv("ENABLE_FREE_BENCHMARKS", "false").lower() == "true":
         benchmarks = []
-        for candidate in verified:
-            if candidate.access_status.value != "verified_free" or candidate.model == "discovery-pending":
-                continue
+        for candidate in _benchmark_candidates(verified):
             if candidate.provider == "gemini":
                 benchmarks.append(benchmark_gemini(candidate.model))
             elif candidate.provider == "groq":
@@ -109,7 +125,7 @@ def run() -> ScoutReport:
     report.meaningful_change = fingerprint != previous.get("fingerprint", "") or any(f.changed for f in release_findings)
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
-    report.notes.append("Benchmark results are scored deterministically and stored on each candidate for routing and reporting.")
+    report.notes.append(f"Free benchmarks are capped at {_benchmark_limit()} calls per run; results are scored deterministically for routing and reporting.")
     if route_decision:
         if route_decision.model:
             report.notes.append(f"Task router selected {route_decision.model.provider}/{route_decision.model.model} with score {route_decision.score:.1f}: " + "; ".join(route_decision.reasons))
