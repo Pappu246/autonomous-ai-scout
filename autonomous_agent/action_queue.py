@@ -33,6 +33,10 @@ class PendingAction:
     status: str = "pending"
 
 
+RISK_PRIORITY = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+MAX_PENDING_ACTIONS = 50
+
+
 def _sensitive(text: str) -> bool:
     lowered = text.lower()
     markers = (
@@ -81,14 +85,24 @@ def load_queue(path: Path) -> list[PendingAction]:
     return result
 
 
+def prioritize_queue(queue: list[PendingAction]) -> list[PendingAction]:
+    """Return pending actions in risk-first order without changing their approval state."""
+    return sorted(queue, key=lambda item: (RISK_PRIORITY.get(item.risk.lower(), 2), item.id))
+
+
 def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium") -> PendingAction | None:
     if not proposal.requires_approval:
         return None
-    action = PendingAction(_id(proposal, risk), proposal.task, proposal.steps, risk, proposal.reason)
+    normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
+    action = PendingAction(_id(proposal, normalized_risk), proposal.task, proposal.steps, normalized_risk, proposal.reason)
     queue = load_queue(path)
-    if any(item.id == action.id and item.status == "pending" for item in queue):
-        return action
+    for item in queue:
+        if item.id == action.id and item.status == "pending":
+            return item
     queue.append(action)
+    pending = prioritize_queue([item for item in queue if item.status == "pending"])
+    non_pending = [item for item in queue if item.status != "pending"]
+    queue = (pending[:MAX_PENDING_ACTIONS] + non_pending)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
     return action
