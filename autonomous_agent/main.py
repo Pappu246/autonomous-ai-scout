@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 from .action_queue import build_action_proposal, enqueue_proposal
@@ -168,7 +169,7 @@ def main() -> int:
     previous = StateStore(STATE_PATH).load()
     hashes = {str(m.source_url): m.source_hash for m in report.models if m.source_hash}
     release_hashes = {f.source_url: f.digest for f in discover_releases(load_registry().get("providers", []), previous.get("release_hashes", {}))}
-    StateStore(STATE_PATH).save({"last_run": report.generated_at.isoformat(), "meaningful_change": report.meaningful_change, "fingerprint": _fingerprint(report), "source_hashes": {**previous.get("source_hashes", {}), **hashes}, "release_hashes": {**previous.get("release_hashes", {}), **release_hashes}, "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"], "report_path": str(REPORT_PATH), "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH), "last_task": os.getenv("TASK_REQUEST", "").strip()})
+    StateStore(STATE_PATH).save({"last_run": report.generated_at.isoformat(), "meaningful_change": report.meaningful_change, "fingerprint": _fingerprint(report), "source_hashes": {**previous.get("source_hashes", {}), **hashes}, "release_hashes": {**previous.get("release_hashes", {}), **release_hashes}, "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"], "report_path": str(REPORT_PATH), "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH), "last_task": os.getenv("TASK_REQUEST", "").strip(), "improvement_proposals": [asdict(p) for p in build_improvement_proposals(report.project_findings)]})
     if report.meaningful_change and os.getenv("REPORT_EMAIL"):
         send_report("Autonomous AI Scout — meaningful update", rendered)
     print(rendered)
