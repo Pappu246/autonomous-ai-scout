@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from autonomous_agent.benchmark import benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.models import AccessStatus, ModelCandidate
 from autonomous_agent.opportunities import score_opportunity
@@ -75,3 +76,11 @@ def test_dependency_security_detects_node_install_hook(tmp_path: Path):
     (tmp_path / "package.json").write_text('{"scripts":{"postinstall":"node setup.js"},"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
     findings = analyze_dependencies(tmp_path, "demo")
     assert any(f.title == "Node install lifecycle scripts present" and f.severity == "medium" for f in findings)
+
+
+def test_groq_benchmark_skips_without_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    result = benchmark_groq("openai/gpt-oss-20b")
+    assert not result.attempted
+    assert not result.success
+    assert result.latency_ms is None
