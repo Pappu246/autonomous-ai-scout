@@ -27,11 +27,11 @@ PROFILE_FILES = (
 )
 
 
-def _root_file_names(full_name: str) -> set[str]:
+def _root_entries(full_name: str) -> set[str]:
     data = gh_get(f"/repos/{full_name}/contents/")
     if not isinstance(data, list):
         return set()
-    return {str(item.get("name", "")) for item in data if item.get("type") == "file"}
+    return {str(item.get("name", "")) for item in data if item.get("name")}
 
 
 def _languages(full_name: str) -> dict[str, int]:
@@ -44,26 +44,26 @@ def _languages(full_name: str) -> dict[str, int]:
 def build_project_profile(full_name: str, registry_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a bounded, read-only technical profile from repository metadata."""
     registry_profile = registry_profile or {}
-    files = _root_file_names(full_name)
+    entries = _root_entries(full_name)
     languages = _languages(full_name)
 
     ecosystems: list[str] = []
-    if {"pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock"} & files:
+    if {"pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock"} & entries:
         ecosystems.append("python")
-    if "package.json" in files:
+    if "package.json" in entries:
         ecosystems.append("node")
-    if "Cargo.toml" in files:
+    if "Cargo.toml" in entries:
         ecosystems.append("rust")
-    if "go.mod" in files:
+    if "go.mod" in entries:
         ecosystems.append("go")
-    if {"pom.xml", "build.gradle"} & files:
+    if {"pom.xml", "build.gradle"} & entries:
         ecosystems.append("jvm")
-    if "Dockerfile" in files:
+    if "Dockerfile" in entries:
         ecosystems.append("container")
 
-    lockfiles = sorted(files & {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "poetry.lock", "uv.lock"})
-    ci_present = any(name.startswith(".github") for name in files)
-    license_present = any(name in files for name in {"LICENSE", "LICENSE.md", "LICENSE.txt"}) or bool(registry_profile.get("license"))
+    lockfiles = sorted(entries & {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "poetry.lock", "uv.lock"})
+    ci_present = ".github" in entries
+    license_present = any(name in entries for name in {"LICENSE", "LICENSE.md", "LICENSE.txt"}) or bool(registry_profile.get("license"))
 
     profile = {
         "full_name": full_name,
@@ -74,10 +74,10 @@ def build_project_profile(full_name: str, registry_profile: dict[str, Any] | Non
         "default_branch": registry_profile.get("default_branch", ""),
         "language": registry_profile.get("language"),
         "languages": languages,
-        "root_files": sorted(name for name in files if name in PROFILE_FILES),
+        "root_files": sorted(name for name in entries if name in PROFILE_FILES),
         "ecosystems": ecosystems,
         "lockfiles": lockfiles,
-        "has_readme": "README.md" in files,
+        "has_readme": "README.md" in entries,
         "has_license": license_present,
         "has_ci_hint": ci_present,
     }
