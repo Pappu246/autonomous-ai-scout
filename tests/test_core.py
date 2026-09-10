@@ -20,6 +20,7 @@ from autonomous_agent.router import choose_model
 from autonomous_agent.sources import SourceCheck, source_has_free_signal
 from autonomous_agent.task_engine import TaskIntent, plan_task
 from autonomous_agent.verify import free_candidates
+from autonomous_agent.lifecycle_integration import record_transition
 
 
 def test_free_signal_requires_positive_and_no_negative_signal():
@@ -317,6 +318,19 @@ def _approval(action=None, action_id="action-123", expired=False):
     return ApprovalRecord(action_id, now.isoformat(), expires.isoformat(), "user-approved-token")
 
 
+def _seed_execution_lifecycle(path: Path, action_id: str = "action-123"):
+    transitions = [
+        ("proposed", "validated"),
+        ("validated", "tested"),
+        ("tested", "secured"),
+        ("secured", "policy_checked"),
+        ("policy_checked", "approved"),
+    ]
+    for current, target in transitions:
+        ok, reason = record_transition(path, action_id, current, target)
+        assert ok, reason
+
+
 def test_approved_executor_requires_exact_approval_identity():
     action = _approved_action()
     decision = authorize_execution(action, _approval(action_id="different"))
@@ -348,7 +362,15 @@ def test_approved_executor_requires_consumption_store(tmp_path: Path):
 def test_approved_executor_runs_safe_sandbox_operation(tmp_path: Path):
     (tmp_path / "README.txt").write_text("hello", encoding="utf-8")
     action = _approved_action(("inspect repository",))
-    decision = execute_approved_action(action, _approval(action=action), tmp_path, claim_store=tmp_path / "claims")
+    lifecycle = tmp_path / "lifecycle.jsonl"
+    _seed_execution_lifecycle(lifecycle, action.id)
+    decision = execute_approved_action(
+        action,
+        _approval(action=action),
+        tmp_path,
+        claim_store=tmp_path / "claims",
+        lifecycle_path=lifecycle,
+    )
     assert decision.allowed
     assert "sandbox" in decision.reason
     assert len(decision.records) == 1

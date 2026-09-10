@@ -157,3 +157,25 @@ def load_action_events(path: Path, action_id: str) -> tuple[LifecycleEvent, ...]
             event["event_hash"],
         ))
     return tuple(result)
+
+
+def action_state(path: Path, action_id: str) -> LifecycleState | None:
+    """Return the last trusted state for an action, or None for missing/invalid history."""
+    if not isinstance(action_id, str) or not action_id.strip() or not verify_ledger(path):
+        return None
+    events = load_action_events(path, action_id)
+    if not events:
+        return None
+    try:
+        return LifecycleState(events[-1].to_state)
+    except (TypeError, ValueError):
+        return None
+
+
+def verify_action_state(path: Path, action_id: str, expected: LifecycleState | str) -> bool:
+    """Fail closed unless the trusted ledger ends exactly at the expected action state."""
+    try:
+        expected_state = LifecycleState(expected)
+    except (TypeError, ValueError):
+        return False
+    return action_state(path, action_id) == expected_state

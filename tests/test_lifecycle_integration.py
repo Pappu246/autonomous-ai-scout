@@ -61,8 +61,16 @@ def test_execution_requires_and_advances_persisted_lifecycle(tmp_path: Path, mon
     calls = []
 
     class Result:
+        operation = "inspect"
         success = True
+        exit_status = 0
         output = "inspect ok"
+        output_truncated = False
+        command = ("inspect",)
+        verification_status = "verified"
+        started_at = "2026-09-10T10:01:00+00:00"
+        finished_at = "2026-09-10T10:01:01+00:00"
+        network_disabled = True
 
     def fake_run(operation, root, target=None):
         calls.append((operation, target))
@@ -108,3 +116,35 @@ def test_execution_blocks_before_consuming_claim_when_ledger_is_tampered(tmp_pat
     assert "lifecycle ledger" in decision.reason
     assert called == []
     assert not (tmp_path / "claims").exists()
+
+
+def test_failed_execution_is_terminally_blocked(tmp_path: Path, monkeypatch):
+    action = _action()
+    approval = ApprovalRecord.for_action(action, "opaque-token")
+    lifecycle = tmp_path / "lifecycle.jsonl"
+    _seed_to_approved(lifecycle)
+
+    class Result:
+        operation = "inspect"
+        success = False
+        exit_status = 1
+        output = "sandbox failure"
+        output_truncated = False
+        command = ("inspect",)
+        verification_status = "failed"
+        started_at = "2026-09-10T10:01:00+00:00"
+        finished_at = "2026-09-10T10:01:01+00:00"
+        network_disabled = True
+
+    monkeypatch.setattr("autonomous_agent.approved_executor.run_safe_operation", lambda *args: Result())
+    root = tmp_path / "project"
+    root.mkdir()
+    decision = execute_approved_action(
+        action,
+        approval,
+        root,
+        claim_store=tmp_path / "claims",
+        lifecycle_path=lifecycle,
+    )
+    assert not decision.allowed
+    assert require_state(lifecycle, ACTION_ID, LifecycleState.BLOCKED)[0]
