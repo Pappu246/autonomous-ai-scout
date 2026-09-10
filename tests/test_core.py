@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from autonomous_agent.dependency_security import analyze_dependencies
-from autonomous_agent.models import AccessStatus, ModelCandidate
+from autonomous_agent.models import AccessStatus, ModelCandidate, Opportunity
 from autonomous_agent.opportunities import score_opportunity
+from autonomous_agent.opportunity_history import trend_notes, update_history
 from autonomous_agent.project_intelligence import analyze_project
 from autonomous_agent.router import choose_model
 from autonomous_agent.sources import SourceCheck, source_has_free_signal
@@ -75,3 +76,22 @@ def test_dependency_security_detects_node_install_hook(tmp_path: Path):
     (tmp_path / "package.json").write_text('{"scripts":{"postinstall":"node setup.js"},"dependencies":{"x":"1.0.0"}}', encoding="utf-8")
     findings = analyze_dependencies(tmp_path, "demo")
     assert any(f.title == "Node install lifecycle scripts present" and f.severity == "medium" for f in findings)
+
+
+def test_opportunity_history_records_score_delta_and_caps_length(tmp_path: Path):
+    path = tmp_path / "history.json"
+    first = [Opportunity(title="A", description="a", score=40, next_step="x")]
+    second = [Opportunity(title="A", description="a", score=55, next_step="x")]
+    history = update_history(path, first)
+    history = update_history(path, second)
+    assert history[-1]["opportunities"][0]["score_delta"] == 15
+    for score in range(40):
+        update_history(path, [Opportunity(title="A", description="a", score=score, next_step="x")])
+    assert len(update_history(path, first)) == 30
+
+
+def test_opportunity_trend_notes_report_changes(tmp_path: Path):
+    path = tmp_path / "history.json"
+    update_history(path, [Opportunity(title="A", description="a", score=40, next_step="x")])
+    history = update_history(path, [Opportunity(title="A", description="a", score=45, next_step="x")])
+    assert any("A is up 5 points" in note for note in trend_notes(history))
