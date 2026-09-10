@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from autonomous_agent.action_queue import PendingAction, build_action_proposal, enqueue_proposal, load_queue, prioritize_queue
 from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
 from autonomous_agent.dependency_security import analyze_dependencies
 from autonomous_agent.evaluation import rank_benchmarks, score_benchmark
@@ -157,6 +158,37 @@ def test_improvement_engine_deduplicates_and_caps_output():
     finding = ProjectFinding(repository="demo", severity="medium", title="Node project has no lockfile", detail="missing", recommendation="add one")
     proposals = build_improvement_proposals([finding, finding], limit=20)
     assert len(proposals) == 1
+
+
+def test_approval_queue_deduplicates_identical_pending_actions(tmp_path: Path):
+    path = tmp_path / "approval_queue.json"
+    proposal = build_action_proposal("fix the bug", ("edit the source",))
+    first = enqueue_proposal(path, proposal, "high")
+    second = enqueue_proposal(path, proposal, "high")
+    assert first is not None and second is not None
+    assert first.id == second.id
+    assert len(load_queue(path)) == 1
+    assert load_queue(path)[0].status == "pending"
+
+
+def test_approval_queue_prioritizes_risk_without_auto_approval():
+    queue = [
+        PendingAction("m", "medium", (), "medium", "reason"),
+        PendingAction("h", "high", (), "high", "reason"),
+        PendingAction("l", "low", (), "low", "reason"),
+    ]
+    ordered = prioritize_queue(queue)
+    assert [item.id for item in ordered] == ["h", "m", "l"]
+    assert all(item.status == "pending" for item in ordered)
+
+
+def test_approval_queue_caps_pending_actions(tmp_path: Path):
+    path = tmp_path / "approval_queue.json"
+    for i in range(60):
+        proposal = build_action_proposal(f"fix bug {i}", ("edit the source",))
+        enqueue_proposal(path, proposal, "low")
+    queue = load_queue(path)
+    assert len(queue) == 50
 
 
 def test_opportunity_history_records_score_delta_and_caps_length(tmp_path: Path):
