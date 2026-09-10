@@ -16,9 +16,13 @@ def append_decision(path: Path, action_id: str, decision: str) -> None:
     previous_hash = ""
     if path.exists():
         try:
-            previous = json.loads(path.read_text(encoding="utf-8"))
-            if previous:
-                previous_hash = str(previous[-1].get("hash", ""))
+            for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+                if not line.strip():
+                    continue
+                previous = json.loads(line)
+                if isinstance(previous, dict):
+                    previous_hash = str(previous.get("hash", ""))
+                    break
         except (OSError, ValueError):
             previous_hash = ""
     record["previous_hash"] = previous_hash
