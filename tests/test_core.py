@@ -152,3 +152,16 @@ def test_official_release_discovery_detects_hash_change(monkeypatch):
         {"https://official.example/changelog": "old-hash"},
     )
     assert findings[0].changed
+
+
+def test_benchmark_limit_defaults_and_clamps(monkeypatch):
+    from autonomous_agent.main import _benchmark_limit
+
+    monkeypatch.delenv("MAX_FREE_BENCHMARKS", raising=False)
+    assert _benchmark_limit() == 2
+    monkeypatch.setenv("MAX_FREE_BENCHMARKS", "99")
+    assert _benchmark_limit() == 10
+    monkeypatch.setenv("MAX_FREE_BENCHMARKS", "-4")
+    assert _benchmark_limit() == 0
+    monkeypatch.setenv("MAX_FREE_BENCHMARKS", "invalid")
+    assert _benchmark_limit() == 2
