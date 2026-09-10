@@ -176,9 +176,9 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
     if not trusted:
         return ExecutionDecision(False, reason)
 
-    claimed = claim_approval(approval, claim_store)
-    if not claimed.allowed:
-        return claimed
+    # Persist the lifecycle transition before consuming the approval claim. If a
+    # process crashes after this point, recovery sees CLAIMED and can safely
+    # terminally block instead of replaying the action.
     persisted, transition_reason = record_transition(
         lifecycle_path,
         action.id,
@@ -187,6 +187,11 @@ def execute_approved_action(action: PendingAction, approval: ApprovalRecord, roo
     )
     if not persisted:
         return ExecutionDecision(False, transition_reason)
+
+    claimed = claim_approval(approval, claim_store)
+    if not claimed.allowed:
+        record_transition(lifecycle_path, action.id, LifecycleState.CLAIMED, LifecycleState.BLOCKED)
+        return claimed
 
     records: list[ExecutionRecord] = []
     approval_id = approval_claim_id(approval)
