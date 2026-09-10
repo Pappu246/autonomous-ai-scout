@@ -19,6 +19,7 @@ from .patch_proposals import build_patch_proposal, save_proposal
 from .project_intelligence import analyze_project
 from .release_discovery import discover_releases
 from .reporting import render_markdown
+from .router import choose_model
 from .state import StateStore
 from .task_engine import execute_task
 from .verify import verify_candidate
@@ -83,6 +84,8 @@ def run() -> ScoutReport:
                     }
                 )
 
+    route_decision = choose_model(verified, task_request) if task_request else None
+
     llm_plan = plan_with_free_llm(task_request, verified) if task_request else None
     action_proposal = None
     if task_request:
@@ -107,6 +110,11 @@ def run() -> ScoutReport:
     report.notes.append("Free-only policy is enforced. No paid billing, quota bypass, or production deployment is performed automatically.")
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append("Benchmark results are scored deterministically and stored on each candidate for routing and reporting.")
+    if route_decision:
+        if route_decision.model:
+            report.notes.append(f"Task router selected {route_decision.model.provider}/{route_decision.model.model} with score {route_decision.score:.1f}: " + "; ".join(route_decision.reasons))
+        else:
+            report.notes.append("Task router found no verified-free model; no paid or unverified fallback was selected.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
     report.notes.append("Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.")
