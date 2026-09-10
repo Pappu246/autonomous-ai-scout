@@ -17,6 +17,7 @@ def _score(candidate: ModelCandidate, task: str) -> tuple[float, list[str]]:
         return -1.0, ["not verified free"]
 
     text = task.lower()
+    model_text = f"{candidate.provider} {candidate.model}".lower()
     score = 50.0
     reasons = ["verified free"]
 
@@ -35,11 +36,17 @@ def _score(candidate: ModelCandidate, task: str) -> tuple[float, list[str]]:
             score -= 10
             reasons.append("high measured latency")
 
-    model_text = f"{candidate.provider} {candidate.model}".lower()
-    if any(word in text for word in ("code", "coding", "program", "debug")) and any(word in model_text for word in ("code", "coder", "qwen", "gpt-oss")):
+    coding = any(word in text for word in ("code", "coding", "program", "debug", "developer"))
+    reasoning = any(word in text for word in ("reason", "analyze", "analysis", "logic", "math", "research"))
+    speed = any(word in text for word in ("fast", "quick", "latency", "speed"))
+
+    if coding and any(word in model_text for word in ("code", "coder", "qwen", "gpt-oss")):
         score += 10
         reasons.append("task/model fit: coding")
-    if any(word in text for word in ("fast", "quick", "latency")) and candidate.benchmark_latency_ms is not None:
+    if reasoning and any(word in model_text for word in ("qwen", "gpt-oss", "reason")):
+        score += 8
+        reasons.append("task/model fit: reasoning")
+    if speed and candidate.benchmark_latency_ms is not None:
         score += max(0.0, 10.0 - candidate.benchmark_latency_ms / 1000.0)
         reasons.append("task fit: speed")
 
@@ -47,10 +54,14 @@ def _score(candidate: ModelCandidate, task: str) -> tuple[float, list[str]]:
 
 
 def choose_model(candidates: list[ModelCandidate], task: str) -> RouteDecision:
-    """Choose the best currently verified-free candidate without paid fallback."""
+    """Choose the best currently verified-free candidate with deterministic task-aware fallback."""
     ranked = [(_score(candidate, task), candidate) for candidate in candidates]
     ranked = [item for item in ranked if item[0][0] >= 0]
     if not ranked:
         return RouteDecision(None, 0.0, ("no verified-free model available",))
-    (score, reasons), candidate = max(ranked, key=lambda item: (item[0][0], item[1].provider, item[1].model))
+
+    (score, reasons), candidate = max(
+        ranked,
+        key=lambda item: (item[0][0], item[1].benchmark_ok is True, item[1].provider, item[1].model),
+    )
     return RouteDecision(candidate, score, tuple(reasons))
