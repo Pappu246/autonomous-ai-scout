@@ -1,6 +1,6 @@
 # Autonomous AI Scout
 
-A free-first autonomous AI engineering scout. It runs on a schedule, verifies legitimate free AI access from official provider sources, benchmarks configured free models when credentials are explicitly supplied, audits the owner's public GitHub projects, scores practical opportunities, tracks source changes, and can send meaningful reports by Gmail SMTP.
+A free-first autonomous AI engineering scout. It runs on a schedule, verifies legitimate free AI access from official provider sources, benchmarks configured free models when credentials are explicitly supplied, audits the owner's public GitHub projects, scores practical opportunities, tracks source changes, records opportunity score trends, and can send meaningful reports by Gmail SMTP.
 
 ## Safety contract
 
@@ -19,7 +19,7 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 2. Gemini and Groq registry with explicit model allowlists; Hugging Face remains disabled until its billing/free-credit semantics are explicitly handled.
 3. Safe Gemini benchmark with no paid retry.
 4. GitHub owner repository inventory and engineering findings.
-5. Opportunity/monetization scoring.
+5. Opportunity/monetization scoring with persistent score trend history.
 6. Persistent JSON state and Markdown report.
 7. Hourly GitHub Actions execution.
 8. Optional Gmail SMTP delivery only when the required secrets exist.
@@ -47,8 +47,7 @@ If these are absent, the agent continues in discovery/audit/report mode and does
 
 - broader official changelog/release discovery
 - richer multi-provider benchmark adapters
-- project dependency/security analysis
-- opportunity deduplication and trend history
+- opportunity deduplication
 - sandboxed patch generation and tests
 - approval-gated PR creation
 - dashboard and self-improvement evaluation loop

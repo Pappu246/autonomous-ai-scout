@@ -13,6 +13,7 @@ from .github_audit import audit_owner
 from .llm_planner import plan_with_free_llm
 from .models import ProjectFinding, ScoutReport
 from .opportunities import build_opportunities
+from .opportunity_history import trend_notes, update_history
 from .patch_proposals import build_patch_proposal, save_proposal
 from .project_intelligence import analyze_project
 from .reporting import render_markdown
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "providers.json"
 REPORT_PATH = ROOT / "state" / "latest_report.md"
 STATE_PATH = ROOT / "state" / "scout_state.json"
+OPPORTUNITY_HISTORY_PATH = ROOT / "state" / "opportunity_history.json"
 ACTION_QUEUE_PATH = ROOT / "state" / "approval_queue.json"
 PATCH_PROPOSAL_PATH = ROOT / "state" / "patch_proposal.json"
 
@@ -83,6 +85,7 @@ def run() -> ScoutReport:
 
     free_count = sum(1 for c in verified if c.access_status.value == "verified_free")
     opportunities = build_opportunities(owner, len({f.repository for f in findings}), sum(1 for f in findings if f.severity == "high"), free_count)
+    history = update_history(OPPORTUNITY_HISTORY_PATH, opportunities)
     report = ScoutReport(models=verified, project_findings=findings, opportunities=opportunities)
     fingerprint = _fingerprint(report)
     report.meaningful_change = fingerprint != previous.get("fingerprint", "")
@@ -90,6 +93,7 @@ def run() -> ScoutReport:
     report.notes.append("Benchmarks are opt-in with ENABLE_FREE_BENCHMARKS=true; missing keys or disabled benchmarking never trigger paid fallback.")
     report.notes.append("Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.")
     report.notes.append("Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.")
+    report.notes.extend(trend_notes(history))
     if task_result:
         report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
         report.notes.append(f"Task plan: {task_result.plan.explanation}")
@@ -127,7 +131,7 @@ def main() -> int:
         "source_hashes": {**previous.get("source_hashes", {}), **hashes},
         "verified_free_models": [f"{m.provider}/{m.model}" for m in report.models if m.access_status.value == "verified_free"],
         "report_path": str(REPORT_PATH),
-        "github_repository": os.getenv("GITHUB_REPOSITORY", ""),
+        "opportunity_history_path": str(OPPORTUNITY_HISTORY_PATH),
         "last_task": os.getenv("TASK_REQUEST", "").strip(),
     })
     if report.meaningful_change and os.getenv("REPORT_EMAIL"):
