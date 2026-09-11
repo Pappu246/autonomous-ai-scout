@@ -78,7 +78,7 @@ class CrossProjectMemory:
         return self.record(MemoryEvent(project,"finding",fingerprint,status,{"finding_digest":_digest(finding),"severity":severity}))
     def record_recommendation(self,project,recommendation,*,status):return self.record(MemoryEvent(project,"recommendation",_digest(project,recommendation),status,{"recommendation_digest":_digest(recommendation)}))
     def recommendation_needed(self,project,recommendation):return not self.has(project=project,kind="recommendation",fingerprint=_digest(project,recommendation))
-    def record_improvement(self,project,improvement,*,status):return self.record(MemoryEvent(project,"improvement",_digest(project,improvement),status,{"improvement_digest":_digest(improvement)}))
+    def record_improvement(self,project,improvement,*,status):return self.record(MemoryEvent(project,"improvement",improvement,status,{"improvement_digest":_digest(improvement)}))
     def record_health_baseline(self,project,baseline):
         safe=_safe_data(baseline);return self.record(MemoryEvent(project,"health_baseline",_digest(project,safe),"observed",{"baseline":safe}))
     def change_detected(self,project,subject,fingerprint):
