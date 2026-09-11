@@ -12,9 +12,7 @@ from .task_planner import plan_task
 from .task_plan_models import TaskPlan
 from .tool_registry import ToolRegistry, REGISTRY
 
-
 _SECRET = re.compile(r"(?i)(?:api[_-]?key|token|password|secret|authorization)\s*[:=]\s*[^\s,;]+")
-
 
 class OrchestrationState(str, Enum):
     PLANNED = "planned"
@@ -27,13 +25,11 @@ class OrchestrationState(str, Enum):
     INTERRUPTED = "interrupted"
     VERIFICATION_FAILED = "verification_failed"
 
-
 @dataclass(frozen=True)
 class StructuredTask:
     task: str
     project: str | None = None
     metadata: Mapping[str, object] = None  # type: ignore[assignment]
-
 
 @dataclass(frozen=True)
 class OrchestrationStep:
@@ -41,7 +37,6 @@ class OrchestrationStep:
     tool_name: str
     status: OrchestrationState
     reason: str
-
 
 @dataclass(frozen=True)
 class OrchestrationReport:
@@ -71,19 +66,16 @@ class OrchestrationReport:
             "blocked_steps": self.blocked_steps,
         }
 
-
 class MemoryEvidence(Protocol):
     def learn(self, project: str, kind: str) -> object: ...
 
-
 class ConnectorDiscovery(Protocol):
+    def list(self) -> Iterable[object]: ...
     def get(self, identity: str) -> object | None: ...
     def resolve_tool(self, identity: str, tool_name: str) -> object | None: ...
 
-
 class ExistingExecutor(Protocol):
     def execute(self, *args: object, **kwargs: object) -> object: ...
-
 
 class TaskOrchestrator:
     """Coordinates existing planner/policy/executor boundaries; it owns no authority."""
@@ -102,7 +94,8 @@ class TaskOrchestrator:
         cleaned = _SECRET.sub("[REDACTED]", " ".join(task.task.strip().split()))
         if not cleaned:
             raise ValueError("task must be non-empty")
-        return StructuredTask(cleaned, task.project, {})
+        project = task.project.strip() if isinstance(task.project, str) and task.project.strip() else None
+        return StructuredTask(cleaned, project, {})
 
     @staticmethod
     def _digest(value: object) -> str:
@@ -117,28 +110,29 @@ class TaskOrchestrator:
     def orchestrate(self, task: StructuredTask | str, *, granted: Iterable[Capability | str] = (), explicitly_approved: bool = False, sandbox_available: bool = True, audit_available: bool = True) -> OrchestrationReport:
         safe, plan = self.plan(task, granted=granted, explicitly_approved=explicitly_approved, sandbox_available=sandbox_available, audit_available=audit_available)
         steps: list[OrchestrationStep] = []
+        connector_items = tuple(self._connectors.list()) if self._connectors is not None else ()
         for step in plan.steps:
             status = OrchestrationState.AUTHORIZED if step.authorization == "authorized" else OrchestrationState.BLOCKED
             reason = "authorized by current Tool Registry policy" if status is OrchestrationState.AUTHORIZED else "blocked by current Tool Registry policy"
             if self._connectors is not None:
-                # Connector metadata can only further constrain a registered tool.
-                exposed = False
-                for connector_id in ("github", "web_research", "files", "ai_providers", "project_repository"):
-                    if self._connectors.get(connector_id) is not None and self._connectors.resolve_tool(connector_id, step.tool_name) is not None:
-                        exposed = True
-                        break
+                exposed = any(
+                    bool(getattr(connector, "enabled", False)) and step.tool_name in tuple(getattr(connector, "registered_tools", ()))
+                    and self._connectors.resolve_tool(getattr(connector, "identity", ""), step.tool_name) is not None
+                    for connector in connector_items
+                )
                 if not exposed:
                     status, reason = OrchestrationState.BLOCKED, "no enabled connector exposes the registered tool"
             steps.append(OrchestrationStep(step.step_id, step.tool_name, status, reason))
         blocked = tuple(s.step_id for s in steps if s.status is OrchestrationState.BLOCKED)
-        approval = any(s.authorization != "authorized" and "approval" in plan.reason.lower() for s in plan.steps) or "approval" in plan.reason.lower()
+        approval = "approval" in plan.reason.lower()
         state = OrchestrationState.BLOCKED if blocked or not plan.executable else OrchestrationState.AUTHORIZED
         return OrchestrationReport(self._digest(safe.task), plan.audit.plan_digest, safe.task, plan.intent.value, safe.project, state, tuple(steps), approval, tuple(s.tool_name for s in plan.steps), blocked)
 
     def execute(self, report: OrchestrationReport, executor: ExistingExecutor | None = None) -> OrchestrationReport:
         if report.state is not OrchestrationState.AUTHORIZED:
             return report
+        # Main currently has no Phase-G executor. This method intentionally does not
+        # invent one; a future executor is injected only at the existing boundary.
         if executor is None:
             return OrchestrationReport(report.task_digest, report.plan_digest, report.objective, report.intent, report.project, OrchestrationState.BLOCKED, report.steps, report.approval_required, report.selected_tools, report.blocked_steps)
-        # The orchestrator never invokes tools itself; callers supply the already-approved existing executor.
         return report
