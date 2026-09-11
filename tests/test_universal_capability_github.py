@@ -36,3 +36,15 @@ def test_web_connector_compatibility_bounds():
     c=WebResearchConnector(lambda url,params=None:{"status":200,"content_type":"text/html","text":"hello"}); assert c.fetch("https://example.com")["text"]=="hello"
     with pytest.raises(WebConnectorError):c.fetch("https://user:password@example.com")
     with pytest.raises(WebConnectorError):c.fetch("https://example.com",timeout_seconds=31)
+
+def test_web_capability_rejects_network_capability_alias_without_tool_registration():
+    registry=web_capabilities(REGISTRY)
+    denied=registry.authorize("web:fetch",("network",))
+    assert denied.allowed is False
+    assert "unknown or disabled" in denied.reason
+
+def test_web_capabilities_use_existing_tool_registry_and_policy():
+    registry=web_capabilities(REGISTRY)
+    for capability_id in ("web:search", "web:read"):
+        assert not registry.authorize(capability_id,()).allowed
+        assert registry.authorize(capability_id,("web_research",)).allowed
