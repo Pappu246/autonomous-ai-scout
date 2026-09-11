@@ -37,7 +37,9 @@ def recover_execution(execution_id,audit_path):
     if _has_unfinished_execution(audit_path,execution_id):return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
     return ExecutionResult(ExecutionState.VERIFIED,"no unfinished execution requires recovery",0,(),str(audit_path))
 def _validate_web_tool(tool):
-    return (tool.capability==Capability.WEB_RESEARCH.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"web.search","web.read","web.extract","web.compare"})
+    network=tool.network_requirement.value
+    expected_network="required" if tool.name in {"web.search","web.read"} else "none"
+    return (tool.capability==Capability.WEB_RESEARCH.value and network==expected_network and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"web.search","web.read","web.extract","web.compare"})
 def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None)->ExecutionResult:
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
@@ -48,31 +50,20 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     results=[];total_attempts=0
     for step in plan.steps:
         tool=registry.get(step.tool_name)
-        if tool is None:
-            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="unknown tool",tool=step.tool_name);return ExecutionResult(ExecutionState.BLOCKED,f"unknown tool is blocked: {step.tool_name}",total_attempts,tuple(results),str(audit_path))
+        if tool is None:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="unknown tool",tool=step.tool_name);return ExecutionResult(ExecutionState.BLOCKED,f"unknown tool is blocked: {step.tool_name}",total_attempts,tuple(results),str(audit_path))
         decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=True)
-        if not decision.allowed:
-            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=decision.reason,tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"authorization blocked for {tool.name}: {decision.reason}",total_attempts,tuple(results),str(audit_path))
-        if not tool.safe_autonomous or tool.read_write_mode.value!="read_only":
-            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="tool is not safe for autonomous execution",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        if not decision.allowed:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=decision.reason,tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"authorization blocked for {tool.name}: {decision.reason}",total_attempts,tuple(results),str(audit_path))
+        if not tool.safe_autonomous or tool.read_write_mode.value!="read_only":_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="tool is not safe for autonomous execution",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
         try:capability=Capability(tool.capability);operation=_CAPABILITY_TO_OPERATION[capability]
-        except (ValueError,KeyError):
-            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="capability has no safe sandbox operation",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"no safe sandbox operation exists for {tool.name}",total_attempts,tuple(results),str(audit_path))
-        if capability is Capability.WEB_RESEARCH and not _validate_web_tool(tool):
-            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="web tool/sandbox compatibility contract rejected",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"web tool is incompatible with the safe sandbox boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        except (ValueError,KeyError):_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="capability has no safe sandbox operation",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"no safe sandbox operation exists for {tool.name}",total_attempts,tuple(results),str(audit_path))
+        if capability is Capability.WEB_RESEARCH and not _validate_web_tool(tool):_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="web tool/sandbox compatibility contract rejected",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"web tool is incompatible with the safe sandbox boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
         for attempt in range(retries+1):
-            total_attempts+=1
-            request=None
+            total_attempts+=1;request=None
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):
-                candidate=web_request.get(tool.name,web_request)
-                request=candidate if isinstance(candidate,Mapping) else None
-            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=web_connector,web_request=request)
-            results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status)
+                candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None
+            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=web_connector,web_request=request);results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status)
             if result.success and result.verification_status=="verified":break
-        else:
-            _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted");return ExecutionResult(ExecutionState.FAILED,f"tool execution failed after bounded retries: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        else:_audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted");return ExecutionResult(ExecutionState.FAILED,f"tool execution failed after bounded retries: {tool.name}",total_attempts,tuple(results),str(audit_path))
         _remember(memory,project,tool=tool.name,execution_id=execution_id,outcome="verified",attempts=total_attempts)
-    if not results or any(not r.success or r.verification_status!="verified" for r in results):
-        _audit(audit_path,execution_id,ExecutionState.FAILED,reason="post-action verification failed");return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
-    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts);_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts)
-    return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
+    if not results or any(not r.success or r.verification_status!="verified" for r in results):_audit(audit_path,execution_id,ExecutionState.FAILED,reason="post-action verification failed");return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
+    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts);_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts);return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
