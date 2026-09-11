@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from autonomous_agent.continuous_improvement import (
-    ImprovementEvidence,
-    ImprovementProposal,
     ImprovementRisk,
     OpenChange,
     build_proposal,
@@ -86,8 +84,9 @@ def test_memory_recommendation_deduplication_blocks_repeat():
 def test_recent_finding_deduplication_blocks_only_same_problem():
     proposal = build_proposal("owner/repo", finding())
     other = build_proposal("owner/repo", finding(title="Different bug"))
-    assert proposal not in deduplicate_proposals((proposal, other), recent_findings=(proposal.problem,))
-    assert other in deduplicate_proposals((proposal, other), recent_findings=(proposal.problem,))
+    result = deduplicate_proposals((proposal, other), recent_findings=(proposal.problem,))
+    assert proposal not in result
+    assert other in result
 
 
 def test_cross_project_isolation_keeps_same_finding_in_separate_projects():
@@ -113,9 +112,9 @@ def test_task_generation_only_prepares_existing_plans():
     proposal = build_proposal("owner/repo", finding("medium", "Test weakness", "Add tests"))
     generated = generate_tasks((proposal,), registry=REGISTRY)
     assert len(generated) == 1
-    assert generated[0][1].intent is TaskIntent.IMPROVE
+    assert generated[0][1].intent is TaskIntent.TEST
     assert generated[0][1].executable is False
-    assert generated[0][1].steps[-1].tool_name == "github.change"
+    assert generated[0][1].steps[-1].tool_name == "tests.run"
 
 
 def test_report_suppresses_empty_no_change():
@@ -132,10 +131,12 @@ def test_report_contains_only_safe_identifiers_for_proposals():
     assert "CI failure evidence" not in str(report)
 
 
-def test_secret_like_task_is_not_embedded_in_proposal_identity():
+def test_secret_like_evidence_is_redacted_from_proposal():
     proposal = build_proposal("owner/repo", ProjectFinding(repository="owner/repo", severity="high", title="Secret issue", detail="API key=supersecret", recommendation="Rotate credentials", confidence=0.8))
     assert proposal.fingerprint
     assert "supersecret" not in proposal.fingerprint
+    assert "supersecret" not in proposal.evidence[0].summary
+    assert "supersecret" not in proposal.proposed_solution
 
 
 def test_risk_and_approval_are_explicit_for_source_changes():
