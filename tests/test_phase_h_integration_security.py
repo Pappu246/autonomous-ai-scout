@@ -43,11 +43,12 @@ def test_project_memory_isolated_and_stale_findings_do_not_cross_projects(tmp_pa
 
 
 def test_failed_memory_write_is_observational_and_does_not_change_execution_policy(tmp_path: Path):
-    memory_path = tmp_path / "memory.json"
-    memory = CrossProjectMemory(memory_path)
-    memory_path.parent.mkdir(exist_ok=True)
-    memory_path.write_text("[]", encoding="utf-8")
-    memory_path.chmod(0o400)
+    class FailingMemory(CrossProjectMemory):
+        def _save(self, entries):
+            return False
+
+    memory = FailingMemory(tmp_path / "memory.json")
+    assert not memory.record_task("owner/repo", "inspect", intent="execution", outcome="started")
     plan = _inspect_plan()
     audit = tmp_path / "audit.jsonl"
     result = execute_plan(plan, tmp_path, granted=[Capability.INSPECT], audit_path=audit, execution_id="write-failure", memory=memory, project="owner/repo")
@@ -88,3 +89,11 @@ def test_bounded_storage_survives_restarts_deterministically(tmp_path: Path):
     restarted = CrossProjectMemory(path, max_entries=6, max_entries_per_project=2)
     assert len(restarted.learn("owner/repo")) == 2
     assert restarted.learn("owner/repo")[0]["fingerprint"] == memory.learn("owner/repo")[0]["fingerprint"]
+
+
+def test_fingerprints_are_deterministic_across_instances(tmp_path: Path):
+    first = CrossProjectMemory(tmp_path / "a.json")
+    second = CrossProjectMemory(tmp_path / "b.json")
+    first.record_finding("owner/repo", "missing license", severity="low")
+    second.record_finding("owner/repo", "missing license", severity="low")
+    assert first.learn("owner/repo", kind="finding")[0]["fingerprint"] == second.learn("owner/repo", kind="finding")[0]["fingerprint"]
