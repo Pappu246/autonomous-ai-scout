@@ -11,9 +11,11 @@ from typing import Any, Mapping
 MAX_ENTRIES = 1000
 MAX_ENTRIES_PER_PROJECT = 200
 MAX_STRING_LENGTH = 512
+MAX_LIST_ITEMS = 50
+_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|access[_-]?token|auth(?:orization)?|token|secret|password|credential|private[_-]?key)")
 _SECRET_PATTERNS = (
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]\s*[^\s,;]+"),
-    re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----"),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|auth(?:orization)?|token|secret|password|credential)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----"),
     re.compile(r"\b(?:sk|ghp|github_pat|xoxb|xoxp)-[A-Za-z0-9_\-]+"),
     re.compile(r"\bAIza[0-9A-Za-z_-]+"),
     re.compile(r"\bAKIA[0-9A-Z]{12,}"),
@@ -45,19 +47,31 @@ def _safe_data(data: Mapping[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     for key, value in data.items():
         normalized_key = _safe_text(key)
-        if isinstance(value, Mapping):
+        if _SECRET_KEY_RE.search(normalized_key):
+            safe[normalized_key] = "[REDACTED]"
+        elif isinstance(value, Mapping):
             safe[normalized_key] = _safe_data(value)
         elif isinstance(value, (list, tuple)):
-            safe[normalized_key] = [_safe_text(item) for item in value[:50]]
-        elif isinstance(value, (str, int, float, bool)) or value is None:
-            safe[normalized_key] = _safe_text(value) if isinstance(value, str) else value
+            safe[normalized_key] = [_safe_value(item) for item in value[:MAX_LIST_ITEMS]]
         else:
-            safe[normalized_key] = _safe_text(value)
+            safe[normalized_key] = _safe_value(value)
     return safe
 
 
+def _safe_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _safe_data(value)
+    if isinstance(value, (list, tuple)):
+        return [_safe_value(item) for item in value[:MAX_LIST_ITEMS]]
+    if isinstance(value, str):
+        return _safe_text(value)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return _safe_text(value)
+
+
 class CrossProjectMemory:
-    """Bounded, append-oriented project memory; it stores evidence, not authority."""
+    """Bounded, append-oriented memory that stores evidence, not authority or secrets."""
 
     def __init__(self, path: Path, *, max_entries: int = MAX_ENTRIES, max_entries_per_project: int = MAX_ENTRIES_PER_PROJECT):
         self.path = Path(path)
@@ -93,14 +107,11 @@ class CrossProjectMemory:
         temp.replace(self.path)
 
     def record(self, event: MemoryEvent) -> bool:
-        project = _safe_text(event.project)
-        kind = _safe_text(event.kind)
-        outcome = _safe_text(event.outcome)
         safe = {
-            "project": project,
-            "kind": kind,
-            "fingerprint": _safe_text(event.fingerprint),
-            "outcome": outcome,
+            "project": _safe_text(event.project),
+            "kind": _safe_text(event.kind),
+            "fingerprint": _digest(event.project, event.kind, event.fingerprint),
+            "outcome": _safe_text(event.outcome),
             "data": _safe_data(event.data),
         }
         entries = self._load()
@@ -109,8 +120,9 @@ class CrossProjectMemory:
         return True
 
     def has(self, *, project: str, kind: str, fingerprint: str) -> bool:
-        target = (_safe_text(project), _safe_text(kind), _safe_text(fingerprint))
-        return any((item.get("project"), item.get("kind"), item.get("fingerprint")) == target for item in self._load())
+        target = _digest(project, kind, fingerprint)
+        project_name, kind_name = _safe_text(project), _safe_text(kind)
+        return any(item.get("project") == project_name and item.get("kind") == kind_name and item.get("fingerprint") == target for item in self._load())
 
     def record_task(self, project: str, task: str, *, intent: str, outcome: str) -> bool:
         return self.record(MemoryEvent(project, "task", _digest(project, task), outcome, {"task_digest": _digest(task), "intent": intent}))
@@ -142,14 +154,15 @@ class CrossProjectMemory:
         return self.record(MemoryEvent(project, "health_baseline", _digest(project, safe), "observed", {"baseline": safe}))
 
     def change_detected(self, project: str, subject: str, fingerprint: str) -> bool:
-        previous = [item for item in self._load() if item.get("project") == _safe_text(project) and item.get("kind") == "change" and item.get("data", {}).get("subject") == _safe_text(subject)]
-        return not previous or previous[-1].get("fingerprint") != _safe_text(fingerprint)
+        project_name, subject_name = _safe_text(project), _safe_text(subject)
+        target = _digest(project, "change", fingerprint)
+        previous = [item for item in self._load() if item.get("project") == project_name and item.get("kind") == "change" and item.get("data", {}).get("subject") == subject_name]
+        return not previous or previous[-1].get("fingerprint") != target
 
     def record_change(self, project: str, subject: str, fingerprint: str) -> bool:
         return self.record(MemoryEvent(project, "change", fingerprint, "detected", {"subject": subject}))
 
     def learn(self, project: str, *, kind: str | None = None) -> tuple[Mapping[str, Any], ...]:
-        entries = self._load()
         project_name = _safe_text(project)
-        selected = [item for item in entries if item.get("project") == project_name and (kind is None or item.get("kind") == _safe_text(kind))]
-        return tuple(selected)
+        kind_name = _safe_text(kind) if kind is not None else None
+        return tuple(item for item in self._load() if item.get("project") == project_name and (kind_name is None or item.get("kind") == kind_name))
