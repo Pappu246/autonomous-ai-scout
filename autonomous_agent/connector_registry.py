@@ -1,33 +1,29 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Mapping
+from typing import Mapping
 from .capability_policy import Capability, CapabilityDecision
 from .tool_registry import ApprovalRequirement, AuditRequirement, NetworkRequirement, ReadWriteMode, RiskLevel, SandboxRequirement, ToolRegistry, REGISTRY
-
 class ConnectorAuth(str, Enum): NONE="none"; USER_AUTH="user_auth"; SERVICE_AUTH="service_auth"; ELEVATED_AUTH="elevated_auth"
 class CredentialHandling(str, Enum): NONE="none"; REFERENCE_ONLY="reference_only"; PROVIDER_MANAGED_REFERENCE="provider_managed_reference"
-
 @dataclass(frozen=True)
 class ConnectorSpec:
     identity:str; description:str; category:str; capabilities:tuple[str,...]; scopes:tuple[str,...]; authentication_method:ConnectorAuth; credential_handling:CredentialHandling; network_requirement:NetworkRequirement; read_write_mode:ReadWriteMode; risk:RiskLevel; approval_requirement:ApprovalRequirement; sandbox_requirement:SandboxRequirement; audit_requirement:AuditRequirement; registered_tools:tuple[str,...]; enabled:bool; version:str="1.0"; schema_version:str="1.0"; input_schema:Mapping[str,object]|None=None; output_schema:Mapping[str,object]|None=None
-
 class ConnectorRegistryError(ValueError): pass
-
-def _schema(s): return isinstance(s, Mapping) and s.get("type") in {"object","array","string","number","integer","boolean"}
-def _validate(spec, tools):
-    if not isinstance(spec, ConnectorSpec) or not spec.identity or spec.identity != spec.identity.strip().lower() or not spec.capabilities or not spec.scopes: raise ConnectorRegistryError("invalid connector identity/capability/scope")
+def _schema(s): return isinstance(s,Mapping) and s.get("type") in {"object","array","string","number","integer","boolean"}
+def _validate(spec,tools):
+    if not isinstance(spec,ConnectorSpec) or not spec.identity or spec.identity!=spec.identity.strip().lower() or not spec.capabilities or not spec.scopes: raise ConnectorRegistryError("invalid connector identity/capability/scope")
     if spec.enabled and not spec.registered_tools: raise ConnectorRegistryError("enabled connector must expose a registered tool")
-    if spec.schema_version != "1.0" or not _schema(spec.input_schema) or not _schema(spec.output_schema): raise ConnectorRegistryError("invalid connector schema")
+    if spec.schema_version!="1.0" or not _schema(spec.input_schema) or not _schema(spec.output_schema): raise ConnectorRegistryError("invalid connector schema")
     if spec.authentication_method is ConnectorAuth.NONE and spec.credential_handling is not CredentialHandling.NONE: raise ConnectorRegistryError("unauthenticated connector cannot handle credentials")
     if spec.authentication_method is not ConnectorAuth.NONE and spec.credential_handling is CredentialHandling.NONE: raise ConnectorRegistryError("authenticated connector requires reference-only credentials")
     for name in spec.registered_tools:
         tool=tools.get(name)
         if tool is None: raise ConnectorRegistryError(f"unknown registered tool: {name}")
-        if tool.capability not in spec.capabilities or tool.network_requirement is not spec.network_requirement or tool.read_write_mode is not spec.read_write_mode or tool.risk_level is not spec.risk or tool.approval_requirement is not spec.approval_requirement or tool.sandbox_requirement is not spec.sandbox_requirement or tool.audit_requirement is not spec.audit_requirement or tool.authentication_requirement.value != spec.authentication_method.value: raise ConnectorRegistryError("connector/tool contract mismatch")
-
+        if tool.capability not in spec.capabilities or tool.read_write_mode is not spec.read_write_mode or tool.risk_level is not spec.risk or tool.approval_requirement is not spec.approval_requirement or tool.sandbox_requirement is not spec.sandbox_requirement or tool.audit_requirement is not spec.audit_requirement or tool.authentication_requirement.value!=spec.authentication_method.value: raise ConnectorRegistryError("connector/tool contract mismatch")
+        if spec.network_requirement is NetworkRequirement.NONE and tool.network_requirement is not NetworkRequirement.NONE: raise ConnectorRegistryError("connector cannot hide a tool network requirement")
 class ConnectorRegistry:
-    def __init__(self, specs=(), *, tool_registry:ToolRegistry=REGISTRY): self._tools=tool_registry; self._items={}; [self.register(s) for s in specs]
+    def __init__(self,specs=(),*,tool_registry:ToolRegistry=REGISTRY): self._tools=tool_registry; self._items={}; [self.register(s) for s in specs]
     def register(self,spec):
         _validate(spec,self._tools)
         if spec.identity in self._items: raise ConnectorRegistryError("duplicate connector")
@@ -46,9 +42,7 @@ class ConnectorRegistry:
             d=self._tools.authorize(name,granted,**kwargs)
             if not d.allowed: return d
         return CapabilityDecision(True,"connector is permitted by existing Tool Registry and capability policy",spec.registered_tools[0])
-
-
 def web_connector(tool_registry:ToolRegistry=REGISTRY):
     schema={"type":"object","additionalProperties":True}
-    spec=ConnectorSpec("web_research","Bounded public web research connector","web",(Capability.WEB_RESEARCH.value,), ("public:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.MEDIUM, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("web.search","web.read"), True, input_schema=schema, output_schema=schema)
+    spec=ConnectorSpec("web_research","Bounded public web research connector","web",(Capability.WEB_RESEARCH.value,), ("public:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.MEDIUM, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("web.search","web.read","web.extract","web.compare"), True, input_schema=schema, output_schema=schema)
     return ConnectorRegistry((spec,),tool_registry=tool_registry)
