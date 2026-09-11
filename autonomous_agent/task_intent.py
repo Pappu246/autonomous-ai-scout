@@ -3,6 +3,7 @@ from .task_plan_models import TaskIntent
 def classify_intent(task:str)->TaskIntent:
     text=" ".join(task.strip().split()).lower()
     if not text:return TaskIntent.UNKNOWN
+    if any(term in text for term in ("email","gmail","mailbox","message thread","email thread","send email","draft email")):return TaskIntent.EMAIL
     if any(term in text for term in ("research","search web","look up","find information","investigate")):return TaskIntent.RESEARCH
     if any(term in text for term in ("file","files","workspace","directory","folder","read file","write file","transform file")):return TaskIntent.WORKSPACE
     if any(term in text for term in ("test","pytest","run tests","validate")):return TaskIntent.TEST
