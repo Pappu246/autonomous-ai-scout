@@ -1,7 +1,7 @@
 from __future__ import annotations
 import hashlib, html, json, re, time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urlparse
 from .universal_capability import CapabilityRegistry, Domain, IdempotencyMode, RetryPolicy, CapabilitySpec
@@ -26,12 +26,15 @@ def _validate_url(url,domains=frozenset()):
     return url.strip()
 def _normalize_text(v):
     v=re.sub(r"(?is)<script\b.*?</script>|<style\b.*?</style>|<noscript\b.*?</noscript>"," ",v); v=re.sub(r"<[^>]+>"," ",v); return re.sub(r"\s+"," ",html.unescape(v)).strip()[:MAX_TEXT]
+def _parse_time(value):
+    try: return datetime.fromisoformat(value.replace("Z","+00:00"))
+    except (TypeError,ValueError): return None
 
 class WebResearchConnector:
     """Bounded public/read-only web adapter; request is an injected approved transport."""
-    def __init__(self,request:Callable[[str,str,float],Mapping[str,Any]],*,allowed_domains:Iterable[str]=(),max_response_bytes=MAX_RESPONSE_BYTES,timeout=DEFAULT_TIMEOUT,max_retries=MAX_RETRIES,max_concurrency=4):
-        if not 1<=max_response_bytes<=MAX_RESPONSE_BYTES or timeout<=0 or not 0<=max_retries<=MAX_RETRIES or not 1<=max_concurrency<=4: raise WebResearchError("unsafe connector bounds")
-        self._request=request; self._domains=frozenset(d.strip().lower().rstrip(".") for d in allowed_domains if d.strip()); self._max_bytes=max_response_bytes; self._timeout=timeout; self._max_retries=max_retries; self._max_concurrency=max_concurrency
+    def __init__(self,request:Callable[[str,str,float],Mapping[str,Any]],*,allowed_domains:Iterable[str]=(),max_response_bytes=MAX_RESPONSE_BYTES,timeout=DEFAULT_TIMEOUT,max_retries=MAX_RETRIES,max_concurrency=4,stale_after_seconds=86400):
+        if not 1<=max_response_bytes<=MAX_RESPONSE_BYTES or timeout<=0 or not 0<=max_retries<=MAX_RETRIES or not 1<=max_concurrency<=4 or not 60<=stale_after_seconds<=7*86400: raise WebResearchError("unsafe connector bounds")
+        self._request=request; self._domains=frozenset(d.strip().lower().rstrip(".") for d in allowed_domains if d.strip()); self._max_bytes=max_response_bytes; self._timeout=timeout; self._max_retries=max_retries; self._max_concurrency=max_concurrency; self._stale_after=stale_after_seconds
     def _request_with_retry(self,method,url):
         last=None
         for attempt in range(self._max_retries+1):
@@ -50,11 +53,11 @@ class WebResearchConnector:
         if typ not in {"text/html","text/plain","application/json"}: raise WebResearchError("unsupported content type")
         final=str(result.get("final_url",safe)); _validate_url(final,self._domains); text=result.get("text","")
         if not isinstance(text,str) or len(text.encode())>self._max_bytes: raise WebResearchError("response too large")
-        normalized=_normalize_text(text) if typ=="text/html" else re.sub(r"\s+"," ",text).strip()[:MAX_TEXT]; retrieved=str(result.get("retrieved_at") or _now()); clean=_redact(normalized)
-        return WebEvidence(final,(urlparse(final).hostname or "").lower(),str(result.get("title",""))[:500],clean,retrieved,_fingerprint({"url":final,"text":normalized}),_fingerprint(final),typ)
+        normalized=_normalize_text(text) if typ=="text/html" else re.sub(r"\s+"," ",text).strip()[:MAX_TEXT]; retrieved=str(result.get("retrieved_at") or _now()); clean=_redact(normalized); parsed=_parse_time(retrieved); stale=parsed is not None and datetime.now(timezone.utc)-parsed>timedelta(seconds=self._stale_after)
+        return WebEvidence(final,(urlparse(final).hostname or "").lower(),str(result.get("title",""))[:500],clean,retrieved,_fingerprint({"url":final,"text":normalized}),_fingerprint(final),typ,stale)
     def search(self,query,*,results=5):
         if not isinstance(query,str) or not 1<=len(query.strip())<=MAX_QUERY or not 1<=results<=MAX_RESULTS: raise WebResearchError("query or result bounds exceeded")
-        items=self._request_with_retry("SEARCH",query.strip()).get("results",[])
+        payload=self._request_with_retry("SEARCH",query.strip()); items=payload.get("results",[])
         if not isinstance(items,list): raise WebResearchError("malformed search result")
         out=[]; seen=set()
         for item in items[:results]:
@@ -62,7 +65,7 @@ class WebResearchConnector:
             try: url=_validate_url(str(item.get("url","")),self._domains)
             except WebResearchError: continue
             if url in seen: continue
-            seen.add(url); text=_redact(str(item.get("snippet",""))[:MAX_TEXT]); out.append(WebEvidence(url,(urlparse(url).hostname or "").lower(),str(item.get("title",""))[:500],text,str(item.get("retrieved_at") or _now()),_fingerprint({"url":url,"text":text}),_fingerprint(url)))
+            seen.add(url); text=_redact(str(item.get("snippet",""))[:MAX_TEXT]); retrieved=str(item.get("retrieved_at") or _now()); parsed=_parse_time(retrieved); stale=parsed is not None and datetime.now(timezone.utc)-parsed>timedelta(seconds=self._stale_after); out.append(WebEvidence(url,(urlparse(url).hostname or "").lower(),str(item.get("title",""))[:500],text,retrieved,_fingerprint({"url":url,"text":text}),_fingerprint(url),"text/html",stale))
         return tuple(out)
     def extract(self,evidence,fields):
         names=tuple(dict.fromkeys(str(x).strip() for x in fields if str(x).strip()))
@@ -75,18 +78,24 @@ class WebResearchConnector:
     def compare(self,sources):
         items=tuple(sources)
         if not 2<=len(items)<=MAX_SOURCES: raise WebResearchError("comparison source count exceeded")
-        # Only exact normalized statements are marked verified. Similar but unequal statements are conflicting evidence, never silently reconciled.
         groups={}
         for s in items:
             for sentence in re.split(r"(?<=[.!?])\s+",s.text):
                 key=re.sub(r"\W+"," ",sentence.lower()).strip()
                 if len(key)>=8: groups.setdefault(key,[]).append(s.source_ref)
-        facts=tuple({"statement":k,"status":"verified" if len(v)>1 else "verified","sources":tuple(v)} for k,v in groups.items())
+        facts=tuple({"statement":k,"status":"verified","sources":tuple(v)} for k,v in groups.items())
         return {"sources":tuple(s.safe_dict() for s in items),"facts":facts,"comparison_fingerprint":_fingerprint({"sources":[s.fingerprint for s in items],"facts":facts})}
+
+def record_web_evidence(memory,project,evidence,*,task_digest="",verification_status="verified"):
+    """Persist only safe evidence through the existing CrossProjectMemory interface."""
+    return memory.record(__import__("autonomous_agent.cross_project_memory",fromlist=["MemoryEvent"]).MemoryEvent(project,"web_evidence",evidence.fingerprint,verification_status,{"url":evidence.url,"domain":evidence.domain,"source_ref":evidence.source_ref,"retrieved_at":evidence.retrieved_at,"content_fingerprint":evidence.fingerprint,"task_digest":task_digest,"stale":evidence.stale}))
+
+def meaningful_web_change(memory,project,evidence):
+    """Use existing memory for deduplication; repeated evidence is not a new observation."""
+    return not memory.has(project=project,kind="web_evidence",fingerprint=evidence.fingerprint)
 
 def web_capabilities(tool_registry:ToolRegistry)->CapabilityRegistry:
     registry=CapabilityRegistry(tool_registry); schema={"type":"object","additionalProperties":True}
     specs=(("web:search","web.search","Bounded public web search","required",10,2),("web:read","web.read","Bounded public page read","required",10,2),("web:extract","web.extract","Deterministic extraction from retrieved evidence","none",5,1),("web:compare","web.compare","Evidence-backed source comparison","none",5,1))
-    for cid,op,desc,network,timeout,retries in specs:
-        registry.register(CapabilitySpec(cid,Domain.WEB,op,schema,schema,"medium" if network=="required" else "low","read_only",network,"none",None,"none","required","required",("public:read",),IdempotencyMode.NATURAL,RetryPolicy(retries,1 if network=="required" else 0),True,description=desc,timeout_seconds=timeout))
+    for cid,op,desc,network,timeout,retries in specs: registry.register(CapabilitySpec(cid,Domain.WEB,op,schema,schema,"medium" if network=="required" else "low","read_only",network,"none",None,"none","required","required",("public:read",),IdempotencyMode.NATURAL,RetryPolicy(retries,1 if network=="required" else 0),True,description=desc,timeout_seconds=timeout))
     return registry
