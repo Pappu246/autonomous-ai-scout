@@ -5,7 +5,8 @@ import pytest
 from autonomous_agent.action_queue import PendingAction
 from autonomous_agent.github_domain_connector import GitHubConnectorError, GitHubDomainConnector
 from autonomous_agent.tool_registry import REGISTRY
-from autonomous_agent.universal_capability import CapabilityRegistry, CapabilitySpec, Domain, IdempotencyMode, RetryPolicy, github_capabilities
+from autonomous_agent.universal_capability import CapabilityRegistry, CapabilitySpec, Domain, IdempotencyMode, RetryPolicy, github_capabilities, web_capabilities
+from autonomous_agent.web_domain_connector import WebConnectorError, WebResearchConnector
 
 SHA = "a" * 40
 BASE = "b" * 40
@@ -74,3 +75,22 @@ def test_prepare_change_only_crosses_existing_approval_boundary():
     request = connector.prepare_change(action, "owner/repo", "main", "feature/safe", "Fix lint", "Safe fix", "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n")
     assert request.repository == "owner/repo" and request.requires_approval is True
     assert calls == []
+
+
+def test_web_capability_is_bound_to_existing_explicit_network_tool():
+    registry = web_capabilities(REGISTRY)
+    decision = registry.authorize("web:fetch", ("network",))
+    assert decision.allowed is False and "explicit approval" in decision.reason
+
+
+def test_web_connector_rejects_credentials_and_unbounded_timeout():
+    connector = WebResearchConnector(lambda url, params=None: {})
+    with pytest.raises(WebConnectorError):
+        connector.fetch("https://user:password@example.com")
+    with pytest.raises(WebConnectorError):
+        connector.fetch("https://example.com", timeout_seconds=31)
+
+
+def test_web_connector_returns_minimal_structured_evidence():
+    connector = WebResearchConnector(lambda url, params=None: {"status": 200, "content_type": "text/html", "text": "hello"})
+    assert connector.fetch("https://example.com") == {"url": "https://example.com", "status": 200, "content_type": "text/html", "text": "hello"}
