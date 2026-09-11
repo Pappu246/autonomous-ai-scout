@@ -7,11 +7,16 @@ from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
-_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread","email.draft"),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":()}
+_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":()}
 def _digest(task,intent,tool_names):return hashlib.sha256(json.dumps({"task":task,"intent":intent,"tools":tool_names},sort_keys=True,separators=(",",":")).encode()).hexdigest()
-def _select_tools(registry,intent):return tuple(tool for name in _INTENT_TO_TOOLS.get(intent,()) if (tool:=registry.get(name)) is not None)
+def _select_tools(registry,intent,task=""):
+    names=_INTENT_TO_TOOLS.get(intent,())
+    if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
+    return tuple(tool for name in names if (tool:=registry.get(name)) is not None)
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
-    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_INTENT_TO_TOOLS.get(intent.value,());selected=_select_tools(registry,intent);descriptions=decompose_task(raw,intent);missing=tuple(name for name in required if registry.get(name) is None)
+    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_INTENT_TO_TOOLS.get(intent.value,());selected=_select_tools(registry,intent,raw)
+    if intent.value=="email" and any(x in raw.lower() for x in ("draft","compose")):required=("email.draft",)
+    descriptions=decompose_task(raw,intent);missing=tuple(name for name in required if registry.get(name) is None)
     if intent.value in {"automate","unknown"}:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
