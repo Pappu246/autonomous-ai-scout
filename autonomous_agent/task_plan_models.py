@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 class TaskIntent(str,Enum):
-    RESEARCH="research";WORKSPACE="workspace";CALENDAR="calendar";INSPECT="inspect";TEST="test";IMPROVE="improve";CHANGE="change";AUTOMATE="automate";UNKNOWN="unknown"
+    RESEARCH="research";WORKSPACE="workspace";EMAIL="email";CALENDAR="calendar";INSPECT="inspect";TEST="test";IMPROVE="improve";CHANGE="change";AUTOMATE="automate";UNKNOWN="unknown"
 class PlanRisk(str,Enum):LOW="low";MEDIUM="medium";HIGH="high";CRITICAL="critical"
 @dataclass(frozen=True)
 class TaskStep:step_id:str;description:str;tool_name:str;risk:PlanRisk;authorization:str;execution_boundary:str;verification:str
