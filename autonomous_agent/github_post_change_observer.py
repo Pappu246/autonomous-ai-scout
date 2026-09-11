@@ -7,7 +7,7 @@ from typing import Any, Callable, Protocol
 
 from .cross_project_memory import CrossProjectMemory, MemoryEvent
 from .github_audit import gh_get
-from .post_change_monitoring import ChangeObservation, HealthSnapshot, RegressionFinding, detect_regression, record_observation
+from .post_change_monitoring import ChangeObservation, HealthSnapshot, ObservationStatus, RegressionFinding, detect_regression, record_observation
 
 
 class GitHubObservationError(RuntimeError):
@@ -166,6 +166,16 @@ def observe_github_pull_request(
             previous_observed = str(prior[-1].get("data", {}).get("observed_at", ""))
             if previous_observed and observed_at and observed_at < previous_observed:
                 return evidence, None
+            previous_outcome = str(prior[-1].get("outcome", "")).strip().lower()
+            if previous_outcome == ObservationStatus.REGRESSED.value and ci == "success" and verification_status == "verified":
+                finding = RegressionFinding(
+                    repository=finding.repository,
+                    change_fingerprint=finding.change_fingerprint,
+                    observation_fingerprint=finding.observation_fingerprint,
+                    status=ObservationStatus.IMPROVED,
+                    reasons=("CI recovered after a previously regressed observation",),
+                    evidence=finding.evidence,
+                )
         if not record_observation(memory, finding):
             return evidence, finding
         memory.record(MemoryEvent(project=repository, kind="github_observation", fingerprint=evidence.fingerprint, outcome=finding.status.value, data={"pull_request": pull_request, "head_sha": head_sha, "base_sha": base_sha, "change_fingerprint": change_fingerprint, "ci_conclusion": ci, "observed_at": observed_at}))
