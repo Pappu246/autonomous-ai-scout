@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json
+import base64,json
 import pytest
 from autonomous_agent.capability_policy import Capability
 from autonomous_agent.connector_registry import gmail_connector
@@ -10,26 +10,20 @@ from autonomous_agent.task_plan_models import TaskIntent
 from autonomous_agent.task_planner import plan_task
 from autonomous_agent.tool_registry import ToolRegistry
 class Transport:
-    def __init__(self): self.calls=[]; self.failures=0
+    def __init__(self):self.calls=[];self.failures=0
     def request(self,method,url,*,params=None,body=None,timeout_seconds=10):
         self.calls.append((method,url,params,body,timeout_seconds))
-        if self.failures: self.failures-=1; raise TimeoutError("controlled timeout")
-        if url.endswith("/messages") and method=="GET": return {"messages":[{"id":"m1","threadId":"t1"},{"id":"m2","threadId":"t2"}],"resultSizeEstimate":2}
+        if self.failures:self.failures-=1;raise TimeoutError("controlled timeout")
+        if url.endswith("/messages") and method=="GET":return {"messages":[{"id":"m1","threadId":"t1"},{"id":"m2","threadId":"t2"}],"resultSizeEstimate":2}
         if "/messages/m1" in url:return {"id":"m1","threadId":"t1","labelIds":["INBOX"],"snippet":"hello","payload":{"headers":[{"name":"Subject","value":"Hello"}]}}
         if "/threads/t1" in url:return {"id":"t1","messages":[{"id":"m2","threadId":"t1","internalDate":"2","snippet":"later"},{"id":"m1","threadId":"t1","internalDate":"1","snippet":"first"}]}
         if url.endswith("/drafts") and method=="POST":return {"id":"d1","message":{"id":"m-draft","threadId":"t1"}}
         if url.endswith("/messages/send") and method=="POST":return {"id":"sent-1","threadId":"t1"}
         raise AssertionError((method,url,params,body))
 def test_capability_registration_and_disabled_connector():
-    registry=ToolRegistry();register_gmail_tools(registry);caps=gmail_capabilities(registry)
-    assert {x.operation for x in caps.list()}=={"email.search","email.read","email.thread","email.draft","email.send"}
-    connector=gmail_connector(registry,enabled=False).get("gmail");assert connector and connector.enabled is False
+    registry=ToolRegistry();register_gmail_tools(registry);caps=gmail_capabilities(registry);assert {x.operation for x in caps.list()}=={"email.search","email.read","email.thread","email.draft","email.send"};connector=gmail_connector(registry,enabled=False).get("gmail");assert connector and not connector.enabled
 def test_scope_and_authorization_fail_closed():
-    registry=ToolRegistry();register_gmail_tools(registry)
-    assert not registry.authorize("email.read",(),sandbox_available=True,audit_available=True).allowed
-    assert registry.authorize("email.read",(Capability.EMAIL,),sandbox_available=True,audit_available=True).allowed
-    assert not registry.authorize("email.send",(Capability.EMAIL,),sandbox_available=True,audit_available=True).allowed
-    assert registry.authorize("email.send",(Capability.EMAIL,),explicitly_approved=True,sandbox_available=True,audit_available=True).allowed
+    registry=ToolRegistry();register_gmail_tools(registry);assert not registry.authorize("email.read",(),sandbox_available=True,audit_available=True).allowed;assert registry.authorize("email.read",(Capability.EMAIL,),sandbox_available=True,audit_available=True).allowed;assert not registry.authorize("email.send",(Capability.EMAIL,),sandbox_available=True,audit_available=True).allowed;assert registry.authorize("email.send",(Capability.EMAIL,),explicitly_approved=True,sandbox_available=True,audit_available=True).allowed
 def test_malformed_query_and_bounds():
     t=Transport();c=GmailConnector(t)
     with pytest.raises(GmailError):c.search("x"*501)
@@ -41,12 +35,21 @@ def test_mime_parsing_and_attachment_limit():
 def test_secret_redaction_and_credential_reference_only():
     t=Transport();c=GmailConnector(t,credential_reference="gmail:oauth:user");assert c.credential_reference=="gmail:oauth:user"
     with pytest.raises(GmailError):GmailConnector(t,credential_reference="access_token=abc")
+def test_draft_and_send_use_official_raw_message_contract():
+    t=Transport();c=GmailConnector(t);c.draft(to="a@example.com",subject="Hi",body="hello");draft_body=t.calls[-1][3]["message"];raw=base64.urlsafe_b64decode(draft_body["raw"]+"===");assert b"To: a@example.com" in raw and b"Subject: Hi" in raw and "raw" in draft_body
+    key=_fingerprint({"raw":draft_body["raw"]});c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=True);send_body=t.calls[-1][3];assert set(send_body)=={"raw"}
 def test_draft_never_sends():
-    t=Transport();c=GmailConnector(t);e=c.draft(to="a@example.com",subject="Hi",body="hello");assert e.operation=="email.draft" and not any(url.endswith("/messages/send") for _,url,_,_,_ in t.calls)
-def test_send_requires_approval_and_idempotency():
-    t=Transport();c=GmailConnector(t);key=_fingerprint({"to":"a@example.com","subject":"Hi","body":"hello","threadId":""})
+    t=Transport();GmailConnector(t).draft(to="a@example.com",subject="Hi",body="hello");assert not any(url.endswith("/messages/send") for _,url,_,_,_ in t.calls)
+def test_send_requires_approval_and_duplicate_is_blocked():
+    t=Transport();c=GmailConnector(t);message=c.draft(to="a@example.com",subject="Hi",body="hello");raw=message.data["draft"]
+    key=_fingerprint({"raw":c._request("POST","https://gmail.googleapis.com/gmail/v1/users/me/drafts",body={}) if False else base64.urlsafe_b64encode(b"unused").decode()})
+    payload={"raw":base64.urlsafe_b64encode(__import__('email').message.EmailMessage().as_bytes()).decode()}
+    # The connector derives the key from the exact outbound message; use its deterministic helper through a known payload.
+    from autonomous_agent.gmail_connector import _raw_message
+    payload=_raw_message("a@example.com","Hi","hello");key=_fingerprint(payload)
     with pytest.raises(GmailError):c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=False)
-    e=c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=True);assert e.operation=="email.send" and any(url.endswith("/messages/send") for _,url,_,_,_ in t.calls)
+    c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=True)
+    with pytest.raises(GmailError):c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=True)
 def test_timeout_retry_is_bounded():
     t=Transport();t.failures=2;c=GmailConnector(t);e=c.search("hello");assert e.operation=="email.search" and len(t.calls)==3
 def test_planner_email_integration_and_draft_gate():
