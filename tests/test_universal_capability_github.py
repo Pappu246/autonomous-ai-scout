@@ -79,8 +79,10 @@ def test_prepare_change_only_crosses_existing_approval_boundary():
 
 def test_web_capability_is_bound_to_existing_explicit_network_tool():
     registry = web_capabilities(REGISTRY)
-    decision = registry.authorize("web:fetch", ("network",))
-    assert decision.allowed is False and "explicit approval" in decision.reason
+    denied = registry.authorize("web:fetch", ("network",))
+    assert denied.allowed is False and "permanently denied" in denied.reason
+    approved = registry.authorize("web:fetch", ("network",), explicitly_approved=True)
+    assert approved.allowed is True
 
 
 def test_web_connector_rejects_credentials_and_unbounded_timeout():
