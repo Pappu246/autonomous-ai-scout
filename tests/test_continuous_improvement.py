@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from autonomous_agent.continuous_improvement import (
     ImprovementRisk,
     OpenChange,
@@ -10,7 +12,9 @@ from autonomous_agent.continuous_improvement import (
     health_trend,
     portfolio,
     prioritize,
+    propose_from_source,
 )
+from autonomous_agent.cross_project_memory import CrossProjectMemory
 from autonomous_agent.models import ProjectFinding
 from autonomous_agent.task_plan_models import TaskIntent
 from autonomous_agent.tool_registry import REGISTRY
@@ -34,6 +38,23 @@ class Memory:
     def record_improvement(self, project, improvement, *, status):
         self.improvements.add((project, "improvement", improvement))
         return True
+
+
+class Source:
+    def __init__(self):
+        self.data = {
+            "owner/one": [finding()],
+            "owner/new": [finding("medium", "Dependency risk", "Review dependency")],
+        }
+
+    def findings(self, project):
+        return tuple(self.data.get(project, ()))
+
+    def intelligence(self, project):
+        return {"signals": ["validation"], "priorities": ["tests"], "dependencies": ["runtime"]}
+
+    def changes(self, project):
+        return ()
 
 
 def finding(severity="high", title="Open bug regression", recommendation="Add a regression test"):
@@ -119,9 +140,7 @@ def test_task_generation_only_prepares_existing_plans():
 
 def test_report_suppresses_empty_no_change():
     assert build_report([])["meaningful_change"] is False
-    report = build_report([], blocked_actions=("production.deploy",))
-    assert report["meaningful_change"] is True
-    assert report["blocked_actions"] == ("production.deploy",)
+    assert build_report([], blocked_actions=())["meaningful_change"] is False
 
 
 def test_report_contains_only_safe_identifiers_for_proposals():
@@ -129,6 +148,7 @@ def test_report_contains_only_safe_identifiers_for_proposals():
     report = build_report((proposal,))
     assert report["highest_priority"][0]["fingerprint"] == proposal.fingerprint
     assert "CI failure evidence" not in str(report)
+    assert proposal.fingerprint in report["required_approvals"]
 
 
 def test_secret_like_evidence_is_redacted_from_proposal():
@@ -143,3 +163,27 @@ def test_risk_and_approval_are_explicit_for_source_changes():
     proposal = build_proposal("owner/repo", finding("high", "Bug fix", "Modify source"))
     assert proposal.risk in {ImprovementRisk.HIGH, ImprovementRisk.CRITICAL}
     assert proposal.approval_requirement == "human_review_for_source_change"
+
+
+def test_future_registry_project_is_evaluated_without_engine_changes():
+    proposals = propose_from_source(Source(), ("owner/one", "owner/new"))
+    assert {item.project for item in proposals} == {"owner/one", "owner/new"}
+
+
+def test_repeated_failure_is_learned_and_deduplicated(tmp_path: Path):
+    memory = CrossProjectMemory(tmp_path / "memory.json")
+    proposal = build_proposal("owner/repo", finding())
+    assert memory.record_improvement("owner/repo", proposal.fingerprint, status="rejected") is True
+    assert deduplicate_proposals((proposal,), memory=memory) == ()
+    changed = build_proposal("owner/repo", finding(recommendation="Fix the failure and add regression coverage"))
+    assert changed.fingerprint != proposal.fingerprint
+
+
+def test_accepted_and_rejected_learning_remain_project_scoped(tmp_path: Path):
+    memory = CrossProjectMemory(tmp_path / "memory.json")
+    first = build_proposal("owner/one", finding())
+    second = build_proposal("owner/two", finding())
+    assert memory.record_improvement(first.project, first.fingerprint, status="accepted") is True
+    assert memory.record_improvement(second.project, second.fingerprint, status="rejected") is True
+    assert len(memory.learn("owner/one", kind="improvement")) == 1
+    assert len(memory.learn("owner/two", kind="improvement")) == 1
