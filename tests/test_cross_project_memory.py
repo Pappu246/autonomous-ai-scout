@@ -73,9 +73,10 @@ def test_bounded_storage_and_per_project_limit(tmp_path: Path):
     memory = CrossProjectMemory(tmp_path / "memory.json", max_entries=5, max_entries_per_project=2)
     for index in range(10):
         memory.record(MemoryEvent("owner/repo", "task", str(index), "success", {"index": index}))
-    entries = memory.learn("owner/repo")
-    assert len(entries) == 2
-    assert len(memory._load()) <= 5
+    entries, valid = memory._load()
+    assert valid
+    assert len(memory.learn("owner/repo")) == 2
+    assert len(entries) <= 5
 
 
 def test_learning_returns_only_recorded_evidence(tmp_path: Path):
