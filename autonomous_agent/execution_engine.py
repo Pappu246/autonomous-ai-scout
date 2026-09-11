@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -68,7 +70,6 @@ def _has_unfinished_execution(path: Path, execution_id: str) -> bool:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        import json
         item = json.loads(line)
         if isinstance(item, dict) and item.get("execution_id") == execution_id:
             last = str(item.get("state", ""))
@@ -113,7 +114,8 @@ def execute_plan(
     retries = max(0, min(int(max_retries), MAX_RETRIES))
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     output = max(1, min(int(output_limit), MAX_OUTPUT_BYTES))
-    _audit(audit_path, execution_id, ExecutionState.RUNNING, task=plan.task, plan_digest=plan.audit.plan_digest)
+    task_digest = hashlib.sha256(plan.task.encode("utf-8")).hexdigest()
+    _audit(audit_path, execution_id, ExecutionState.RUNNING, task_digest=task_digest, plan_digest=plan.audit.plan_digest)
 
     results: list[SandboxResult] = []
     total_attempts = 0
