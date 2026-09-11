@@ -7,8 +7,8 @@ from autonomous_agent.task_plan_models import TaskPlan
 from autonomous_agent.task_planner import plan_task
 
 
-def _inspect_plan() -> TaskPlan:
-    plan = plan_task("inspect repository", granted=[Capability.INSPECT, Capability.READ_FILE])
+def _inspect_plan(task: str = "inspect repository") -> TaskPlan:
+    plan = plan_task(task, granted=[Capability.INSPECT, Capability.READ_FILE])
     assert plan.executable
     return TaskPlan(plan.task, plan.intent, (plan.steps[0],), plan.risk, True, plan.reason, plan.audit)
 
@@ -71,6 +71,18 @@ def test_audit_tampering_blocks_execution(tmp_path: Path):
     assert not verify_execution_audit(audit)
     second = execute_plan(plan, tmp_path, granted=[Capability.INSPECT], audit_path=audit, execution_id="tamper-2")
     assert second.state is ExecutionState.BLOCKED
+
+
+def test_execution_audit_does_not_store_raw_task_text(tmp_path: Path):
+    secret_like = "inspect repository with credential=super-secret-value"
+    audit = tmp_path / "audit.jsonl"
+    plan = _inspect_plan(secret_like)
+    result = execute_plan(plan, tmp_path, granted=[Capability.INSPECT], audit_path=audit, execution_id="privacy")
+    assert result.state is ExecutionState.VERIFIED
+    text = audit.read_text(encoding="utf-8")
+    assert secret_like not in text
+    assert "super-secret-value" not in text
+    assert verify_execution_audit(audit)
 
 
 def test_interrupted_execution_requires_fresh_authorization(tmp_path: Path):
