@@ -43,21 +43,6 @@ def _safe_text(value: object) -> str:
     return text[:MAX_STRING_LENGTH]
 
 
-def _safe_data(data: Mapping[str, Any]) -> dict[str, Any]:
-    safe: dict[str, Any] = {}
-    for key, value in data.items():
-        normalized_key = _safe_text(key)
-        if _SECRET_KEY_RE.search(normalized_key):
-            safe[normalized_key] = "[REDACTED]"
-        elif isinstance(value, Mapping):
-            safe[normalized_key] = _safe_data(value)
-        elif isinstance(value, (list, tuple)):
-            safe[normalized_key] = [_safe_value(item) for item in value[:MAX_LIST_ITEMS]]
-        else:
-            safe[normalized_key] = _safe_value(value)
-    return safe
-
-
 def _safe_value(value: object) -> object:
     if isinstance(value, Mapping):
         return _safe_data(value)
@@ -68,6 +53,17 @@ def _safe_value(value: object) -> object:
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     return _safe_text(value)
+
+
+def _safe_data(data: Mapping[str, Any]) -> dict[str, Any]:
+    safe: dict[str, Any] = {}
+    for key, value in data.items():
+        normalized_key = _safe_text(key)
+        if _SECRET_KEY_RE.search(normalized_key):
+            safe[normalized_key] = "[REDACTED]"
+        else:
+            safe[normalized_key] = _safe_value(value)
+    return safe
 
 
 class CrossProjectMemory:
@@ -137,7 +133,10 @@ class CrossProjectMemory:
         return self.record(MemoryEvent("_global", "provider_availability", _digest(provider, available, reason), "available" if available else "unavailable", {"provider": provider, "reason": reason}))
 
     def record_finding(self, project: str, finding: str, *, severity: str, status: str = "open") -> bool:
-        return self.record(MemoryEvent(project, "finding", _digest(project, finding, severity), status, {"finding_digest": _digest(finding), "severity": severity}))
+        fingerprint = _digest(project, finding, severity)
+        if self.has(project=project, kind="finding", fingerprint=fingerprint):
+            return False
+        return self.record(MemoryEvent(project, "finding", fingerprint, status, {"finding_digest": _digest(finding), "severity": severity}))
 
     def record_recommendation(self, project: str, recommendation: str, *, status: str) -> bool:
         fingerprint = _digest(project, recommendation)
