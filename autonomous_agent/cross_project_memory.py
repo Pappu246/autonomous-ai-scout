@@ -116,9 +116,14 @@ class CrossProjectMemory:
         return True
 
     def has(self, *, project: str, kind: str, fingerprint: str) -> bool:
-        target = _digest(project, kind, fingerprint)
         project_name, kind_name = _safe_text(project), _safe_text(kind)
-        return any(item.get("project") == project_name and item.get("kind") == kind_name and item.get("fingerprint") == target for item in self._load())
+        stored = _digest(project, kind, fingerprint)
+        return any(
+            item.get("project") == project_name
+            and item.get("kind") == kind_name
+            and item.get("fingerprint") in {stored, _safe_text(fingerprint)}
+            for item in self._load()
+        )
 
     def record_task(self, project: str, task: str, *, intent: str, outcome: str) -> bool:
         return self.record(MemoryEvent(project, "task", _digest(project, task), outcome, {"task_digest": _digest(task), "intent": intent}))
