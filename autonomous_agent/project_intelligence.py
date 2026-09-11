@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
 
+from .cross_project_memory import CrossProjectMemory
 from .models import ProjectFinding
 
 
@@ -17,8 +19,18 @@ def _finding(repository: str, severity: str, title: str, detail: str, recommenda
     return ProjectFinding(repository=repository, severity=severity, title=title, detail=detail, recommendation=recommendation)
 
 
-def analyze_project(root: Path, repository: str = "local") -> list[ProjectFinding]:
-    """Perform deterministic, dependency-aware checks without modifying the workspace."""
+def _memory_record(memory: CrossProjectMemory | None, operation: str, callback) -> None:
+    if memory is None:
+        return
+    try:
+        callback()
+    except Exception:
+        # Intelligence must remain usable if observational persistence is unavailable.
+        return
+
+
+def analyze_project(root: Path, repository: str = "local", *, memory: CrossProjectMemory | None = None) -> list[ProjectFinding]:
+    """Perform deterministic checks and optionally persist observational evidence."""
     findings: list[ProjectFinding] = []
 
     pyproject = root / "pyproject.toml"
@@ -58,5 +70,17 @@ def analyze_project(root: Path, repository: str = "local") -> list[ProjectFindin
 
     if not (root / "LICENSE").exists() and not (root / "LICENSE.md").exists() and not (root / "LICENSE.txt").exists():
         findings.append(_finding(repository, "low", "License file missing", "No common top-level LICENSE file was detected.", "Add an explicit open-source license if the project is intended to be public."))
+
+    if memory is not None:
+        for finding in findings:
+            _memory_record(memory, "finding", lambda finding=finding: memory.record_finding(repository, finding.title, severity=finding.severity))
+            _memory_record(memory, "recommendation", lambda finding=finding: memory.record_recommendation(repository, finding.recommendation, status="observed"))
+        severity_counts = {level: sum(item.severity == level for item in findings) for level in ("high", "medium", "low")}
+        baseline = {"finding_count": len(findings), "severity_counts": severity_counts}
+        _memory_record(memory, "baseline", lambda: memory.record_health_baseline(repository, baseline))
+        fingerprint_payload = [(item.title, item.severity, item.recommendation) for item in findings]
+        fingerprint = hashlib.sha256(json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        if memory.change_detected(repository, "project_intelligence", fingerprint):
+            _memory_record(memory, "change", lambda: memory.record_change(repository, "project_intelligence", fingerprint))
 
     return findings
