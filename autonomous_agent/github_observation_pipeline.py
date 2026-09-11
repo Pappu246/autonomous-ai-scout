@@ -137,10 +137,16 @@ class GitHubPrObservationSource:
         ci, _ = _ci(tuple(runs))
         change = _change_fingerprint(compare, repository, int(pr_number), base_sha, head_sha)
         before = self._before(repository)
-        after = self._health(repository, head_sha) if self._health else HealthSnapshot(before.score, dict(before.signals), "verified" if ci == "success" else "failed" if ci == "failure" else "unknown")
-        after = HealthSnapshot(after.score, {**dict(after.signals), "ci": ci, "head_sha": head_sha}, after.verification_status)
+        after = self._health(repository, head_sha) if self._health else HealthSnapshot(before.score, dict(before.signals), "verified" if ci == "success" else "unknown")
+        if ci == "failure":
+            verification_status = "failed"
+        elif ci in {"pending", "unknown"}:
+            verification_status = "unknown"
+        else:
+            verification_status = after.verification_status
+        after = HealthSnapshot(after.score, {**dict(after.signals), "ci": ci, "head_sha": head_sha}, verification_status)
         observed_at = max((r.updated_at for r in runs), default=str(pr.get("updated_at") or ""))
-        return GitHubPrObservation(repository, int(pr_number), base_sha, head_sha, change, tuple(runs), ci, "verified" if ci == "success" and after.verification_status == "verified" else after.verification_status, observed_at, ChangeObservation(repository, change, before, after, ci, head_sha))
+        return GitHubPrObservation(repository, int(pr_number), base_sha, head_sha, change, tuple(runs), ci, verification_status, observed_at, ChangeObservation(repository, change, before, after, ci, head_sha))
 
     def _before(self, repository: str) -> HealthSnapshot:
         if self._memory:
@@ -151,29 +157,25 @@ class GitHubPrObservationSource:
         return HealthSnapshot(0, {}, "unknown")
 
 
-def _latest_event(memory: CrossProjectMemory, repository: str) -> Mapping[str, Any] | None:
-    entries = memory.learn(repository, kind="post_change_observation")
-    return entries[-1] if entries else None
-
-
 def meaningful_github_change(github: GitHubPrObservation, memory: CrossProjectMemory) -> tuple[bool, str, RegressionFinding]:
     finding = detect_regression(github.observation)
     if memory.has(project=github.repository, kind="post_change_observation", fingerprint=finding.observation_fingerprint):
         return False, "duplicate observation", finding
-    previous = _latest_event(memory, github.repository)
+    previous = memory.learn(github.repository, kind="github_observation")
     if previous:
-        data = previous.get("data", {}) if isinstance(previous, Mapping) else {}
-        previous_at = str(data.get("observed_at", "")) if isinstance(data, Mapping) else ""
-        if _time(github.observed_at) < _time(previous_at):
-            return False, "stale/out-of-order observation", finding
-        if data.get("head_sha") == github.head_sha and data.get("ci_conclusion") == github.ci_conclusion and data.get("change_fingerprint") == github.change_fingerprint:
-            return False, "unchanged exact-HEAD evidence", finding
+        previous = [item for item in previous if item.get("data", {}).get("change_fingerprint") == github.change_fingerprint]
+        if previous:
+            data = previous[-1].get("data", {})
+            if _time(github.observed_at) < _time(str(data.get("observed_at", ""))):
+                return False, "stale/out-of-order observation", finding
+            if data.get("head_sha") == github.head_sha and data.get("ci_conclusion") == github.ci_conclusion:
+                return False, "unchanged exact-HEAD evidence", finding
+            if str(previous[-1].get("outcome", "")).lower() == ObservationStatus.REGRESSED.value and github.ci_conclusion == "success" and github.verification_status == "verified":
+                finding = RegressionFinding(finding.repository, finding.change_fingerprint, finding.observation_fingerprint, ObservationStatus.IMPROVED, ("CI recovered after a previously regressed observation",), finding.evidence)
     if finding.status is ObservationStatus.REGRESSED:
         return True, "new regression/failure", finding
     if finding.status is ObservationStatus.IMPROVED:
         return True, "successful improvement", finding
-    if finding.status is ObservationStatus.UNCHANGED:
-        return False, "health unchanged", finding
     return False, "no meaningful verified change", finding
 
 
@@ -182,16 +184,9 @@ def persist_github_observation(memory: CrossProjectMemory, github: GitHubPrObser
     if not meaningful:
         return False, reason, finding
     ok = memory.record(MemoryEvent(github.repository, "post_change_observation", finding.observation_fingerprint, finding.status.value, {
-        "pr_number": github.pr_number,
-        "head_sha": github.head_sha,
-        "base_sha": github.base_sha,
-        "change_fingerprint": github.change_fingerprint,
-        "ci_conclusion": github.ci_conclusion,
-        "verification_status": github.verification_status,
-        "observed_at": github.observed_at,
+        "pr_number": github.pr_number, "head_sha": github.head_sha, "base_sha": github.base_sha, "change_fingerprint": github.change_fingerprint,
+        "ci_conclusion": github.ci_conclusion, "verification_status": github.verification_status, "observed_at": github.observed_at,
         "ci_runs": [{"id": r.run_id, "workflow": r.workflow, "status": r.status, "conclusion": r.conclusion, "updated_at": r.updated_at, "jobs": list(r.jobs)} for r in github.ci_runs],
-        "after_score": github.observation.after.score,
-        "after_signals": dict(github.observation.after.signals),
-        "reasons": finding.reasons,
+        "after_score": github.observation.after.score, "after_signals": dict(github.observation.after.signals), "reasons": finding.reasons,
     }))
     return ok, "persisted" if ok else "memory persistence failed", finding
