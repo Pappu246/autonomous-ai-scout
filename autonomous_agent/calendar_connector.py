@@ -37,7 +37,7 @@ class CalendarConnector:
         last=None
         for _ in range(max(1,min(int(retries)+1,MAX_RETRIES+1))):
             try:
-                out=self.transport.request(method,url,params=params,body=_redact(body) if body else None,headers=dict(headers or {}),timeout_seconds=self.timeout_seconds)
+                out=self.transport.request(method,url,params=params,body=body,headers=dict(headers or {}),timeout_seconds=self.timeout_seconds)
                 if not isinstance(out,Mapping):raise CalendarError("malformed calendar response")
                 return _redact(out)
             except Exception as exc:last=exc
@@ -54,7 +54,9 @@ class CalendarConnector:
     def read(self,event_id,calendar_id="primary"):
         event_id=_id(event_id,"event id");calendar_id=_id(calendar_id,"calendar id");data=self._request("GET",f"{CALENDAR_API_ROOT}/{quote(calendar_id,safe='')}/events/{quote(event_id,safe='')}");return CalendarEvidence("calendar.read",_bounded_event(data),_fp(data))
     def find_free_time(self,*,time_min,time_max,calendar_id="primary",duration_minutes=30):
-        start=_iso(time_min,"time_min");end=_iso(time_max,"time_max");duration=max(1,min(int(duration_minutes),1440));events=self.list(calendar_id,time_min=start,time_max=end,results=MAX_RESULTS).data["events"]
+        start=_iso(time_min,"time_min");end=_iso(time_max,"time_max")
+        if datetime.fromisoformat(end)<=datetime.fromisoformat(start):raise CalendarError("time_max must be after time_min")
+        duration=max(1,min(int(duration_minutes),1440));events=self.list(calendar_id,time_min=start,time_max=end,results=MAX_RESULTS).data["events"]
         points=[];cursor=datetime.fromisoformat(start);limit=datetime.fromisoformat(end)
         for e in sorted(events,key=lambda x:x.get("start","")):
             try:s=datetime.fromisoformat(e["start"]);f=datetime.fromisoformat(e["end"])
@@ -69,13 +71,16 @@ class CalendarConnector:
         key=_id(idempotency_key,"idempotency key");digest=_fp({"operation":operation,"path":path,"event":event,"headers":headers or {}})
         if key!=digest:raise CalendarError("idempotency key does not match operation digest")
         if key in self._mutations:raise CalendarError("duplicate calendar mutation blocked")
-        self._mutations.add(key);return self._request(method,path,body=event,headers=headers,retries=0)
+        out=self._request(method,path,body=event,headers=headers,retries=0)
+        self._mutations.add(key)
+        return out
     def create(self,*,calendar_id="primary",event,idempotency_key,approved=False):
         body=_validate_event(event,creating=True);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events";out=self._mutation("POST",path,body,"calendar.event.create",idempotency_key,approved);return CalendarEvidence("calendar.event.create",{"event":_bounded_event(out),"event_fingerprint":_fp(body)},_fp(out))
     def update(self,*,calendar_id="primary",event_id,event,etag=None,idempotency_key,approved=False):
-        body=_validate_event(event,creating=False);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(_id(event_id,'event id'),safe='')}";headers={"If-Match":_id(etag,"etag")} if etag else {};out=self._mutation("PUT",path,body,"calendar.event.update",idempotency_key,approved,headers=headers);return CalendarEvidence("calendar.event.update",{"event":_bounded_event(out)},_fp(out))
+        if not etag:raise CalendarError("calendar.event.update requires current etag for stale-event protection")
+        body=_validate_event(event,creating=False);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(_id(event_id,'event id'),safe='')}";headers={"If-Match":_id(etag,"etag")};out=self._mutation("PUT",path,body,"calendar.event.update",idempotency_key,approved,headers=headers);return CalendarEvidence("calendar.event.update",{"event":_bounded_event(out)},_fp(out))
     def cancel(self,*,calendar_id="primary",event_id,etag,idempotency_key,approved=False):
-        event_id=_id(event_id,"event id");etag=_id(etag,"etag");path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(event_id,safe='')}";body={"event_id":event_id};headers={"If-Match":etag};out=self._mutation("DELETE",path,body,"calendar.event.cancel",idempotency_key,approved,headers=headers);return CalendarEvidence("calendar.event.cancel",body,_fp(body))
+        event_id=_id(event_id,"event id");etag=_id(etag,"etag");path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(event_id,safe='')}";body={"event_id":event_id};headers={"If-Match":etag};out=self._mutation("DELETE",path,body,"calendar.event.cancel",approved=approved,idempotency_key=idempotency_key,headers=headers);return CalendarEvidence("calendar.event.cancel",body,_fp(body))
 def _bounded_event(v):
     if not isinstance(v,Mapping):return {}
     out={k:_redact(x) for k,x in v.items() if k not in {"conferenceData","attachments"}}
@@ -98,6 +103,10 @@ def _validate_event(event,*,creating):
         if not isinstance(a,Mapping) or not isinstance(a.get("email"),str) or "@" not in a["email"]:raise CalendarError("invalid attendee")
     rec=out.get("recurrence",[])
     if not isinstance(rec,list) or len(rec)>MAX_RECURRENCE:raise CalendarError("recurrence limit exceeded")
+    for rule in rec:
+        if not isinstance(rule,str) or not rule.startswith("RRULE:"):raise CalendarError("recurrence entries must be RRULEs")
+        upper=rule.upper()
+        if "COUNT=" not in upper and "UNTIL=" not in upper:raise CalendarError("recurring events require bounded COUNT or UNTIL")
     raw=json.dumps(out,sort_keys=True,default=str)
     if len(raw.encode())>MAX_EVENT_BYTES:raise CalendarError("event exceeds size limit")
     return out
