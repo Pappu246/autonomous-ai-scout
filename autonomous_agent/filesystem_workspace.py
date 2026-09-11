@@ -16,7 +16,7 @@ class WorkspaceConnector:
     def __init__(self,root:Path,*,max_file_bytes=MAX_FILE_BYTES,max_output_bytes=MAX_OUTPUT_BYTES,max_entries=MAX_ENTRIES,max_retries=MAX_RETRIES,timeout_seconds=10):
         self.root=Path(root).resolve()
         if not self.root.is_dir():raise WorkspaceError("workspace root must be an existing directory")
-        if not 1<=max_file_bytes<MAX_FILE_BYTES or not 1<=max_output_bytes<=MAX_OUTPUT_BYTES or not 1<=max_entries<=MAX_ENTRIES or not 0<=max_retries<=MAX_RETRIES or not 1<=timeout_seconds<=MAX_TIMEOUT_SECONDS:raise WorkspaceError("unsafe workspace bounds")
+        if not 1<=max_file_bytes<=MAX_FILE_BYTES or not 1<=max_output_bytes<=MAX_OUTPUT_BYTES or not 1<=max_entries<=MAX_ENTRIES or not 0<=max_retries<=MAX_RETRIES or not 1<=timeout_seconds<=MAX_TIMEOUT_SECONDS:raise WorkspaceError("unsafe workspace bounds")
         self.max_file_bytes=max_file_bytes;self.max_output_bytes=max_output_bytes;self.max_entries=max_entries;self.max_retries=max_retries;self.timeout_seconds=timeout_seconds
     def _path(self,relative):
         if not isinstance(relative,str) or not relative.strip():raise WorkspaceError("workspace path is required")
