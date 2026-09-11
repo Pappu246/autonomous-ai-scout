@@ -48,16 +48,13 @@ def test_mutation_approval_stale_and_idempotency():
     with pytest.raises(CalendarError):c.create(event=event,idempotency_key=create_key,approved=True)
     update_path="https://www.googleapis.com/calendar/v3/calendars/primary/events/e1";update_key=_fp({"operation":"calendar.event.update","path":update_path,"event":event,"headers":{"If-Match":"v1"}})
     with pytest.raises(CalendarError):c.update(event_id="e1",event=event,etag="v1",idempotency_key="wrong",approved=True)
-    c.update(event_id="e1",event=event,etag="v1",idempotency_key=update_key,approved=True)
+    c.update(event_id="e1",event=event,etag="v1",idempotency_key=update_key,approved=True);assert t.calls[-1][4]=={"If-Match":"v1"}
     cancel_path=update_path;cancel_key=_fp({"operation":"calendar.event.cancel","path":cancel_path,"event":{"event_id":"e1"},"headers":{"If-Match":"v1"}})
     with pytest.raises(CalendarError):c.cancel(event_id="e1",etag="v1",idempotency_key=cancel_key,approved=False)
 def test_retry_limits_and_secret_safe_evidence():
     t=Transport();t.failures=2;c=CalendarConnector(t);e=c.list();assert e.operation=="calendar.list" and len(t.calls)==3
     secret={"access_token":"abc","authorization":"Bearer abc","summary":"ok"};out=c._request("GET","https://www.googleapis.com/calendar/v3/calendars/primary/events",body=secret);assert "abc" not in str(out)
 def test_planner_and_sandbox_integration(tmp_path:Path):
-    registry=ToolRegistry();register_calendar_tools(registry)
-    p=plan_task("find free time on my calendar",granted=(Capability.CALENDAR,),registry=registry);assert p.executable and p.steps[0].tool_name=="calendar.find_free_time"
-    blocked=plan_task("create a calendar event",granted=(Capability.CALENDAR,),registry=registry);assert not blocked.executable
-    t=Transport();result=run_safe_operation("calendar",tmp_path,calendar_connector=t,calendar_request={"operation":"list","calendar_id":"primary"});assert result.success and result.verification_status=="verified"
+    registry=ToolRegistry();register_calendar_tools(registry);p=plan_task("find free time on my calendar",granted=(Capability.CALENDAR,),registry=registry);assert p.executable and p.steps[0].tool_name=="calendar.find_free_time";blocked=plan_task("create a calendar event",granted=(Capability.CALENDAR,),registry=registry);assert not blocked.executable;t=Transport();result=run_safe_operation("calendar",tmp_path,calendar_connector=CalendarConnector(t),calendar_request={"operation":"list","calendar_id":"primary"});assert result.success and result.verification_status=="verified"
 def test_executor_reuses_existing_audit_boundary(tmp_path:Path):
     registry=ToolRegistry();register_calendar_tools(registry);t=Transport();p=plan_task("list my calendar",granted=(Capability.CALENDAR,),registry=registry);audit=tmp_path/"audit.jsonl";r=execute_plan(p,tmp_path,granted=(Capability.CALENDAR,),audit_path=audit,execution_id="cal-1",registry=registry,calendar_connector=CalendarConnector(t),calendar_request={"operation":"list"});assert r.state is ExecutionState.VERIFIED and verify_execution_audit(audit)
