@@ -5,13 +5,15 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .continuous_improvement import OpenChange, build_report, propose_from_source, prioritize
+from .continuous_improvement import OpenChange, build_report, health_trend, propose_from_source, prioritize
 from .cross_project_memory import CrossProjectMemory
-from .github_audit import audit_owner, _load_state
+from .github_audit import _load_state, audit_owner
 from .models import ProjectFinding
 
 
 REPORT_PATH = Path(os.getenv("SCOUT_IMPROVEMENT_REPORT_PATH", "state/improvement_report.json"))
+INTELLIGENCE_PATH = Path(os.getenv("SCOUT_PROJECT_INTELLIGENCE_PATH", "state/project_intelligence.json"))
+REGISTRY_PATH = Path(os.getenv("SCOUT_PROJECT_REGISTRY_PATH", "state/project_registry.json"))
 
 
 class AuditEvidenceSource:
@@ -29,18 +31,10 @@ class AuditEvidenceSource:
             repository = str(item.get("repository", "")).strip()
             if not repository:
                 continue
-            finding = ProjectFinding(
-                repository=repository,
-                severity=str(item.get("severity", "info")),
-                title=str(item.get("title", "GitHub audit finding")),
-                detail=str(item.get("detail", "")),
-                recommendation=str(item.get("recommendation", "Review the finding.")),
-                confidence=0.85,
-            )
-            self._findings.setdefault(repository, []).append(finding)
-        intelligence = _load_state(Path(os.getenv("SCOUT_PROJECT_INTELLIGENCE_PATH", "state/project_intelligence.json")))
+            self._findings.setdefault(repository, []).append(ProjectFinding(repository=repository, severity=str(item.get("severity", "info")), title=str(item.get("title", "GitHub audit finding")), detail=str(item.get("detail", "")), recommendation=str(item.get("recommendation", "Review the finding.")), confidence=0.85))
+        intelligence = _load_state(INTELLIGENCE_PATH)
         self._intelligence = {str(name): dict(value) for name, value in intelligence.items() if isinstance(value, dict)}
-        registry = _load_state(Path(os.getenv("SCOUT_PROJECT_REGISTRY_PATH", "state/project_registry.json")))
+        registry = _load_state(REGISTRY_PATH)
         return tuple(sorted(name for name, profile in registry.items() if isinstance(profile, dict) and not profile.get("fork") and not profile.get("archived") and name not in self.exclude))
 
     def findings(self, project: str):
@@ -58,15 +52,18 @@ def _open_changes(projects: tuple[str, ...]) -> tuple[OpenChange, ...]:
     from .github_audit import gh_get
 
     result: list[OpenChange] = []
+    marker = "fingerprint:"
     for project in projects:
         pulls = gh_get(f"/repos/{project}/pulls", {"state": "open", "per_page": 100, "sort": "updated"})
         if not isinstance(pulls, list):
             continue
         for pull in pulls:
             body = str(pull.get("body") or "")
-            marker = "fingerprint:"
-            fingerprints = [line.split(marker, 1)[1].strip().split()[0] for line in body.splitlines() if marker in line.lower()]
-            for fingerprint in fingerprints:
+            for line in body.splitlines():
+                lowered = line.lower()
+                if marker not in lowered:
+                    continue
+                fingerprint = line[lowered.index(marker) + len(marker):].strip().split()[0]
                 if fingerprint:
                     result.append(OpenChange(project, fingerprint, str(pull.get("title", "open pull request"))))
     return tuple(result)
@@ -74,26 +71,31 @@ def _open_changes(projects: tuple[str, ...]) -> tuple[OpenChange, ...]:
 
 def run_improvement_cycle(owner: str, *, memory_path: Path | None = None, exclude: set[str] | None = None) -> dict[str, object]:
     """Discover all owned projects, evaluate existing evidence, and persist a safe decision report."""
+    previous_intelligence = _load_state(INTELLIGENCE_PATH)
     source = AuditEvidenceSource(owner, exclude=exclude)
     projects = source.refresh()
     memory = CrossProjectMemory(memory_path or Path(os.getenv("SCOUT_MEMORY_PATH", "state/cross_project_memory.json")))
-    proposals = propose_from_source(source, projects, memory=memory, open_changes=_open_changes(projects))
-    ordered = prioritize(proposals)
-    for proposal in ordered:
+    proposals = prioritize(propose_from_source(source, projects, memory=memory, open_changes=_open_changes(projects)))
+    for proposal in proposals:
         try:
             memory.record_recommendation(proposal.project, proposal.proposed_solution, status="proposed")
         except Exception:
             pass
-    report = build_report(ordered, blocked_actions=("github.change", "github.merge", "production.deploy", "billing.manage", "secrets.manage", "destructive.execute"))
+
+    health_changes: dict[str, str] = {}
+    for project in projects:
+        previous = previous_intelligence.get(project, {}) if isinstance(previous_intelligence.get(project, {}), dict) else {}
+        current = source.intelligence(project)
+        if previous and current and "score" in previous and "score" in current:
+            trend = health_trend(previous, current)
+            if trend != "unchanged":
+                health_changes[project] = trend
+
+    report = build_report(proposals, health_changes=health_changes)
     report["owner"] = owner
     report["projects_evaluated"] = projects
-    report["proposal_count"] = len(ordered)
-    report["top_proposal"] = None if not ordered else {
-        "project": ordered[0].project,
-        "problem": ordered[0].problem,
-        "score": ordered[0].priority_score,
-        "fingerprint": ordered[0].fingerprint,
-    }
+    report["proposal_count"] = len(proposals)
+    report["top_proposal"] = None if not proposals else {"project": proposals[0].project, "problem": proposals[0].problem, "score": proposals[0].priority_score, "fingerprint": proposals[0].fingerprint}
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = REPORT_PATH.with_suffix(REPORT_PATH.suffix + ".tmp")
     tmp.write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
