@@ -15,7 +15,7 @@ def test_search_success_and_dedup():
 def test_read_success_normalizes_and_fingerprints():
     e=WebResearchConnector(response,allowed_domains=["example.com"]).read("https://example.com/a"); assert "script" not in e.text and e.fingerprint
 def test_extract_and_compare():
-    c=WebResearchConnector(response,allowed_domains=["example.com","example.org"]); e=c.read("https://example.com/a"); x=c.extract(e,["Version","Missing"]); assert x["Version"]["status"]=="verified" and x["Missing"]["status"]=="unavailable"; assert len(c.compare(c.search("x",results=2))["sources"])==2
+    c=WebResearchConnector(response,allowed_domains=["example.com","example.org"]); e=c.read("https://example.com/a"); x=c.extract(e,["Version","Missing"]); assert x["Version"]["status"]=="verified" and x["Missing"]["status"]=="unavailable"; assert len(c.compare(c.search("x",results=3))["sources"])==2
 def test_empty_results(): assert WebResearchConnector(lambda *a:{"results":[]}).search("x")==()
 def test_bad_urls_and_scope():
     c=WebResearchConnector(response,allowed_domains=["example.com"])
@@ -63,4 +63,4 @@ def test_bounded_concurrency_and_capability_mismatch():
     except WebConnectorError:pass
     assert not web_capabilities(REGISTRY).authorize("web:search",(Capability.INSPECT.value,)).allowed
 def test_contradictory_sources_are_not_invented_as_facts():
-    c=WebResearchConnector(response); a=WebEvidence("https://a.example","a.example","a","Status: stable.","2026-09-11T00:00:00Z",SHA,"a"); b=WebEvidence("https://b.example","b.example","b","Status: unstable.","2026-09-11T00:00:00Z",SHA,"b"); out=c.compare((a,b)); assert all(x["status"] in {"verified","conflicting","unavailable","inferred"} for x in out["facts"])
+    c=WebResearchConnector(response,allowed_domains=["a.example","b.example"]); a=WebEvidence("https://a.example","a.example","a","Status: stable.","2026-09-11T00:00:00Z",SHA,"a"); b=WebEvidence("https://b.example","b.example","b","Status: unstable.","2026-09-11T00:00:00Z",SHA,"b"); out=c.compare((a,b)); assert all(x["status"] in {"verified","conflicting","unavailable","inferred"} for x in out["facts"])
