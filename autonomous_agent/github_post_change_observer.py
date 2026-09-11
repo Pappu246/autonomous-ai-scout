@@ -81,6 +81,8 @@ def _change_fingerprint(repository: str, base_sha: str, head_sha: str, compare: 
 
 
 def _ci_conclusion(runs: tuple[CIRunEvidence, ...], checks: tuple[CheckEvidence, ...]) -> str:
+    if not runs:
+        return "unknown"
     conclusions = [run.conclusion.strip().lower() for run in runs if run.status.strip().lower() == "completed" and run.conclusion]
     conclusions.extend(check.conclusion.strip().lower() for check in checks if check.status.strip().lower() == "completed" and check.conclusion)
     failures = {"failure", "failed", "cancelled", "timed_out", "startup_failure", "action_required", "error"}
@@ -127,9 +129,11 @@ def observe_github_pull_request(
     compare = fetch(f"/repos/{repository}/compare/{base_sha}...{head_sha}")
     if not isinstance(compare, dict):
         raise GitHubObservationError("change comparison could not be read")
+    if str((compare.get("base_commit") or {}).get("sha", base_sha)) != base_sha:
+        raise GitHubObservationError("compare base SHA mismatch")
     change_fingerprint = _change_fingerprint(repository, base_sha, head_sha, compare)
 
-    raw_runs = fetch(f"/repos/{repository}/actions/runs", {"head_sha": head_sha, "per_page": 20})
+    raw_runs = fetch(f"/repos/{repository}/actions/runs", {"head_sha": head_sha, "event": "pull_request", "per_page": 20})
     runs: list[CIRunEvidence] = []
     if isinstance(raw_runs, dict):
         for item in raw_runs.get("workflow_runs", [])[:20]:
@@ -144,6 +148,9 @@ def observe_github_pull_request(
         for item in raw_checks.get("check_runs", [])[:100]:
             if not isinstance(item, dict):
                 continue
+            check_head = str(item.get("head_sha") or head_sha)
+            if check_head != head_sha:
+                continue
             checks.append(CheckEvidence(_safe_string(item.get("name", "")), _safe_string(item.get("status", "")), _safe_string(item.get("conclusion")) if item.get("conclusion") is not None else None, head_sha))
     checks_tuple = tuple(sorted(checks, key=lambda item: item.name))
 
@@ -151,6 +158,10 @@ def observe_github_pull_request(
     verification = (commit.get("commit") or {}).get("verification") if isinstance(commit, dict) else None
     verification_status = "verified" if isinstance(verification, dict) and verification.get("verified") else "unverified"
     ci = _ci_conclusion(runs_tuple, checks_tuple)
+    if ci == "failure":
+        verification_status = "failed"
+    elif ci in {"unknown", "pending"}:
+        verification_status = "unknown"
     observed_at = max([item.updated_at for item in runs_tuple if item.updated_at] or [str(pr.get("updated_at") or "")])
     evidence = GitHubObservation(repository, int(pull_request), head_sha, base_sha, change_fingerprint, ci, runs_tuple, checks_tuple, verification_status, observed_at)
 
