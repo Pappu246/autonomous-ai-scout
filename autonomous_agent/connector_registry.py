@@ -69,7 +69,7 @@ BUILTIN_CONNECTORS: tuple[ConnectorSpec, ...] = (
     ConnectorSpec("web_research", "Explicit-resource web research connector.", "web", (Capability.NETWORK.value,), ("explicit-resource",), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.MEDIUM, ApprovalRequirement.EXPLICIT, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("network.fetch",), True, input_schema=_schema(), output_schema=_schema()),
     ConnectorSpec("files", "Approved workspace file connector.", "files", (Capability.READ_FILE.value,), ("approved-workspace",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.NONE, ReadWriteMode.READ_ONLY, RiskLevel.LOW, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("filesystem.read",), True, input_schema=_schema(), output_schema=_schema()),
     ConnectorSpec("ai_providers", "Configured free-provider benchmark connector.", "ai_provider", (Capability.BENCHMARK.value,), ("configured-free-provider",), ConnectorAuth.SERVICE_AUTH, CredentialHandling.PROVIDER_MANAGED_REFERENCE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.MEDIUM, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("model.benchmark",), True, input_schema=_schema(), output_schema=_schema()),
-    ConnectorSpec("project_repository", "Approval-gated repository inspection and change connector.", "github", (Capability.INSPECT.value, Capability.SOURCE_WRITE.value), ("repository:read", "reviewed-change"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("github.inspect", "github.change"), True, input_schema=_schema(), output_schema=_schema()),
+    ConnectorSpec("project_repository", "Approval-gated repository change connector.", "github", (Capability.SOURCE_WRITE.value,), ("repository:read", "reviewed-change"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("github.change",), True, input_schema=_schema(), output_schema=_schema()),
     ConnectorSpec("email", "Future email connector; unavailable until registered tools exist.", "email", ("email.read", "email.send"), ("mailbox:read", "mailbox:send"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, (), False, input_schema=_schema(), output_schema=_schema()),
     ConnectorSpec("calendar_api", "Future calendar connector; unavailable until registered tools exist.", "calendar", ("calendar.read", "calendar.write"), ("calendar:read", "calendar:write"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, (), False, input_schema=_schema(), output_schema=_schema()),
     ConnectorSpec("browser", "Future controlled browser connector; unavailable until registered tools exist.", "browser", ("browser.automation",), ("explicit-site",), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.CRITICAL, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, (), False, input_schema=_schema(), output_schema=_schema()),
@@ -191,13 +191,7 @@ class ConnectorRegistry:
         except ConnectorRegistryError as exc:
             return CapabilityDecision(False, f"connector/tool contract mismatch: {exc}", "")
         for tool_name in spec.registered_tools:
-            decision = active_registry.authorize(
-                tool_name,
-                granted,
-                explicitly_approved=explicitly_approved,
-                sandbox_available=sandbox_available,
-                audit_available=audit_available,
-            )
+            decision = active_registry.authorize(tool_name, granted, explicitly_approved=explicitly_approved, sandbox_available=sandbox_available, audit_available=audit_available)
             if not decision.allowed:
                 return decision
         return CapabilityDecision(True, "all connector tools are permitted by the existing Tool Registry and capability policy", spec.registered_tools[0])
