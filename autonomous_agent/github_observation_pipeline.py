@@ -161,17 +161,15 @@ def meaningful_github_change(github: GitHubPrObservation, memory: CrossProjectMe
     finding = detect_regression(github.observation)
     if memory.has(project=github.repository, kind="post_change_observation", fingerprint=finding.observation_fingerprint):
         return False, "duplicate observation", finding
-    previous = memory.learn(github.repository, kind="github_observation")
+    previous = [item for item in memory.learn(github.repository, kind="post_change_observation") if item.get("data", {}).get("change_fingerprint") == github.change_fingerprint]
     if previous:
-        previous = [item for item in previous if item.get("data", {}).get("change_fingerprint") == github.change_fingerprint]
-        if previous:
-            data = previous[-1].get("data", {})
-            if _time(github.observed_at) < _time(str(data.get("observed_at", ""))):
-                return False, "stale/out-of-order observation", finding
-            if data.get("head_sha") == github.head_sha and data.get("ci_conclusion") == github.ci_conclusion:
-                return False, "unchanged exact-HEAD evidence", finding
-            if str(previous[-1].get("outcome", "")).lower() == ObservationStatus.REGRESSED.value and github.ci_conclusion == "success" and github.verification_status == "verified":
-                finding = RegressionFinding(finding.repository, finding.change_fingerprint, finding.observation_fingerprint, ObservationStatus.IMPROVED, ("CI recovered after a previously regressed observation",), finding.evidence)
+        data = previous[-1].get("data", {})
+        if _time(github.observed_at) < _time(str(data.get("observed_at", ""))):
+            return False, "stale/out-of-order observation", finding
+        if data.get("head_sha") == github.head_sha and data.get("ci_conclusion") == github.ci_conclusion:
+            return False, "unchanged exact-HEAD evidence", finding
+        if str(previous[-1].get("outcome", "")).lower() == ObservationStatus.REGRESSED.value and github.ci_conclusion == "success" and github.verification_status == "verified":
+            finding = RegressionFinding(finding.repository, finding.change_fingerprint, finding.observation_fingerprint, ObservationStatus.IMPROVED, ("CI recovered after a previously regressed observation",), finding.evidence)
     if finding.status is ObservationStatus.REGRESSED:
         return True, "new regression/failure", finding
     if finding.status is ObservationStatus.IMPROVED:
