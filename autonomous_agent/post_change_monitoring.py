@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping, Protocol
 
-from .cross_project_memory import CrossProjectMemory
+from .cross_project_memory import CrossProjectMemory, MemoryEvent
 
 
 class ObservationStatus(str, Enum):
@@ -105,13 +105,12 @@ def detect_regression(observation: ChangeObservation) -> RegressionFinding:
 
 
 def record_observation(memory: CrossProjectMemory, finding: RegressionFinding) -> bool:
-    status = finding.status.value
     return memory.record(
-        __import__("autonomous_agent.cross_project_memory", fromlist=["MemoryEvent"]).MemoryEvent(
+        MemoryEvent(
             project=finding.repository,
             kind="post_change_observation",
             fingerprint=finding.observation_fingerprint,
-            outcome=status,
+            outcome=finding.status.value,
             data={"change_fingerprint": finding.change_fingerprint, "reasons": finding.reasons, "evidence": finding.evidence},
         )
     )
