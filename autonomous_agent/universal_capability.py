@@ -111,3 +111,11 @@ def github_capabilities(tool_registry: ToolRegistry) -> CapabilityRegistry:
     registry.register(CapabilitySpec("github:status", Domain.GITHUB, "github.inspect", schema, schema, "low", "read_only", "required", "user_auth", "github", "none", "none", "required", ("repository:read", "checks:read"), IdempotencyMode.NATURAL, RetryPolicy(2, 1), True))
     registry.register(CapabilitySpec("github:change", Domain.GITHUB, "github.change", schema, schema, "high", "controlled_write", "required", "user_auth", "github", "explicit", "required", "required", ("repository:change:approved",), IdempotencyMode.REQUIRED, RetryPolicy(1, 0), True))
     return registry
+
+
+def web_capabilities(tool_registry: ToolRegistry) -> CapabilityRegistry:
+    """Expose only the already-registered, explicitly approved network read boundary."""
+    registry = CapabilityRegistry(tool_registry)
+    schema = {"type": "object", "properties": {"url": {"type": "string"}, "timeout_seconds": {"type": "integer"}}, "required": ["url"], "additionalProperties": False}
+    registry.register(CapabilitySpec("web:fetch", Domain.WEB, "network.fetch", schema, {"type": "object"}, "medium", "read_only", "required", "user_auth", "web", "explicit", "required", "required", ("url:explicit",), IdempotencyMode.NATURAL, RetryPolicy(1, 0), True))
+    return registry
