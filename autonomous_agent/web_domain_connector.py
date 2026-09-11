@@ -82,12 +82,23 @@ class WebResearchConnector:
     def compare(self,sources):
         items=tuple(sources)
         if not 2<=len(items)<=MAX_SOURCES: raise WebConnectorError("comparison source count exceeded")
-        groups={}
+        field_values={}; generic={}
         for s in items:
             for sentence in re.split(r"(?<=[.!?])\s+",s.text):
-                key=re.sub(r"\W+"," ",sentence.lower()).strip()
-                if len(key)>=8:groups.setdefault(key,[]).append(s.source_ref)
-        facts=tuple({"statement":k,"status":"verified","sources":tuple(v)} for k,v in groups.items())
+                clean=sentence.strip()
+                match=re.match(r"^([A-Za-z][A-Za-z0-9 _-]{0,79})\s*[:\-]\s*([^.;!?]{1,500})[.!?]?$",clean)
+                if match:
+                    field=re.sub(r"\W+"," ",match.group(1).lower()).strip(); value=re.sub(r"\s+"," ",match.group(2)).strip().lower()
+                    if field and value: field_values.setdefault(field,{}).setdefault(value,[]).append(s.source_ref)
+                else:
+                    key=re.sub(r"\W+"," ",clean.lower()).strip()
+                    if len(key)>=8: generic.setdefault(key,[]).append(s.source_ref)
+        facts=[]
+        for field,values in sorted(field_values.items()):
+            status="conflicting" if len(values)>1 else "verified"
+            for value,refs in sorted(values.items()): facts.append({"statement":f"{field}: {value}","status":status,"sources":tuple(refs)})
+        facts.extend({"statement":k,"status":"verified","sources":tuple(v)} for k,v in sorted(generic.items()))
+        facts=tuple(facts)
         return {"sources":tuple(s.safe_dict() for s in items),"facts":facts,"comparison_fingerprint":_fingerprint({"sources":[s.fingerprint for s in items],"facts":facts})}
 def record_web_evidence(memory,project,evidence,*,task_digest="",verification_status="verified"):
     from .cross_project_memory import MemoryEvent
