@@ -14,7 +14,9 @@ from .tool_registry import ToolRegistry, REGISTRY
 
 _INTENT_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "research": ("network.fetch",),
-    "inspect": ("github.inspect", "filesystem.read"),
+    # Generic inspection has no explicit file target. Keep it on the existing
+    # project-inspection boundary rather than inventing a filesystem target.
+    "inspect": ("github.inspect",),
     "test": ("github.inspect", "tests.run"),
     "improve": ("github.inspect", "tests.run", "github.change"),
     "change": ("github.inspect", "tests.run", "github.change"),
