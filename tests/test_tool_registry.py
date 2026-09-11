@@ -15,13 +15,10 @@ def test_safe_tool_requires_only_explicit_safe_capability_grant():
     assert decision.capability == "test"
 
 
-def test_write_tool_still_requires_approval():
+def test_source_write_remains_blocked_by_autonomous_capability_policy():
     decision = authorize_tool("github.change", [Capability.SOURCE_WRITE])
     assert not decision.allowed
-    assert "approval" in decision.reason
-    approved = authorize_tool("github.change", [Capability.SOURCE_WRITE], explicitly_approved=True)
-    assert not approved.allowed
-    assert "permanently denied" in approved.reason
+    assert "permanently denied" in decision.reason
 
 
 def test_merge_deploy_billing_and_destructive_tools_remain_denied():
