@@ -3,15 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
-from typing import Callable, Mapping, Protocol
+from dataclasses import dataclass, replace
+from typing import Mapping, Protocol
 
 from .action_queue import PendingAction
 from .approved_executor import ApprovalRecord, action_fingerprint, validate_approval
-from .capability_policy import Capability
-from .github_changes import GitHubChangeBackend, GitHubChangeRequest, GitHubChangeResult, build_change_request, execute_approved_change
+from .github_changes import GitHubChangeBackend, GitHubChangeResult, build_change_request, execute_approved_change
 from .patch_review import PatchReview, review_patch
-from .tool_registry import REGISTRY, ToolRegistry
 
 
 _OWNER_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -41,6 +39,7 @@ class DraftPrRequest:
     head_branch: str
     expected_head_sha: str
     patch_digest: str
+    file_contents_digest: str
     title: str
     body: str
     files: tuple[str, ...]
@@ -62,6 +61,12 @@ def _safe(value: object, limit: int = 512) -> str:
     return _SECRET.sub("[REDACTED]", text)[:limit]
 
 
+def _content_digest(file_contents: Mapping[str, str]) -> str:
+    payload = [(path.strip().replace("\\", "/").removeprefix("./"), str(content)) for path, content in file_contents.items()]
+    payload.sort(key=lambda item: item[0])
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def _request_digest(request: DraftPrRequest) -> str:
     payload = {
         "action_id": request.action_id,
@@ -71,6 +76,7 @@ def _request_digest(request: DraftPrRequest) -> str:
         "head_branch": request.head_branch,
         "expected_head_sha": request.expected_head_sha,
         "patch_digest": request.patch_digest,
+        "file_contents_digest": request.file_contents_digest,
         "title": request.title,
         "body": request.body,
         "files": request.files,
@@ -103,6 +109,7 @@ def build_draft_pr_request(
     title: str,
     body: str,
     unified_diff: str,
+    file_contents: Mapping[str, str],
     *,
     now=None,
 ) -> DraftPrRequest:
@@ -132,6 +139,7 @@ def build_draft_pr_request(
         head_branch=head_branch.strip(),
         expected_head_sha=expected_head_sha.strip().lower(),
         patch_digest=review.patch_digest,
+        file_contents_digest=_content_digest(file_contents),
         title=safe_title,
         body=safe_body,
         files=review.files,
@@ -139,7 +147,7 @@ def build_draft_pr_request(
         deletions=review.deletions,
         request_fingerprint="",
     )
-    return DraftPrRequest(**{**request.__dict__, "request_fingerprint": _request_digest(request)})
+    return replace(request, request_fingerprint=_request_digest(request))
 
 
 def prepare_draft_pr(
@@ -155,11 +163,9 @@ def prepare_draft_pr(
     claim_store,
     audit_path=None,
     now=None,
-    registry: ToolRegistry = REGISTRY,
-    granted_capabilities=(),
 ) -> DraftPrResult:
-    expected_digest = _request_digest(DraftPrRequest(**{**request.__dict__, "request_fingerprint": ""}))
-    if request.request_fingerprint != expected_digest:
+    unsigned = replace(request, request_fingerprint="")
+    if request.request_fingerprint != _request_digest(unsigned):
         return DraftPrResult(False, "draft request fingerprint mismatch", request.request_fingerprint)
     if action.id != request.action_id:
         return DraftPrResult(False, "draft request does not match action identity", request.request_fingerprint)
@@ -179,6 +185,8 @@ def prepare_draft_pr(
     supplied_files = tuple(dict.fromkeys(path.strip().replace("\\", "/").removeprefix("./") for path in file_contents))
     if supplied_files != request.files:
         return DraftPrResult(False, "approved patch file manifest mismatch", request.request_fingerprint)
+    if _content_digest(file_contents) != request.file_contents_digest:
+        return DraftPrResult(False, "approved file contents fingerprint mismatch", request.request_fingerprint)
     if any("\x00" in content for content in file_contents.values()):
         return DraftPrResult(False, "changed file contains NUL bytes", request.request_fingerprint)
     current_sha = head_provider.head_sha(request.repository, request.base_branch)
@@ -189,15 +197,6 @@ def prepare_draft_pr(
     duplicate = existing_prs.find(request.repository, request.head_branch, request.base_branch, request.patch_digest)
     if duplicate:
         return DraftPrResult(False, "duplicate draft PR already exists", request.request_fingerprint)
-    tool_decision = registry.authorize(
-        "github.change",
-        granted_capabilities,
-        explicitly_approved=True,
-        sandbox_available=True,
-        audit_available=True,
-    )
-    if not tool_decision.allowed:
-        return DraftPrResult(False, tool_decision.reason, request.request_fingerprint)
     change_request = build_change_request(
         action,
         request.repository,
