@@ -66,26 +66,48 @@ def _safe_data(data: Mapping[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def _entry_hash(entry: Mapping[str, Any]) -> str:
+    payload = {
+        "project": entry.get("project"),
+        "kind": entry.get("kind"),
+        "fingerprint": entry.get("fingerprint"),
+        "outcome": entry.get("outcome"),
+        "data": entry.get("data"),
+        "previous_hash": entry.get("previous_hash", ""),
+    }
+    return _digest(payload)
+
+
 class CrossProjectMemory:
-    """Bounded, append-oriented memory that stores evidence, not authority or secrets."""
+    """Bounded, tamper-evident memory that stores evidence, not authority or secrets."""
 
     def __init__(self, path: Path, *, max_entries: int = MAX_ENTRIES, max_entries_per_project: int = MAX_ENTRIES_PER_PROJECT):
         self.path = Path(path)
         self.max_entries = max(1, min(int(max_entries), MAX_ENTRIES))
         self.max_entries_per_project = max(1, min(int(max_entries_per_project), MAX_ENTRIES_PER_PROJECT))
 
-    def _load(self) -> list[dict[str, Any]]:
+    def _load(self) -> tuple[list[dict[str, Any]], bool]:
         if not self.path.exists():
-            return []
+            return [], True
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
-            return []
+            return [], False
         if not isinstance(value, list):
-            return []
-        return [item for item in value if isinstance(item, dict)]
+            return [], False
+        entries = [item for item in value if isinstance(item, dict)]
+        if len(entries) != len(value):
+            return [], False
+        previous = ""
+        for item in entries:
+            if item.get("previous_hash", "") != previous:
+                return [], False
+            if item.get("event_hash") != _entry_hash(item):
+                return [], False
+            previous = str(item["event_hash"])
+        return entries, True
 
-    def _save(self, entries: list[dict[str, Any]]) -> None:
+    def _save(self, entries: list[dict[str, Any]]) -> bool:
         bounded = entries[-self.max_entries :]
         counts: dict[str, int] = {}
         kept: list[dict[str, Any]] = []
@@ -97,12 +119,37 @@ class CrossProjectMemory:
             counts[project] = count + 1
             kept.append(item)
         kept.reverse()
+        sealed: list[dict[str, Any]] = []
+        previous = ""
+        for item in kept:
+            clean = {
+                "project": item.get("project"),
+                "kind": item.get("kind"),
+                "fingerprint": item.get("fingerprint"),
+                "outcome": item.get("outcome"),
+                "data": item.get("data", {}),
+                "previous_hash": previous,
+            }
+            clean["event_hash"] = _entry_hash(clean)
+            sealed.append(clean)
+            previous = clean["event_hash"]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix(self.path.suffix + ".tmp")
-        temp.write_text(json.dumps(kept, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        temp.replace(self.path)
+        try:
+            temp.write_text(json.dumps(sealed, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            temp.replace(self.path)
+        except OSError:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+        return True
 
     def record(self, event: MemoryEvent) -> bool:
+        entries, valid = self._load()
+        if not valid:
+            return False
         safe = {
             "project": _safe_text(event.project),
             "kind": _safe_text(event.kind),
@@ -110,19 +157,20 @@ class CrossProjectMemory:
             "outcome": _safe_text(event.outcome),
             "data": _safe_data(event.data),
         }
-        entries = self._load()
         entries.append(safe)
-        self._save(entries)
-        return True
+        return self._save(entries)
 
     def has(self, *, project: str, kind: str, fingerprint: str) -> bool:
+        entries, valid = self._load()
+        if not valid:
+            return False
         project_name, kind_name = _safe_text(project), _safe_text(kind)
         stored = _digest(project, kind, fingerprint)
         return any(
             item.get("project") == project_name
             and item.get("kind") == kind_name
             and item.get("fingerprint") in {stored, _safe_text(fingerprint)}
-            for item in self._load()
+            for item in entries
         )
 
     def record_task(self, project: str, task: str, *, intent: str, outcome: str) -> bool:
@@ -158,15 +206,21 @@ class CrossProjectMemory:
         return self.record(MemoryEvent(project, "health_baseline", _digest(project, safe), "observed", {"baseline": safe}))
 
     def change_detected(self, project: str, subject: str, fingerprint: str) -> bool:
+        entries, valid = self._load()
+        if not valid:
+            return True
         project_name, subject_name = _safe_text(project), _safe_text(subject)
         target = _digest(project, "change", fingerprint)
-        previous = [item for item in self._load() if item.get("project") == project_name and item.get("kind") == "change" and item.get("data", {}).get("subject") == subject_name]
+        previous = [item for item in entries if item.get("project") == project_name and item.get("kind") == "change" and item.get("data", {}).get("subject") == subject_name]
         return not previous or previous[-1].get("fingerprint") != target
 
     def record_change(self, project: str, subject: str, fingerprint: str) -> bool:
         return self.record(MemoryEvent(project, "change", fingerprint, "detected", {"subject": subject}))
 
     def learn(self, project: str, *, kind: str | None = None) -> tuple[Mapping[str, Any], ...]:
+        entries, valid = self._load()
+        if not valid:
+            return ()
         project_name = _safe_text(project)
         kind_name = _safe_text(kind) if kind is not None else None
-        return tuple(item for item in self._load() if item.get("project") == project_name and (kind_name is None or item.get("kind") == kind_name))
+        return tuple(item for item in entries if item.get("project") == project_name and (kind_name is None or item.get("kind") == kind_name))
