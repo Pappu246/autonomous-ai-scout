@@ -2,9 +2,9 @@ from __future__ import annotations
 import hashlib,json,re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 MAX_FILE_BYTES=128*1024; MAX_OUTPUT_BYTES=64*1024; MAX_ENTRIES=500; MAX_RETRIES=2; MAX_TIMEOUT_SECONDS=30
 _SECRET=re.compile(r"(?i)(api[_-]?key|access[_-]?token|authorization|password|secret|cookie|session|credential)\s*[:=]\s*[^\s,;]+")
+_CREDENTIAL_NAMES={".npmrc",".pypirc",".netrc","credentials.json","service-account.json","id_rsa","id_ed25519"}
 class WorkspaceError(ValueError):pass
 @dataclass(frozen=True)
 class WorkspaceEvidence:
@@ -23,17 +23,17 @@ class WorkspaceConnector:
         candidate=(self.root/relative).resolve()
         try:candidate.relative_to(self.root)
         except ValueError as exc:raise WorkspaceError("workspace path escapes authorized root") from exc
-        if any(part in {".git",".env",".ssh"} for part in candidate.relative_to(self.root).parts):raise WorkspaceError("credential or VCS paths are not authorized")
+        parts=candidate.relative_to(self.root).parts
+        if any(part in {".git",".env",".ssh"} or part in _CREDENTIAL_NAMES or part.endswith((".pem",".key")) for part in parts):raise WorkspaceError("credential or VCS paths are not authorized")
         return candidate
     def list(self,relative="."):
         path=self._path(relative)
         if not path.is_dir():raise WorkspaceError("workspace target is not a directory")
         entries=[]
         for item in sorted(path.iterdir(),key=lambda p:p.name):
-            if item.name in {".git",".env",".ssh"}:continue
-            resolved=item.resolve()
-            try:resolved.relative_to(self.root)
-            except ValueError:continue
+            if item.name in {".git",".env",".ssh"} or item.name in _CREDENTIAL_NAMES or item.name.endswith((".pem",".key")):continue
+            try:resolved=item.resolve();resolved.relative_to(self.root)
+            except (OSError,ValueError):continue
             entries.append(str(resolved.relative_to(self.root)))
             if len(entries)>=self.max_entries:break
         return WorkspaceEvidence("list",str(path.relative_to(self.root)),_digest(entries),entries=tuple(entries))
@@ -53,8 +53,9 @@ class WorkspaceConnector:
         path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8",newline="")
         return WorkspaceEvidence("write",str(path.relative_to(self.root)),_digest({"path":str(path.relative_to(self.root)),"content":content}))
     def transform(self,relative,find,replace):
-        evidence=self.read(relative);content=evidence.content
+        evidence=self.read(relative)
+        if evidence.redacted:raise WorkspaceError("transform refuses content requiring secret redaction")
         if not isinstance(find,str) or not find:raise WorkspaceError("transform find text is required")
-        updated=content.replace(find,str(replace))
-        if updated==content:return evidence
+        updated=evidence.content.replace(find,str(replace))
+        if updated==evidence.content:return evidence
         return self.write(relative,updated)
