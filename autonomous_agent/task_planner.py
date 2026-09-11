@@ -45,21 +45,24 @@ def plan_task(
     """Build an auditable plan using only tools and authorization from the Tool Registry."""
     raw = " ".join(task.strip().split())
     intent = classify_intent(raw)
+    required_names = _INTENT_TO_TOOLS.get(intent.value, ())
     selected = _select_tools(registry, intent.value)
     descriptions = decompose_task(raw, intent)
 
+    missing = tuple(name for name in required_names if registry.get(name) is None)
     if intent.value in {"automate", "unknown"}:
         reason = "No registered executable tool mapping exists; plan fails closed."
         executable = False
-    elif len(selected) != len(_INTENT_TO_TOOLS[intent.value]):
-        reason = "A required tool is not registered; plan fails closed."
+    elif missing:
+        reason = f"Required registered tools are missing: {', '.join(missing)}; plan fails closed."
         executable = False
     else:
         executable = True
         reason = "All selected tools are registered; authorization will be checked before execution."
 
     steps: list[TaskStep] = []
-    for index, (description, tool) in enumerate(zip(descriptions, selected), start=1):
+    for index, tool in enumerate(selected, start=1):
+        description = descriptions[min(index - 1, len(descriptions) - 1)] if descriptions else f"Run {tool.name}."
         decision = registry.authorize(
             tool.name,
             granted,
