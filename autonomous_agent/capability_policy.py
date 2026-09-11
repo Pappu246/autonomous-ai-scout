@@ -12,6 +12,7 @@ class Capability(str, Enum):
     METRICS = "metrics"
     READ_FILE = "read_file"
     BENCHMARK = "benchmark"
+    WEB_RESEARCH = "web_research"
     NETWORK = "network"
     SECRETS = "secrets"
     BILLING = "billing"
@@ -28,6 +29,7 @@ SAFE_CAPABILITIES = frozenset({
     Capability.METRICS,
     Capability.READ_FILE,
     Capability.BENCHMARK,
+    Capability.WEB_RESEARCH,
 })
 DENIED_CAPABILITIES = frozenset(set(Capability) - SAFE_CAPABILITIES)
 
