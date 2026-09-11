@@ -117,7 +117,7 @@ def test_risk_mismatch_fails_closed():
 
 def test_approval_mismatch_fails_closed():
     with pytest.raises(ConnectorRegistryError, match="approval"):
-        ConnectorRegistry([spec(approval_requirement=ApprovalRequirement.EXPLICIT, risk=RiskLevel.HIGH)])
+        ConnectorRegistry([spec(approval_requirement=ApprovalRequirement.EXPLICIT, risk=RiskLevel.LOW)])
 
 
 def test_sandbox_mismatch_fails_closed():
