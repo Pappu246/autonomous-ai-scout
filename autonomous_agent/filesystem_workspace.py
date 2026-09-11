@@ -51,7 +51,7 @@ class WorkspaceConnector:
         if not isinstance(content,str) or len(content.encode())>=self.max_file_bytes:raise WorkspaceError("write content exceeds workspace size limit")
         if _SECRET.search(content):raise WorkspaceError("secret-like content is not permitted")
         path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8",newline="")
-        return WorkspaceEvidence("write",str(path.relative_to(self.root)),_digest({"path":str(path.relative_to(self.root)),"content":content}))
+        return WorkspaceEvidence("write",str(path.relative_to(self.root)),_digest({"path":str(path.relative_to(self.root)),"content":content}),content=content)
     def transform(self,relative,find,replace):
         evidence=self.read(relative)
         if evidence.redacted:raise WorkspaceError("transform refuses content requiring secret redaction")
