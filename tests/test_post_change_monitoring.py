@@ -80,7 +80,7 @@ def test_memory_recording_is_evidence_only_and_project_scoped(tmp_path: Path):
     finding = detect_regression(observation(before=90, after=70))
     assert record_observation(memory, finding) is True
     assert len(memory.learn("owner/repo", kind="post_change_observation")) == 1
-    assert memory.learn("other/repo", kind="post_change_observation") == []
+    assert memory.learn("other/repo", kind="post_change_observation") == ()
 
 
 def test_monitor_uses_existing_observation_boundary(tmp_path: Path):
