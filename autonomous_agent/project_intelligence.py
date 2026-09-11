@@ -22,7 +22,7 @@ def _looks_like_secret_assignment(match: re.Match[str]) -> bool:
         bool(pattern.search(value))
         for pattern in (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]")
     )
-    return len(value) >= 20 and classes >= 3
+    return len(value) >= 20 and (classes >= 3 or value.isdigit())
 
 
 def _finding(repository: str, severity: str, title: str, detail: str, recommendation: str) -> ProjectFinding:
