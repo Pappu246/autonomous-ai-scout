@@ -6,7 +6,12 @@ from autonomous_agent.execution_engine import ExecutionState, execute_plan, reco
 from autonomous_agent.task_planner import plan_task
 
 
+def _seed_pytest(root: Path) -> None:
+    (root / "test_smoke.py").write_text("def test_smoke():\n    assert True\n", encoding="utf-8")
+
+
 def test_safe_plan_executes_only_through_registered_sandbox(tmp_path: Path):
+    _seed_pytest(tmp_path)
     plan = plan_task("run tests", granted=[Capability.INSPECT, Capability.TEST])
     result = execute_plan(
         plan,
@@ -18,7 +23,7 @@ def test_safe_plan_executes_only_through_registered_sandbox(tmp_path: Path):
         timeout_seconds=30,
     )
     assert result.state is ExecutionState.VERIFIED
-    assert result.attempts >= 2
+    assert result.attempts == 1
     assert all(item.network_disabled for item in result.results)
     assert verify_execution_audit(tmp_path / "execution.jsonl")
 
@@ -56,6 +61,7 @@ def test_approval_does_not_override_permanent_capability_denial(tmp_path: Path):
 
 
 def test_audit_tampering_blocks_execution(tmp_path: Path):
+    _seed_pytest(tmp_path)
     audit = tmp_path / "audit.jsonl"
     plan = plan_task("run tests", granted=[Capability.INSPECT, Capability.TEST])
     first = execute_plan(plan, tmp_path, granted=[Capability.INSPECT, Capability.TEST], audit_path=audit, execution_id="tamper")
@@ -68,7 +74,6 @@ def test_audit_tampering_blocks_execution(tmp_path: Path):
 
 def test_interrupted_execution_requires_fresh_authorization(tmp_path: Path):
     audit = tmp_path / "audit.jsonl"
-    audit.parent.mkdir(parents=True, exist_ok=True)
     from autonomous_agent.execution_audit import append_execution_record
     append_execution_record(audit, {"execution_id": "interrupted", "state": "running", "timestamp": "now"})
     result = recover_execution("interrupted", audit)
