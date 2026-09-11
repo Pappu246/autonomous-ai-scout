@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import Opportunity
+from .opportunity_dedup import deduplicate_opportunities
 
 
 def score_opportunity(repo_count: int, bug_findings: int, free_models: int) -> float:
@@ -24,4 +25,4 @@ def build_opportunities(owner: str, repo_count: int, bug_findings: int, free_mod
             next_step="Publish benchmark results and document where each free model is legitimately usable.",
         ),
     ]
-    return result
+    return deduplicate_opportunities(result)
