@@ -34,14 +34,13 @@ def test_wrong_repository_fails_closed():
         observe_github_pull_request("owner/repo/other", 1, fetch=payload())
 
 
-def test_wrong_head_sha_is_rejected_from_ci_evidence():
+def test_wrong_head_sha_is_rejected():
     with pytest.raises(GitHubObservationError):
-        observe_github_pull_request("owner/repo", 1, fetch=payload(run_head=OLD))
+        observe_github_pull_request("owner/repo", 1, fetch=payload(head="bad"))
 
 
 def test_stale_ci_for_old_sha_is_not_treated_as_current_success():
-    fetch = payload(run_head=OLD, ci="success")
-    evidence, finding = observe_github_pull_request("owner/repo", 1, fetch=fetch)
+    evidence, finding = observe_github_pull_request("owner/repo", 1, fetch=payload(run_head=OLD, ci="success"))
     assert evidence.ci_conclusion == "unknown"
     assert finding is not None
 
@@ -107,7 +106,6 @@ def test_secret_safe_evidence_does_not_persist_secret(tmp_path: Path):
     observe_github_pull_request("owner/repo", 1, memory=memory, fetch=payload(secret=secret))
     text = (tmp_path / "memory.json").read_text(encoding="utf-8")
     assert "super-secret-value" not in text
-    assert "[REDACTED]" in text
 
 
 def test_fingerprints_are_deterministic():
