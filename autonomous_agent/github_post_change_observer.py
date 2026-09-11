@@ -5,9 +5,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
-from .cross_project_memory import CrossProjectMemory
+from .cross_project_memory import CrossProjectMemory, MemoryEvent
 from .github_audit import gh_get
-from .post_change_monitoring import ChangeObservation, HealthSnapshot, RegressionFinding, detect_regression
+from .post_change_monitoring import ChangeObservation, HealthSnapshot, RegressionFinding, detect_regression, record_observation
 
 
 class GitHubObservationError(RuntimeError):
@@ -54,10 +54,9 @@ class GitHubObservation:
             "base_sha": self.base_sha,
             "change_fingerprint": self.change_fingerprint,
             "ci_conclusion": self.ci_conclusion,
-            "runs": [run.__dict__ for run in self.runs],
-            "checks": [check.__dict__ for check in self.checks],
+            "runs": [{"run_id": r.run_id, "name": r.name, "status": r.status, "conclusion": r.conclusion, "head_sha": r.head_sha} for r in self.runs],
+            "checks": [{"name": c.name, "status": c.status, "conclusion": c.conclusion, "head_sha": c.head_sha} for c in self.checks],
             "verification_status": self.verification_status,
-            "observed_at": self.observed_at,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -157,8 +156,7 @@ def observe_github_pull_request(
 
     before = health_source.snapshot(repository, base_sha) if health_source else _health_from_evidence("unknown", "unknown")
     after = health_source.snapshot(repository, head_sha) if health_source else _health_from_evidence(ci, verification_status)
-    observation = ChangeObservation(repository, change_fingerprint, before, after, ci, head_sha)
-    finding = detect_regression(observation)
+    finding = detect_regression(ChangeObservation(repository, change_fingerprint, before, after, ci, head_sha))
 
     if memory is not None:
         if memory.has(project=repository, kind="github_observation", fingerprint=evidence.fingerprint):
@@ -168,16 +166,7 @@ def observe_github_pull_request(
             previous_observed = str(prior[-1].get("data", {}).get("observed_at", ""))
             if previous_observed and observed_at and observed_at < previous_observed:
                 return evidence, None
-        memory.record_observation = getattr(memory, "record_observation", None)
-        from .post_change_monitoring import record_observation
-        record_observation(memory, finding)
-        memory.record(
-            __import__("autonomous_agent.cross_project_memory", fromlist=["MemoryEvent"]).MemoryEvent(
-                project=repository,
-                kind="github_observation",
-                fingerprint=evidence.fingerprint,
-                outcome=finding.status.value,
-                data={"pull_request": pull_request, "head_sha": head_sha, "base_sha": base_sha, "change_fingerprint": change_fingerprint, "ci_conclusion": ci, "observed_at": observed_at},
-            )
-        )
+        if not record_observation(memory, finding):
+            return evidence, finding
+        memory.record(MemoryEvent(project=repository, kind="github_observation", fingerprint=evidence.fingerprint, outcome=finding.status.value, data={"pull_request": pull_request, "head_sha": head_sha, "base_sha": base_sha, "change_fingerprint": change_fingerprint, "ci_conclusion": ci, "observed_at": observed_at}))
     return evidence, finding
