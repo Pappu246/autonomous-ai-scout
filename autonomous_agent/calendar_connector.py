@@ -8,7 +8,7 @@ CALENDAR_API_ROOT="https://www.googleapis.com/calendar/v3/calendars"
 MAX_QUERY=500;MAX_RESULTS=50;MAX_EVENTS=100;MAX_EVENT_BYTES=128*1024;MAX_ATTENDEES=50;MAX_RETRIES=2;MAX_TIMEOUT=30;MAX_RECURRENCE=20
 class CalendarError(ValueError):pass
 class CalendarTransport(Protocol):
-    def request(self,method:str,url:str,*,params:Mapping[str,Any]|None=None,body:Mapping[str,Any]|None=None,timeout_seconds:int=10)->Mapping[str,Any]:...
+    def request(self,method:str,url:str,*,params:Mapping[str,Any]|None=None,body:Mapping[str,Any]|None=None,headers:Mapping[str,str]|None=None,timeout_seconds:int=10)->Mapping[str,Any]:...
 @dataclass(frozen=True)
 class CalendarEvidence:
     operation:str;data:Mapping[str,Any];fingerprint:str
@@ -32,12 +32,12 @@ class CalendarConnector:
     def __init__(self,transport:CalendarTransport,*,credential_reference="calendar:oauth:user",timeout_seconds=10):
         if not credential_reference or any(x in credential_reference.lower() for x in ("token","password","secret","key=")):raise CalendarError("credential reference must not contain credential material")
         self.transport=transport;self.credential_reference=credential_reference;self.timeout_seconds=max(1,min(int(timeout_seconds),MAX_TIMEOUT));self._mutations=set()
-    def _request(self,method,url,*,params=None,body=None,retries=MAX_RETRIES):
+    def _request(self,method,url,*,params=None,body=None,headers=None,retries=MAX_RETRIES):
         if not url.startswith(CALENDAR_API_ROOT+"/"):raise CalendarError("request escaped official Calendar API root")
         last=None
         for _ in range(max(1,min(int(retries)+1,MAX_RETRIES+1))):
             try:
-                out=self.transport.request(method,url,params=params,body=_redact(body) if body else None,timeout_seconds=self.timeout_seconds)
+                out=self.transport.request(method,url,params=params,body=_redact(body) if body else None,headers=dict(headers or {}),timeout_seconds=self.timeout_seconds)
                 if not isinstance(out,Mapping):raise CalendarError("malformed calendar response")
                 return _redact(out)
             except Exception as exc:last=exc
@@ -59,22 +59,23 @@ class CalendarConnector:
         for e in sorted(events,key=lambda x:x.get("start","")):
             try:s=datetime.fromisoformat(e["start"]);f=datetime.fromisoformat(e["end"])
             except Exception:continue
-            if (s-cursor).total_seconds()>=duration*60:points.append({"start":cursor.isoformat(),"end":(cursor.replace() if False else s).isoformat()})
+            if s<=cursor:cursor=max(cursor,f);continue
+            if (s-cursor).total_seconds()>=duration*60:points.append({"start":cursor.isoformat(),"end":s.isoformat()})
             if f>cursor:cursor=f
         if (limit-cursor).total_seconds()>=duration*60:points.append({"start":cursor.isoformat(),"end":limit.isoformat()})
         return CalendarEvidence("calendar.find_free_time",{"slots":points[:20]},_fp(points[:20]))
-    def _mutation(self,method,path,event,operation,idempotency_key,approved):
+    def _mutation(self,method,path,event,operation,idempotency_key,approved,*,headers=None):
         if not approved:raise CalendarError(f"{operation} requires explicit approval")
-        key=_id(idempotency_key,"idempotency key");digest=_fp(event)
-        if key!=digest:raise CalendarError("idempotency key does not match event digest")
+        key=_id(idempotency_key,"idempotency key");digest=_fp({"operation":operation,"path":path,"event":event,"headers":headers or {}})
+        if key!=digest:raise CalendarError("idempotency key does not match operation digest")
         if key in self._mutations:raise CalendarError("duplicate calendar mutation blocked")
-        self._mutations.add(key);return self._request(method,path,body=event,retries=0)
+        self._mutations.add(key);return self._request(method,path,body=event,headers=headers,retries=0)
     def create(self,*,calendar_id="primary",event,idempotency_key,approved=False):
-        body=_validate_event(event,creating=True);out=self._mutation("POST",f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events",body,"calendar.event.create",idempotency_key,approved);return CalendarEvidence("calendar.event.create",{"event":_bounded_event(out),"event_fingerprint":_fp(body)},_fp(out))
+        body=_validate_event(event,creating=True);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events";out=self._mutation("POST",path,body,"calendar.event.create",idempotency_key,approved);return CalendarEvidence("calendar.event.create",{"event":_bounded_event(out),"event_fingerprint":_fp(body)},_fp(out))
     def update(self,*,calendar_id="primary",event_id,event,etag=None,idempotency_key,approved=False):
-        body=_validate_event(event,creating=False);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(_id(event_id,'event id'),safe='')}";body=dict(body);body["_expectedEtag"]=_id(etag,"etag") if etag else "";out=self._mutation("PUT",path,body,"calendar.event.update",idempotency_key,approved);return CalendarEvidence("calendar.event.update",{"event":_bounded_event(out)},_fp(out))
+        body=_validate_event(event,creating=False);path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(_id(event_id,'event id'),safe='')}";headers={"If-Match":_id(etag,"etag")} if etag else {};out=self._mutation("PUT",path,body,"calendar.event.update",idempotency_key,approved,headers=headers);return CalendarEvidence("calendar.event.update",{"event":_bounded_event(out)},_fp(out))
     def cancel(self,*,calendar_id="primary",event_id,etag,idempotency_key,approved=False):
-        event_id=_id(event_id,"event id");etag=_id(etag,"etag");body={"event_id":event_id,"etag":etag};return self._mutation("DELETE",f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(event_id,safe='')}",body,"calendar.event.cancel",idempotency_key,approved) and CalendarEvidence("calendar.event.cancel",body,_fp(body))
+        event_id=_id(event_id,"event id");etag=_id(etag,"etag");path=f"{CALENDAR_API_ROOT}/{quote(_id(calendar_id,'calendar id'),safe='')}/events/{quote(event_id,safe='')}";body={"event_id":event_id};headers={"If-Match":etag};out=self._mutation("DELETE",path,body,"calendar.event.cancel",idempotency_key,approved,headers=headers);return CalendarEvidence("calendar.event.cancel",body,_fp(body))
 def _bounded_event(v):
     if not isinstance(v,Mapping):return {}
     out={k:_redact(x) for k,x in v.items() if k not in {"conferenceData","attachments"}}
@@ -87,9 +88,8 @@ def _validate_event(event,*,creating):
     if not isinstance(event,Mapping):raise CalendarError("event must be an object")
     out=dict(event);start=out.get("start");end=out.get("end")
     if not isinstance(start,Mapping) or not isinstance(end,Mapping):raise CalendarError("event start/end are required")
-    for key in ("dateTime",):
-        if key in start:_iso(start[key],"event start")
-        if key in end:_iso(end[key],"event end")
+    if "dateTime" in start:_iso(start["dateTime"],"event start")
+    if "dateTime" in end:_iso(end["dateTime"],"event end")
     if not (start.get("date") or start.get("dateTime")) or not (end.get("date") or end.get("dateTime")):raise CalendarError("event start/end are required")
     if start.get("dateTime") and end.get("dateTime") and _iso(end["dateTime"],"event end")<=_iso(start["dateTime"],"event start"):raise CalendarError("event end must be after start")
     attendees=out.get("attendees",[])
@@ -101,5 +101,4 @@ def _validate_event(event,*,creating):
     raw=json.dumps(out,sort_keys=True,default=str)
     if len(raw.encode())>MAX_EVENT_BYTES:raise CalendarError("event exceeds size limit")
     return out
-
 def calendar_oauth_scopes():return ("https://www.googleapis.com/auth/calendar.events","https://www.googleapis.com/auth/calendar.readonly")
