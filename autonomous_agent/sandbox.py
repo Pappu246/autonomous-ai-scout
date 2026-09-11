@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","gmail"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -64,7 +64,19 @@ def _run_filesystem(connector,request,limit):
         else:return False,"sandbox filesystem allowlist supports only list/read/write/transform",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("FILESYSTEM_WORKSPACE",op),truncated
     except Exception as exc:return False,f"filesystem operation failed: {type(exc).__name__}",("FILESYSTEM_WORKSPACE",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None):
+def _run_gmail(connector,request,limit):
+    if connector is None or not isinstance(request,Mapping):return False,"gmail requires an approved injected Gmail connector and structured request",(),False
+    op=str(request.get("operation","")).strip().lower()
+    try:
+        if op=="search":payload=connector.search(str(request.get("query","")),results=int(request.get("results",10))).safe_dict()
+        elif op=="read":payload=connector.read(str(request.get("message_id",""))).safe_dict()
+        elif op=="thread":payload=connector.thread(str(request.get("thread_id",""))).safe_dict()
+        elif op=="draft":payload=connector.draft(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),thread_id=request.get("thread_id")).safe_dict()
+        elif op=="send":payload=connector.send(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False)),thread_id=request.get("thread_id")).safe_dict()
+        else:return False,"sandbox gmail allowlist supports only search/read/thread/draft/send",(),False
+        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("GMAIL",op),truncated
+    except Exception as exc:return False,f"Gmail operation failed: {type(exc).__name__}",("GMAIL",op),False
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
@@ -72,6 +84,8 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         success,output,command,truncated=_run_web_research(web_connector,web_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="filesystem_workspace":
         success,output,command,truncated=_run_filesystem(workspace_connector,workspace_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
+    if op=="gmail":
+        success,output,command,truncated=_run_gmail(gmail_connector,gmail_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="inspect":
         files=[]
         for path in sorted(root_path.rglob("*")):
