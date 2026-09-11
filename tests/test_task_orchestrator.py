@@ -104,9 +104,9 @@ def test_interruption_never_replays_automatically():
     assert len(executor.calls) == 1
 
 
-def test_approval_required_is_preserved():
+def test_permanent_network_denial_is_preserved():
     report = TaskOrchestrator().orchestrate("research the requested information", granted=(Capability.NETWORK,))
-    assert report.state is OrchestrationState.REQUIRES_APPROVAL
+    assert report.state is OrchestrationState.BLOCKED
     assert report.approval_required is True
 
 
