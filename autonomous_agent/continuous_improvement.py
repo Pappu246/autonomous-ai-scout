@@ -20,7 +20,7 @@ class ImprovementRisk(IntEnum):
 
 
 _SEVERITY_WEIGHT = {"info": 5, "low": 20, "medium": 50, "high": 80, "critical": 100, "warning": 65}
-_SECRET = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|api\s+key|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
+_SECRET = re.compile(r"(?i)(?:api[_-]?key|api\s+key|access[_-]?token|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
 _PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----.*?-----END [A-Z0-9 ]+PRIVATE KEY-----", re.S)
 
 
@@ -190,7 +190,8 @@ def health_trend(previous: Mapping[str, object], current: Mapping[str, object]) 
 def build_report(proposals: Iterable[ImprovementProposal], *, blocked_actions: Iterable[str] = (), health_changes: Mapping[str, str] | None = None) -> dict[str, object]:
     ordered = prioritize(proposals)
     approvals = tuple(p.fingerprint for p in ordered if p.approval_requirement != "none")
-    return {"highest_priority": tuple({"project": p.project, "problem": p.problem, "score": p.priority_score, "fingerprint": p.fingerprint} for p in ordered[:10]), "newly_detected": tuple(p.problem for p in ordered), "proposed_fixes": tuple(p.fingerprint for p in ordered), "blocked_actions": tuple(blocked_actions), "required_approvals": approvals, "health_changes": dict(sorted((health_changes or {}).items())), "meaningful_change": bool(ordered or tuple(blocked_actions) or health_changes)}
+    blocked = tuple(blocked_actions)
+    return {"highest_priority": tuple({"project": p.project, "problem": p.problem, "score": p.priority_score, "fingerprint": p.fingerprint} for p in ordered[:10]), "newly_detected": tuple(p.problem for p in ordered), "proposed_fixes": tuple(p.fingerprint for p in ordered), "blocked_actions": blocked, "required_approvals": approvals, "health_changes": dict(sorted((health_changes or {}).items())), "meaningful_change": bool(ordered or blocked or health_changes)}
 
 
 def propose_from_source(source: ProjectEvidenceSource, projects: Iterable[str], *, memory: EvidenceMemory | None = None, open_changes: Iterable[OpenChange] = (), project_importance: Mapping[str, int] | None = None) -> tuple[ImprovementProposal, ...]:
