@@ -48,7 +48,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/latest_report.md state/scout_state.json state/project_registry.json state/project_profiles.json
+          git add state/latest_report.md state/scout_state.json state/project_registry.json state/project_profiles.json state/project_intelligence.json
           git diff --cached --quiet && exit 0
           git commit -m "chore: update autonomous scout state"
           git push
