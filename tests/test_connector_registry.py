@@ -14,7 +14,6 @@ from autonomous_agent.connector_registry import (
 from autonomous_agent.tool_registry import (
     ApprovalRequirement,
     AuditRequirement,
-    AuthenticationRequirement,
     NetworkRequirement,
     ReadWriteMode,
     RiskLevel,
@@ -67,6 +66,12 @@ def test_duplicate_connectors_fail_deterministically():
     registry.register(spec())
     with pytest.raises(ConnectorRegistryError, match="already registered: custom"):
         registry.register(spec())
+
+
+def test_registry_listing_is_deterministic():
+    first = ConnectorRegistry([spec(identity="z"), spec(identity="a")])
+    second = ConnectorRegistry([spec(identity="a"), spec(identity="z")])
+    assert [item.identity for item in first.list()] == [item.identity for item in second.list()]
 
 
 def test_unknown_connector_fails_closed():
@@ -183,7 +188,7 @@ def test_custom_tool_registry_is_checked_against_connector_contract():
     assert registry.authorize("custom", [Capability.INSPECT], registry=custom_registry).allowed
 
 
-def test_connector_adapter_never_creates_a_second_executor():
+def test_connector_adapter_validates_request_schema_and_delegates_to_existing_boundary():
     class FakeExecutor:
         def __init__(self):
             self.calls = 0
@@ -199,6 +204,11 @@ def test_connector_adapter_never_creates_a_second_executor():
     assert executor.calls == 1
 
 
+def test_adapter_rejects_malformed_input_before_execution():
+    with pytest.raises(ConnectorRegistryError, match="input schema"):
+        ConnectorAdapter(ConnectorRegistry()).prepare("github", "github.inspect", "not-an-object", [Capability.INSPECT])
+
+
 def test_adapter_rejects_unauthorized_request_before_execution():
     class FakeExecutor:
         def execute(self, *args, **kwargs):
@@ -208,6 +218,11 @@ def test_adapter_rejects_unauthorized_request_before_execution():
     assert not preparation.authorization.allowed
     with pytest.raises(ConnectorRegistryError, match="not authorized"):
         ConnectorAdapter(ConnectorRegistry()).execute_through_existing_boundary(preparation, FakeExecutor())
+
+
+def test_raw_credential_values_are_rejected():
+    with pytest.raises(ConnectorRegistryError, match="raw credential"):
+        ConnectorAdapter(ConnectorRegistry()).prepare("github", "github.inspect", {}, [Capability.INSPECT], credential_reference="credref:password=supersecret")
 
 
 def test_credential_reference_is_not_secret_material():
