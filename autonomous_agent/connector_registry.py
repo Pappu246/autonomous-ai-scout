@@ -17,10 +17,11 @@ def _validate(spec,tools):
     if spec.schema_version!="1.0" or not _schema(spec.input_schema) or not _schema(spec.output_schema): raise ConnectorRegistryError("invalid connector schema")
     if spec.authentication_method is ConnectorAuth.NONE and spec.credential_handling is not CredentialHandling.NONE: raise ConnectorRegistryError("unauthenticated connector cannot handle credentials")
     if spec.authentication_method is not ConnectorAuth.NONE and spec.credential_handling is CredentialHandling.NONE: raise ConnectorRegistryError("authenticated connector requires reference-only credentials")
+    risk_rank={RiskLevel.LOW:0,RiskLevel.MEDIUM:1,RiskLevel.HIGH:2}
     for name in spec.registered_tools:
         tool=tools.get(name)
         if tool is None: raise ConnectorRegistryError(f"unknown registered tool: {name}")
-        if tool.capability not in spec.capabilities or tool.read_write_mode is not spec.read_write_mode or tool.risk_level is not spec.risk or tool.approval_requirement is not spec.approval_requirement or tool.sandbox_requirement is not spec.sandbox_requirement or tool.audit_requirement is not spec.audit_requirement or tool.authentication_requirement.value!=spec.authentication_method.value: raise ConnectorRegistryError("connector/tool contract mismatch")
+        if tool.capability not in spec.capabilities or tool.read_write_mode is not spec.read_write_mode or risk_rank.get(tool.risk_level,99)>risk_rank.get(spec.risk,99) or tool.approval_requirement is not spec.approval_requirement or tool.sandbox_requirement is not spec.sandbox_requirement or tool.audit_requirement is not spec.audit_requirement or tool.authentication_requirement.value!=spec.authentication_method.value: raise ConnectorRegistryError("connector/tool contract mismatch")
         if spec.network_requirement is NetworkRequirement.NONE and tool.network_requirement is not NetworkRequirement.NONE: raise ConnectorRegistryError("connector cannot hide a tool network requirement")
 class ConnectorRegistry:
     def __init__(self,specs=(),*,tool_registry:ToolRegistry=REGISTRY): self._tools=tool_registry; self._items={}; [self.register(s) for s in specs]
