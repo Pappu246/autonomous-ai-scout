@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Iterable
 
 from .capability_policy import Capability, CapabilityDecision
-from .tool_registry import ToolRegistry, REGISTRY
+from .tool_registry import ToolRegistry, REGISTRY, RiskLevel, ReadWriteMode, NetworkRequirement, ApprovalRequirement, SandboxRequirement, AuditRequirement
 
 
 class ConnectorAuth(str, Enum):
@@ -35,7 +35,7 @@ class ConnectorSpec:
 
 BUILTIN_CONNECTORS: tuple[ConnectorSpec, ...] = (
     ConnectorSpec("github", ("repository.inspect",), ("repository:read",), ConnectorAuth.USER_AUTH, True, "low", "read_only", False, True, True, ("github.inspect",)),
-    ConnectorSpec("web_research", ("web.fetch",), ("explicit-resource",), ConnectorAuth.USER_AUTH, True, "medium", "read_only", True, True, True, ("network.fetch",)),
+    ConnectorSpec("web_research", ("web.fetch",), ("explicit-resource",), ConnectorAuth.USER_AUTH, True, "high", "read_only", True, True, True, ("network.fetch",)),
     ConnectorSpec("files", ("workspace.read",), ("approved-workspace",), ConnectorAuth.NONE, False, "low", "read_only", False, True, True, ("filesystem.read",)),
     ConnectorSpec("ai_providers", ("model.benchmark",), ("configured-free-provider",), ConnectorAuth.SERVICE_AUTH, True, "medium", "read_only", False, True, True, ("model.benchmark",)),
     ConnectorSpec("project_repository", ("repository.inspect", "repository.change"), ("repository:read", "reviewed-change"), ConnectorAuth.USER_AUTH, True, "high", "controlled_write", True, True, True, ("github.inspect", "github.change")),
@@ -67,8 +67,21 @@ class ConnectorRegistry:
         if spec.approval_required and spec.risk not in {"high", "critical"}:
             raise ConnectorRegistryError("approval-required connector must declare high or critical risk")
         for tool_name in spec.registered_tools:
-            if REGISTRY.get(tool_name) is None:
+            tool = REGISTRY.get(tool_name)
+            if tool is None:
                 raise ConnectorRegistryError(f"connector references unknown registered tool: {tool_name}")
+            if spec.network_required is False and tool.network_requirement is NetworkRequirement.REQUIRED:
+                raise ConnectorRegistryError("connector metadata cannot disable a required network")
+            if spec.sandbox_required and tool.sandbox_requirement is not SandboxRequirement.REQUIRED:
+                raise ConnectorRegistryError("connector sandbox metadata is inconsistent with its tool contract")
+            if spec.audit_required and tool.audit_requirement is not AuditRequirement.REQUIRED:
+                raise ConnectorRegistryError("connector audit metadata is inconsistent with its tool contract")
+            if spec.approval_required is False and tool.approval_requirement is not ApprovalRequirement.NONE:
+                raise ConnectorRegistryError("connector cannot weaken a tool approval requirement")
+            if spec.risk == "low" and tool.risk_level in {RiskLevel.HIGH, RiskLevel.CRITICAL}:
+                raise ConnectorRegistryError("connector cannot lower tool risk")
+            if spec.read_write_mode == "read_only" and tool.read_write_mode is not ReadWriteMode.READ_ONLY:
+                raise ConnectorRegistryError("connector cannot make a writable tool read-only")
         self._connectors[spec.identity] = spec
         return spec
 
