@@ -20,7 +20,7 @@ class ImprovementRisk(IntEnum):
 
 
 _SEVERITY_WEIGHT = {"info": 5, "low": 20, "medium": 50, "high": 80, "critical": 100, "warning": 65}
-_SECRET = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
+_SECRET = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|api\s+key|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
 _PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----.*?-----END [A-Z0-9 ]+PRIVATE KEY-----", re.S)
 
 
