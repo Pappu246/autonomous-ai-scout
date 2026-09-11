@@ -68,18 +68,7 @@ class ImprovementProposal:
 
     @property
     def priority_score(self) -> int:
-        raw = (
-            self.severity * 3
-            + self.impact * 2
-            + round(self.confidence * 100)
-            + self.urgency * 2
-            + self.project_importance
-            + self.security_impact * 2
-            + self.reliability_impact * 2
-            - self.effort
-            - self.regression_risk
-            - self.risk * 3
-        )
+        raw = self.severity * 3 + self.impact * 2 + round(self.confidence * 100) + self.urgency * 2 + self.project_importance + self.security_impact * 2 + self.reliability_impact * 2 - self.effort - self.regression_risk - self.risk * 3
         return max(0, raw)
 
 
@@ -144,53 +133,21 @@ def analyze_impact(project: str, finding: ProjectFinding, intelligence: Mapping[
     tests = (f"Add or update regression coverage for: {_safe_text(finding.title)}",)
     if any(term in finding.title.lower() for term in ("test", "ci", "regression")):
         tests = ("Run the complete existing test suite.", "Add a focused regression test for the observed failure.")
-    return ImpactAnalysis(
-        project=project,
-        affected_components=affected or (_safe_text(finding.title),),
-        dependencies=dependencies,
-        regression_surface=(_safe_text(finding.title), *affected[:4]),
-        required_tests=tests,
-        side_effects=("No production mutation during proposal generation.", "Any source write remains behind the existing approval-gated change boundary."),
-    )
+    return ImpactAnalysis(project=project, affected_components=affected or (_safe_text(finding.title),), dependencies=dependencies, regression_surface=(_safe_text(finding.title), *affected[:4]), required_tests=tests, side_effects=("No production mutation during proposal generation.", "Any source write remains behind the existing approval-gated change boundary."))
 
 
 def build_proposal(project: str, finding: ProjectFinding, *, intelligence: Mapping[str, object] | None = None, project_importance: int = 50) -> ImprovementProposal:
-    """Convert evidence into a deterministic, approval-aware proposal without executing it."""
     intelligence = intelligence or {}
     severity, security, reliability, risk = _classify_finding(finding)
     confidence = _clamp(finding.confidence)
-    safe_detail = _safe_text(finding.detail)
-    safe_title = _safe_text(finding.title)
-    safe_solution = _safe_text(finding.recommendation)
+    safe_detail, safe_title, safe_solution = _safe_text(finding.detail), _safe_text(finding.title), _safe_text(finding.recommendation)
     evidence = (ImprovementEvidence("project_intelligence", safe_detail, confidence, _digest((project, safe_title, safe_detail))),)
     impact = min(100, max(severity, 60 + security // 2 + reliability // 4))
     urgency = 100 if severity >= 90 else 80 if severity >= 75 else 50 if severity >= 45 else 20
     effort = 20 if severity >= 75 else 35 if severity >= 45 else 50
     impact_analysis = analyze_impact(project, finding, intelligence)
     fingerprint = _digest({"project": project, "problem": safe_title, "recommendation": safe_solution, "evidence": [item.fingerprint for item in evidence]})
-    return ImprovementProposal(
-        project=_safe_text(project),
-        problem=safe_title,
-        evidence=evidence,
-        proposed_solution=safe_solution,
-        expected_benefit=f"Reduce the observed {finding.severity} risk and improve project health without weakening existing controls.",
-        affected_area=impact_analysis.affected_components,
-        confidence=confidence,
-        risk=risk,
-        effort=effort,
-        severity=severity,
-        urgency=urgency,
-        impact=impact,
-        regression_risk=25 if risk >= ImprovementRisk.HIGH else 10,
-        project_importance=max(0, min(100, int(project_importance))),
-        security_impact=security,
-        reliability_impact=reliability,
-        validation_strategy=impact_analysis.required_tests + ("Run existing deterministic project-intelligence checks again.",),
-        rollback_strategy="Revert the reviewed change/PR; do not merge or deploy automatically.",
-        approval_requirement="human_review_for_source_change",
-        fingerprint=fingerprint,
-        impact_analysis=impact_analysis,
-    )
+    return ImprovementProposal(project=_safe_text(project), problem=safe_title, evidence=evidence, proposed_solution=safe_solution, expected_benefit=f"Reduce the observed {finding.severity} risk and improve project health without weakening existing controls.", affected_area=impact_analysis.affected_components, confidence=confidence, risk=risk, effort=effort, severity=severity, urgency=urgency, impact=impact, regression_risk=25 if risk >= ImprovementRisk.HIGH else 10, project_importance=max(0, min(100, int(project_importance))), security_impact=security, reliability_impact=reliability, validation_strategy=impact_analysis.required_tests + ("Run existing deterministic project-intelligence checks again.",), rollback_strategy="Revert the reviewed change/PR; do not merge or deploy automatically.", approval_requirement="human_review_for_source_change", fingerprint=fingerprint, impact_analysis=impact_analysis)
 
 
 def deduplicate_proposals(proposals: Iterable[ImprovementProposal], *, memory: EvidenceMemory | None = None, open_changes: Iterable[OpenChange] = (), recent_findings: Iterable[str] = ()) -> tuple[ImprovementProposal, ...]:
@@ -199,15 +156,10 @@ def deduplicate_proposals(proposals: Iterable[ImprovementProposal], *, memory: E
     seen: set[str] = set()
     result: list[ImprovementProposal] = []
     for proposal in proposals:
-        if proposal.fingerprint in seen or (proposal.project, proposal.fingerprint) in open_set:
+        if proposal.fingerprint in seen or (proposal.project, proposal.fingerprint) in open_set or proposal.problem in recent:
             continue
-        if proposal.problem in recent:
+        if memory is not None and (memory.has(project=proposal.project, kind="improvement", fingerprint=proposal.fingerprint) or not memory.recommendation_needed(proposal.project, proposal.proposed_solution)):
             continue
-        if memory is not None:
-            if memory.has(project=proposal.project, kind="improvement", fingerprint=proposal.fingerprint):
-                continue
-            if not memory.recommendation_needed(proposal.project, proposal.proposed_solution):
-                continue
         seen.add(proposal.fingerprint)
         result.append(proposal)
     return tuple(result)
@@ -218,7 +170,6 @@ def prioritize(proposals: Iterable[ImprovementProposal]) -> tuple[ImprovementPro
 
 
 def generate_tasks(proposals: Iterable[ImprovementProposal], *, registry: ToolRegistry = REGISTRY) -> tuple[tuple[ImprovementProposal, object], ...]:
-    """Prepare planner input only. No execution or authorization is performed here."""
     tasks: list[tuple[ImprovementProposal, object]] = []
     for proposal in prioritize(proposals):
         task = f"Improve {proposal.project}: {proposal.problem}. Proposed solution: {proposal.proposed_solution}"
@@ -232,29 +183,17 @@ def portfolio(proposals: Iterable[ImprovementProposal]) -> ImprovementProposal |
 
 
 def health_trend(previous: Mapping[str, object], current: Mapping[str, object]) -> str:
-    old = float(previous.get("score", 0))
-    new = float(current.get("score", 0))
-    if new < old:
-        return "deteriorated"
-    if new > old:
-        return "improved"
-    return "unchanged"
+    old, new = float(previous.get("score", 0)), float(current.get("score", 0))
+    return "deteriorated" if new < old else "improved" if new > old else "unchanged"
 
 
 def build_report(proposals: Iterable[ImprovementProposal], *, blocked_actions: Iterable[str] = (), health_changes: Mapping[str, str] | None = None) -> dict[str, object]:
     ordered = prioritize(proposals)
-    return {
-        "highest_priority": tuple({"project": p.project, "problem": p.problem, "score": p.priority_score, "fingerprint": p.fingerprint} for p in ordered[:10]),
-        "newly_detected": tuple(p.problem for p in ordered),
-        "proposed_fixes": tuple(p.fingerprint for p in ordered),
-        "blocked_actions": tuple(blocked_actions),
-        "health_changes": dict(sorted((health_changes or {}).items())),
-        "meaningful_change": bool(ordered or blocked_actions or health_changes),
-    }
+    approvals = tuple(p.fingerprint for p in ordered if p.approval_requirement != "none")
+    return {"highest_priority": tuple({"project": p.project, "problem": p.problem, "score": p.priority_score, "fingerprint": p.fingerprint} for p in ordered[:10]), "newly_detected": tuple(p.problem for p in ordered), "proposed_fixes": tuple(p.fingerprint for p in ordered), "blocked_actions": tuple(blocked_actions), "required_approvals": approvals, "health_changes": dict(sorted((health_changes or {}).items())), "meaningful_change": bool(ordered or tuple(blocked_actions) or health_changes)}
 
 
 def propose_from_source(source: ProjectEvidenceSource, projects: Iterable[str], *, memory: EvidenceMemory | None = None, open_changes: Iterable[OpenChange] = (), project_importance: Mapping[str, int] | None = None) -> tuple[ImprovementProposal, ...]:
-    """Evaluate every supplied registry project; future projects work without code changes."""
     importance = project_importance or {}
     proposals: list[ImprovementProposal] = []
     for project in sorted(set(projects)):
