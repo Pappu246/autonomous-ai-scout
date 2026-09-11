@@ -2,7 +2,7 @@ from pathlib import Path
 from autonomous_agent.sandbox import SAFE_OPERATIONS, run_safe_operation, to_execution_record
 
 def test_sandbox_has_explicit_safe_operation_allowlist():
-    assert SAFE_OPERATIONS == {"inspect", "test", "lint", "metrics", "read_file", "benchmark", "web_research", "filesystem_workspace"}
+    assert SAFE_OPERATIONS == {"inspect", "test", "lint", "metrics", "read_file", "benchmark", "web_research", "filesystem_workspace", "gmail", "calendar"}
 def test_sandbox_rejects_arbitrary_command_names(tmp_path: Path):
     result=run_safe_operation("rm -rf /",tmp_path); assert not result.success and result.verification_status=="blocked"
 def test_sandbox_inspect_is_deterministic(tmp_path: Path):
