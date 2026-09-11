@@ -8,7 +8,6 @@ from .capability_policy import Capability, CapabilityDecision
 from .tool_registry import (
     ApprovalRequirement,
     AuditRequirement,
-    AuthenticationRequirement,
     NetworkRequirement,
     ReadWriteMode,
     RiskLevel,
@@ -32,12 +31,7 @@ class CredentialHandling(str, Enum):
 
 
 ConnectorSchema = Mapping[str, object]
-
 SUPPORTED_SCHEMA_TYPES = frozenset({"object", "array", "string", "number", "integer", "boolean"})
-SUPPORTED_RISKS = frozenset(item.value for item in RiskLevel)
-SUPPORTED_MODES = frozenset(item.value for item in ReadWriteMode)
-SUPPORTED_AUTH = frozenset(item.value for item in ConnectorAuth)
-SUPPORTED_CREDENTIAL_HANDLING = frozenset(item.value for item in CredentialHandling)
 SCHEMA_VERSION = "1.0"
 
 
@@ -66,8 +60,8 @@ class ConnectorSpec:
     output_schema: ConnectorSchema = None  # type: ignore[assignment]
 
 
-def _schema(kind: str = "object") -> ConnectorSchema:
-    return {"type": kind, "properties": {}, "additionalProperties": True}
+def _schema() -> ConnectorSchema:
+    return {"type": "object", "properties": {}, "additionalProperties": True}
 
 
 BUILTIN_CONNECTORS: tuple[ConnectorSpec, ...] = (
@@ -96,7 +90,7 @@ def _validate_connector_spec(spec: ConnectorSpec, tool_registry: ToolRegistry) -
         raise ConnectorRegistryError("connector registration must use ConnectorSpec")
     if not spec.identity or spec.identity != spec.identity.strip().lower() or " " in spec.identity:
         raise ConnectorRegistryError("connector identity must be non-empty, normalized, and contain no spaces")
-    if not spec.description.strip() or not spec.category.strip():
+    if not isinstance(spec.description, str) or not spec.description.strip() or not isinstance(spec.category, str) or not spec.category.strip():
         raise ConnectorRegistryError("connector description and category are required")
     if not spec.capabilities or len(set(spec.capabilities)) != len(spec.capabilities):
         raise ConnectorRegistryError("connector capabilities must be non-empty and unique")
@@ -111,7 +105,7 @@ def _validate_connector_spec(spec: ConnectorSpec, tool_registry: ToolRegistry) -
     for field in ("network_requirement", "read_write_mode", "risk", "approval_requirement", "sandbox_requirement", "audit_requirement"):
         if not isinstance(getattr(spec, field), Enum):
             raise ConnectorRegistryError(f"{field} must use its registry enum")
-    if not spec.version.strip() or not spec.schema_version.strip():
+    if not isinstance(spec.version, str) or not spec.version.strip() or not isinstance(spec.schema_version, str) or not spec.schema_version.strip():
         raise ConnectorRegistryError("connector version and schema_version are required")
     if spec.schema_version != SCHEMA_VERSION:
         raise ConnectorRegistryError("unsupported connector schema version")
@@ -140,8 +134,7 @@ def _validate_connector_spec(spec: ConnectorSpec, tool_registry: ToolRegistry) -
             raise ConnectorRegistryError("connector sandbox requirement does not exactly match tool contract")
         if tool.audit_requirement is not spec.audit_requirement:
             raise ConnectorRegistryError("connector audit requirement does not exactly match tool contract")
-        expected_auth = ConnectorAuth(tool.authentication_requirement.value)
-        if spec.authentication_method is not expected_auth:
+        if ConnectorAuth(tool.authentication_requirement.value) is not spec.authentication_method:
             raise ConnectorRegistryError("connector authentication does not match tool authentication requirement")
 
 
@@ -167,7 +160,7 @@ class ConnectorRegistry:
         return self._connectors.get(identity.strip().lower())
 
     def list(self) -> tuple[ConnectorSpec, ...]:
-        return tuple(self._connectors.values())
+        return tuple(self._connectors[key] for key in sorted(self._connectors))
 
     def resolve_tool(self, identity: str, tool_name: str) -> object | None:
         spec = self.get(identity)
@@ -193,15 +186,10 @@ class ConnectorRegistry:
         if not spec.registered_tools:
             return CapabilityDecision(False, "connector has no registered executable tool", "")
         active_registry = registry or self._tool_registry
-        if active_registry is not self._tool_registry:
-            # A caller may provide a registry only when it is contract-compatible; it never creates authority.
-            for tool_name in spec.registered_tools:
-                if active_registry.get(tool_name) is None:
-                    return CapabilityDecision(False, "connector tool is unavailable in the active Tool Registry", "")
-                try:
-                    _validate_connector_spec(spec, active_registry)
-                except ConnectorRegistryError as exc:
-                    return CapabilityDecision(False, f"connector/tool contract mismatch: {exc}", "")
+        try:
+            _validate_connector_spec(spec, active_registry)
+        except ConnectorRegistryError as exc:
+            return CapabilityDecision(False, f"connector/tool contract mismatch: {exc}", "")
         for tool_name in spec.registered_tools:
             decision = active_registry.authorize(
                 tool_name,
