@@ -19,11 +19,12 @@ def test_connector_authorization_delegates_to_tool_registry():
     assert not denied.allowed
 
 
-def test_network_connector_cannot_bypass_existing_approval():
+def test_network_connector_cannot_bypass_permanent_capability_policy():
     denied = authorize_connector("web_research", granted=[Capability.NETWORK])
     assert not denied.allowed
-    allowed = authorize_connector("web_research", granted=[Capability.NETWORK], explicitly_approved=True)
-    assert allowed.allowed
+    still_denied = authorize_connector("web_research", granted=[Capability.NETWORK], explicitly_approved=True)
+    assert not still_denied.allowed
+    assert "permanently denied" in still_denied.reason
 
 
 def test_future_connectors_fail_closed_without_registered_tools():
