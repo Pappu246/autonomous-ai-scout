@@ -12,7 +12,7 @@ SHA_C = "c" * 40
 def fixture_getter(*, repo="owner/repo", head=SHA_A, base=SHA_B, run_conclusion="success", run_head=None, job_conclusion="success", run_updated="2026-09-11T10:00:00Z", base_repo=None, head_repo=None):
     def get(path, params):
         if path.endswith("/pulls/7"):
-            return {"number": 7, "updated_at": run_updated, "base": {"sha": base, "repo": {"full_name": base_repo or repo}}, "head": {"sha": head, "repo": {"full_name": head_repo or repo}}
+            return {"number": 7, "updated_at": run_updated, "base": {"sha": base, "repo": {"full_name": base_repo or repo}}, "head": {"sha": head, "repo": {"full_name": head_repo or repo}}}
         if "/compare/" in path:
             return {"base_commit": {"sha": base}, "commits": [{"sha": head}], "files": [{"filename": "app.py", "status": "modified", "additions": 1, "deletions": 1, "patch": "-old\\n+new"}]}
         if path.endswith("/actions/runs"):
@@ -70,8 +70,7 @@ def test_failed_to_recovered_transition_is_meaningful(tmp_path):
     failed = GitHubPrObservationSource(fixture_getter(run_conclusion="failure", job_conclusion="failure", run_updated="2026-09-11T10:00:00Z"), health=health).observe("owner/repo", 7)
     ok, _, finding = persist_github_observation(memory, failed)
     assert ok and finding.status.value == "regressed"
-    recovered_get = fixture_getter(run_conclusion="success", job_conclusion="success", run_updated="2026-09-11T11:00:00Z")
-    recovered = GitHubPrObservationSource(recovered_get, health=health).observe("owner/repo", 7)
+    recovered = GitHubPrObservationSource(fixture_getter(run_conclusion="success", job_conclusion="success", run_updated="2026-09-11T11:00:00Z"), health=health).observe("owner/repo", 7)
     ok, reason, finding = persist_github_observation(memory, recovered)
     assert ok and finding.status.value == "improved"
     assert reason == "persisted"
