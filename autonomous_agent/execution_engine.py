@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .capability_policy import Capability
+from .cross_project_memory import CrossProjectMemory
 from .execution_audit import append_execution_record, verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES, MAX_TIMEOUT_SECONDS, SandboxResult, run_safe_operation
 from .task_plan_models import TaskPlan
@@ -62,6 +63,20 @@ def _audit(path: Path, execution_id: str, state: ExecutionState, **extra: object
     )
 
 
+def _remember(memory: CrossProjectMemory | None, project: str, *, task: str | None = None, tool: str | None = None, execution_id: str = "", outcome: str = "", attempts: int = 0) -> None:
+    """Memory is observational only; memory failures never alter execution policy."""
+    if memory is None:
+        return
+    try:
+        if task is not None:
+            memory.record_task(project, task, intent="execution", outcome=outcome)
+        if tool is not None:
+            memory.record_tool_execution(project, tool, execution_id=execution_id, outcome=outcome, attempts=attempts)
+    except Exception:
+        # Persistent memory is never an authority or execution dependency.
+        return
+
+
 def _has_unfinished_execution(path: Path, execution_id: str) -> bool:
     if not path.exists():
         return False
@@ -98,6 +113,8 @@ def execute_plan(
     max_retries: int = 0,
     timeout_seconds: int = 30,
     output_limit: int = MAX_OUTPUT_BYTES,
+    memory: CrossProjectMemory | None = None,
+    project: str = "local",
 ) -> ExecutionResult:
     """Execute only an already-planned safe task through the existing sandbox boundary."""
     if not execution_id.strip():
@@ -116,6 +133,7 @@ def execute_plan(
     output = max(1, min(int(output_limit), MAX_OUTPUT_BYTES))
     task_digest = hashlib.sha256(plan.task.encode("utf-8")).hexdigest()
     _audit(audit_path, execution_id, ExecutionState.RUNNING, task_digest=task_digest, plan_digest=plan.audit.plan_digest)
+    _remember(memory, project, task=plan.task, execution_id=execution_id, outcome="started")
 
     results: list[SandboxResult] = []
     total_attempts = 0
@@ -123,6 +141,7 @@ def execute_plan(
         tool = registry.get(step.tool_name)
         if tool is None:
             _audit(audit_path, execution_id, ExecutionState.BLOCKED, reason="unknown tool", tool=step.tool_name)
+            _remember(memory, project, tool=step.tool_name, execution_id=execution_id, outcome="blocked", attempts=total_attempts)
             return ExecutionResult(ExecutionState.BLOCKED, f"unknown tool is blocked: {step.tool_name}", total_attempts, tuple(results), str(audit_path))
         decision = registry.authorize(
             tool.name,
@@ -133,15 +152,18 @@ def execute_plan(
         )
         if not decision.allowed:
             _audit(audit_path, execution_id, ExecutionState.BLOCKED, reason=decision.reason, tool=tool.name)
+            _remember(memory, project, tool=tool.name, execution_id=execution_id, outcome="blocked", attempts=total_attempts)
             return ExecutionResult(ExecutionState.BLOCKED, f"authorization blocked for {tool.name}: {decision.reason}", total_attempts, tuple(results), str(audit_path))
         if not tool.safe_autonomous or tool.read_write_mode.value != "read_only":
             _audit(audit_path, execution_id, ExecutionState.BLOCKED, reason="tool is not safe for autonomous execution", tool=tool.name)
+            _remember(memory, project, tool=tool.name, execution_id=execution_id, outcome="blocked", attempts=total_attempts)
             return ExecutionResult(ExecutionState.BLOCKED, f"tool is outside the safe autonomous execution boundary: {tool.name}", total_attempts, tuple(results), str(audit_path))
         try:
             capability = Capability(tool.capability)
             operation = _CAPABILITY_TO_OPERATION[capability]
         except (ValueError, KeyError):
             _audit(audit_path, execution_id, ExecutionState.BLOCKED, reason="capability has no safe sandbox operation", tool=tool.name)
+            _remember(memory, project, tool=tool.name, execution_id=execution_id, outcome="blocked", attempts=total_attempts)
             return ExecutionResult(ExecutionState.BLOCKED, f"no safe sandbox operation exists for {tool.name}", total_attempts, tuple(results), str(audit_path))
 
         for attempt in range(retries + 1):
@@ -153,10 +175,14 @@ def execute_plan(
                 break
         else:
             _audit(audit_path, execution_id, ExecutionState.FAILED, tool=tool.name, reason="bounded retries exhausted")
+            _remember(memory, project, tool=tool.name, execution_id=execution_id, outcome="failure", attempts=total_attempts)
             return ExecutionResult(ExecutionState.FAILED, f"tool execution failed after bounded retries: {tool.name}", total_attempts, tuple(results), str(audit_path))
+        _remember(memory, project, tool=tool.name, execution_id=execution_id, outcome="verified", attempts=total_attempts)
 
     if not results or any(not item.success or item.verification_status != "verified" for item in results):
         _audit(audit_path, execution_id, ExecutionState.FAILED, reason="post-action verification failed")
+        _remember(memory, project, execution_id=execution_id, outcome="failure", attempts=total_attempts)
         return ExecutionResult(ExecutionState.FAILED, "post-action verification failed", total_attempts, tuple(results), str(audit_path))
     _audit(audit_path, execution_id, ExecutionState.VERIFIED, attempts=total_attempts)
+    _remember(memory, project, execution_id=execution_id, outcome="verified", attempts=total_attempts)
     return ExecutionResult(ExecutionState.VERIFIED, "all planned actions executed and verified through the existing sandbox", total_attempts, tuple(results), str(audit_path))
