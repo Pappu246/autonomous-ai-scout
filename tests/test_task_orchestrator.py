@@ -1,17 +1,13 @@
 from dataclasses import dataclass
 
-from autonomous_agent.task_orchestrator import (
-    OrchestrationState,
-    StructuredTask,
-    TaskOrchestrator,
-)
+from autonomous_agent.task_orchestrator import OrchestrationState, StructuredTask, TaskOrchestrator
 from autonomous_agent.capability_policy import Capability
 from autonomous_agent.tool_registry import REGISTRY
 
 
 def test_deterministic_digest_and_secret_redaction():
-    a = TaskOrchestrator().orchestrate(StructuredTask("inspect token=supersecret", project="demo"), granted=[Capability.INSPECT])
-    b = TaskOrchestrator().orchestrate(StructuredTask("inspect token=anothersecret", project="demo"), granted=[Capability.INSPECT])
+    a = TaskOrchestrator().orchestrate(StructuredTask("inspect token=supersecret", project="demo"), granted=[Capability.INSPECT, Capability.READ_FILE])
+    b = TaskOrchestrator().orchestrate(StructuredTask("inspect token=anothersecret", project="demo"), granted=[Capability.INSPECT, Capability.READ_FILE])
     assert a.objective == b.objective == "inspect [REDACTED]"
     assert a.task_digest == b.task_digest
     assert "supersecret" not in str(a.safe_dict)
@@ -31,7 +27,7 @@ def test_unauthorized_tool_is_blocked_by_existing_policy():
 
 
 def test_authorized_plan_is_only_prepared_not_executed():
-    report = TaskOrchestrator().orchestrate("inspect repository", granted=[Capability.INSPECT])
+    report = TaskOrchestrator().orchestrate("inspect repository", granted=[Capability.INSPECT, Capability.READ_FILE])
     assert report.state is OrchestrationState.AUTHORIZED
     result = TaskOrchestrator().execute(report)
     assert result.state is OrchestrationState.BLOCKED
@@ -52,7 +48,7 @@ def test_connector_discovery_can_only_constrain_tools():
         def resolve_tool(self, identity, tool_name):
             return None
 
-    report = TaskOrchestrator(connector_registry=Discovery()).orchestrate("inspect repository", granted=[Capability.INSPECT])
+    report = TaskOrchestrator(connector_registry=Discovery()).orchestrate("inspect repository", granted=[Capability.INSPECT, Capability.READ_FILE])
     assert report.state is OrchestrationState.BLOCKED
 
 
