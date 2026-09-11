@@ -13,10 +13,7 @@ def build_improvement_change_request(
     head_branch: str,
     unified_diff: str,
 ) -> GitHubChangeRequest:
-    """Prepare an improvement PR request through the existing review boundary only.
-
-    No branch, commit, PR, merge, or deployment is performed here.
-    """
+    """Prepare an improvement PR request through the existing review boundary only."""
     title = f"fix: {proposal.problem[:80]}"
     body = (
         f"Improvement fingerprint: {proposal.fingerprint}\n\n"
@@ -25,14 +22,6 @@ def build_improvement_change_request(
         f"Expected benefit: {proposal.expected_benefit}\n"
         f"Validation: {'; '.join(proposal.validation_strategy)}\n"
         f"Approval: {proposal.approval_requirement}\n"
-        "Generated as a reviewable proposal; no automatic merge or deployment."
+        "Generated as a reviewable proposal; protected-branch operations remain gated."
     )
-    return build_change_request(
-        action,
-        proposal.project,
-        base_branch,
-        head_branch,
-        title,
-        body,
-        unified_diff,
-    )
+    return build_change_request(action, proposal.project, base_branch, head_branch, title, body, unified_diff)
