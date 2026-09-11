@@ -107,7 +107,7 @@ def test_interruption_never_replays_automatically():
 def test_permanent_network_denial_is_preserved():
     report = TaskOrchestrator().orchestrate("research the requested information", granted=(Capability.NETWORK,))
     assert report.state is OrchestrationState.BLOCKED
-    assert report.approval_required is True
+    assert report.approval_required is False
 
 
 def test_disabled_connector_constrains_execution():
