@@ -12,16 +12,14 @@ SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
 KNOWN_SECRET_PREFIXES = ("sk-", "ghp_", "github_pat_", "xoxb-", "xoxp-", "AIza", "AKIA")
+SECRET_VALUE_PATTERNS = (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]")
 
 
 def _looks_like_secret_assignment(match: re.Match[str]) -> bool:
     value = match.group(1)
     if any(value.startswith(prefix) for prefix in KNOWN_SECRET_PREFIXES):
         return True
-    classes = sum(
-        bool(pattern.search(value))
-        for pattern in (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]")
-    )
+    classes = sum(bool(re.search(pattern, value)) for pattern in SECRET_VALUE_PATTERNS)
     return len(value) >= 20 and (classes >= 3 or value.isdigit())
 
 
