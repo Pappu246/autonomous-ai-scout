@@ -25,15 +25,15 @@ def test_test_plan_uses_only_registry_tools_and_can_be_authorized():
 def test_plan_fails_closed_without_capability_grant():
     plan = plan_task("run tests")
     assert not plan.executable
-    assert "authorization blocked" in plan.reason
-    assert all(step.authorization == "blocked" for step in plan.steps[:1])
+    assert "Authorization blocked" in plan.reason
+    assert all(step.authorization == "blocked" for step in plan.steps)
 
 
-def test_research_plan_requires_registered_network_tool_and_explicit_approval():
-    plan = plan_task("research this topic", granted=[Capability.NETWORK])
+def test_research_plan_respects_permanent_network_policy():
+    plan = plan_task("research this topic", granted=[Capability.NETWORK], explicitly_approved=True)
     assert not plan.executable
     assert plan.steps[0].tool_name == "network.fetch"
-    assert "approval" in plan.reason
+    assert "permanently denied" in plan.reason
 
 
 def test_change_plan_cannot_bypass_permanent_source_write_deny():
