@@ -20,12 +20,29 @@ SAFE_METHODS = frozenset({"GET", "HEAD"})
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 BLOCKED_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie"})
 SECRET_RE = re.compile(r"(?i)(bearer\s+|api[_-]?key\s*=\s*|password\s*=\s*|secret\s*=\s*)[^\s,;&]+")
+SENSITIVE_JSON_KEYS = frozenset({
+    "access_token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "client_secret",
+    "cookie",
+    "password",
+    "proxy_authorization",
+    "refresh_token",
+    "secret",
+    "set_cookie",
+    "token",
+})
+
 
 class RestConnectorError(ValueError):
     pass
 
+
 class RestTransport(Protocol):
     def request(self, method: str, url: str, *, headers: Mapping[str, str], body: bytes, timeout: float) -> "RestResponse": ...
+
 
 @dataclass(frozen=True)
 class RestResponse:
@@ -51,6 +68,7 @@ class RestResponse:
                 result["json_error"] = "invalid JSON response"
         return result
 
+
 @dataclass(frozen=True)
 class RestRequest:
     method: str
@@ -60,17 +78,22 @@ class RestRequest:
     credential_ref: str | None = None
     idempotency_key: str | None = None
 
+
 def _redact_text(value: str) -> str:
     return SECRET_RE.sub(r"\1[REDACTED]", value)
 
-def _redact_json(value: Any) -> Any:
+
+def _redact_json(value: Any, *, key: str | None = None) -> Any:
+    if key is not None and key.strip().lower().replace("-", "_") in SENSITIVE_JSON_KEYS:
+        return "[REDACTED]"
     if isinstance(value, dict):
-        return {str(key): _redact_json(item) for key, item in value.items()}
+        return {str(item_key): _redact_json(item, key=str(item_key)) for item_key, item in value.items()}
     if isinstance(value, list):
         return [_redact_json(item) for item in value]
     if isinstance(value, str):
         return _redact_text(value)
     return value
+
 
 def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -78,8 +101,10 @@ def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
         out[str(key)] = "[REDACTED]" if str(key).lower() in BLOCKED_HEADERS else _redact_text(str(value))
     return out
 
+
 def deterministic_idempotency_key(method: str, url: str, body: bytes) -> str:
     return hashlib.sha256(method.upper().encode() + b"\0" + url.encode() + b"\0" + body).hexdigest()
+
 
 def _is_public_address(address: ipaddress._BaseAddress) -> bool:
     return not (
@@ -90,6 +115,7 @@ def _is_public_address(address: ipaddress._BaseAddress) -> bool:
         or address.is_reserved
         or address.is_unspecified
     )
+
 
 def _resolve_host_ips(host: str) -> list[ipaddress._BaseAddress]:
     try:
@@ -108,6 +134,7 @@ def _resolve_host_ips(host: str) -> list[ipaddress._BaseAddress]:
         if not addresses:
             raise RestConnectorError("host DNS resolution returned no addresses")
         return sorted(set(addresses), key=str)
+
 
 def validate_public_https_url(
     url: str,
@@ -139,6 +166,7 @@ def validate_public_https_url(
             raise RestConnectorError("resolved host address is not publicly routable")
     return url
 
+
 def validate_headers(headers: Mapping[str, str]) -> dict[str, str]:
     if not isinstance(headers, Mapping) or len(headers) > MAX_HEADERS:
         raise RestConnectorError("headers exceed the allowed count")
@@ -156,6 +184,7 @@ def validate_headers(headers: Mapping[str, str]) -> dict[str, str]:
             raise RestConnectorError("headers exceed the size limit")
         out[name] = val
     return out
+
 
 class RestConnector:
     def __init__(self, allowed_hosts: set[str] | frozenset[str], *, transport: RestTransport, timeout_seconds: float = 10.0):
