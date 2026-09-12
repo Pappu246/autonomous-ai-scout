@@ -55,10 +55,21 @@ def calendar_connector(tool_registry=REGISTRY,*,enabled=False):
     from .calendar_tooling import register_calendar_tools
     register_calendar_tools(tool_registry)
     schema={"type":"object","additionalProperties":True};spec=ConnectorSpec("calendar","Official Calendar REST/OAuth connector; disabled until a legitimate OAuth connection is configured","calendar",(Capability.CALENDAR.value,),("calendar.readonly","calendar.events"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"),enabled,input_schema=schema,output_schema=schema);return ConnectorRegistry((spec,),tool_registry=tool_registry)
-def rest_connector(tool_registry=REGISTRY,*,enabled=False,allowed_hosts=()):
+def rest_connector(tool_registry=REGISTRY,*,enabled=False,allowed_hosts=(),transport=None):
     from .rest_connector import RestConnector
+    from .tool_registry import ToolSpec
     schema={"type":"object","additionalProperties":True}
     tools=("rest.get","rest.head","rest.write")
     spec=ConnectorSpec("generic_rest","Bounded generic REST connector; disabled until explicit API host allowlisting and legitimate credentials are configured","rest",(Capability.REST_API.value,), ("rest:read","rest:write"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tools,enabled,input_schema=schema,output_schema=schema)
-    connector=RestConnector(set(allowed_hosts),transport=None) if allowed_hosts else None
+    if any(tool_registry.get(name) is None for name in tools):
+        if tool_registry is REGISTRY:
+            raise ConnectorRegistryError("REST tools are not registered in the target registry")
+        from .tool_registry import BUILTIN_TOOLS
+        for builtin in BUILTIN_TOOLS:
+            if builtin.name.startswith("rest.") and tool_registry.get(builtin.name) is None:
+                tool_registry.register(builtin)
+    connector=None
+    if allowed_hosts:
+        if transport is None: raise ConnectorRegistryError("REST connector requires an injected transport")
+        connector=RestConnector(set(allowed_hosts),transport=transport)
     return ConnectorRegistry((spec,),tool_registry=tool_registry),connector
