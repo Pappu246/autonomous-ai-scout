@@ -11,7 +11,6 @@ def execute_rest_tool(
     request: Mapping[str, Any],
     *,
     approved: bool = False,
-    resolve_dns: bool = True,
     resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(request, Mapping):
@@ -39,6 +38,5 @@ def execute_rest_tool(
             idempotency_key=(str(request["idempotency_key"]) if request.get("idempotency_key") else None),
         ),
         approved=approved,
-        resolve_dns=resolve_dns,
         resolver=resolver,
     )
