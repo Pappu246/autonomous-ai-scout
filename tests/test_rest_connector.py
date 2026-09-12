@@ -68,7 +68,7 @@ def test_url_blocks_non_public_literal_ipv4_and_ipv6():
             validate_public_https_url(url, allowed)
 
 
-def test_dns_resolution_is_mandatory_by_default_and_checks_all_addresses():
+def test_dns_resolution_is_mandatory_and_checks_all_addresses():
     allowed = frozenset({"api.example.com"})
     with pytest.raises(RestConnectorError, match="not publicly routable"):
         validate_public_https_url("https://api.example.com/v1", allowed, resolver=private_resolver)
@@ -147,3 +147,18 @@ def test_credential_reference_is_metadata_only():
     api.request(request, resolver=public_resolver)
     assert "Authorization" not in transport.calls[0][2]
     assert transport.calls[0][2] == {}
+
+
+def test_write_header_budget_includes_idempotency_key():
+    api, _ = connector(response())
+    headers = {f"X-Test-{index}": "v" for index in range(39)}
+    request = RestRequest("POST", "https://api.example.com/v1", headers, b"x")
+    with pytest.raises(RestConnectorError, match="headers"):
+        api.request(request, approved=True, resolver=public_resolver)
+
+
+def test_response_header_budget_is_bounded():
+    oversized = {f"X-Test-{index}": "v" for index in range(41)}
+    api, _ = connector(RestResponse(200, oversized, b"ok", "https://api.example.com/v1"))
+    with pytest.raises(RestConnectorError, match="response headers"):
+        api.request(RestRequest("GET", "https://api.example.com/v1", {}), resolver=public_resolver)
