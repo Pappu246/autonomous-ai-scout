@@ -25,18 +25,21 @@ def test_project_profile_detects_ecosystems_lockfiles_and_signals(monkeypatch):
     assert profile["has_license"] is True
     assert profile["has_ci_hint"] is True
     assert profile["languages"]["TypeScript"] == 1200
+    assert profile["incomplete"] is False
     assert profile["fingerprint"]
 
 
-def test_project_profile_tolerates_api_failures(monkeypatch):
+def test_project_profile_marks_api_failures_incomplete(monkeypatch):
     monkeypatch.setattr("autonomous_agent.project_profile.gh_get", lambda path, params=None: None)
     profile = build_project_profile("Pappu246/unavailable", {})
     assert profile["ecosystems"] == []
     assert profile["languages"] == {}
     assert profile["has_readme"] is False
+    assert profile["incomplete"] is True
 
 
 def test_project_profile_respects_registry_license_signal(monkeypatch):
     monkeypatch.setattr("autonomous_agent.project_profile.gh_get", lambda path, params=None: [] if path.endswith("/contents/") else {})
     profile = build_project_profile("Pappu246/licensed", {"license": {"spdx_id": "MIT"}})
     assert profile["has_license"] is True
+    assert profile["incomplete"] is False

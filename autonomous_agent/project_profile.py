@@ -17,25 +17,25 @@ def gh_get(path: str, params: dict[str, Any] | None = None) -> Any:
     return shared_gh_get(path, params)
 
 
-def _root_entries(full_name: str) -> set[str]:
+def _root_entries(full_name: str) -> tuple[set[str], bool]:
     data = gh_get(f"/repos/{full_name}/contents/")
     if not isinstance(data, list):
-        return set()
-    return {str(item.get("name", "")) for item in data if item.get("name")}
+        return set(), True
+    return {str(item.get("name", "")) for item in data if item.get("name")}, False
 
 
-def _languages(full_name: str) -> dict[str, int]:
+def _languages(full_name: str) -> tuple[dict[str, int], bool]:
     data = gh_get(f"/repos/{full_name}/languages")
     if not isinstance(data, dict):
-        return {}
-    return {str(k): int(v) for k, v in data.items() if isinstance(v, int) and v >= 0}
+        return {}, True
+    return {str(k): int(v) for k, v in data.items() if isinstance(v, int) and v >= 0}, False
 
 
 def build_project_profile(full_name: str, registry_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a bounded, read-only technical profile from repository metadata."""
     registry_profile = registry_profile or {}
-    entries = _root_entries(full_name)
-    languages = _languages(full_name)
+    entries, contents_incomplete = _root_entries(full_name)
+    languages, languages_incomplete = _languages(full_name)
     ecosystems: list[str] = []
     if {"pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock"} & entries:
         ecosystems.append("python")
@@ -67,6 +67,7 @@ def build_project_profile(full_name: str, registry_profile: dict[str, Any] | Non
         "has_readme": "README.md" in entries,
         "has_license": license_present,
         "has_ci_hint": ci_present,
+        "incomplete": contents_incomplete or languages_incomplete,
     }
     canonical = json.dumps(profile, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     profile["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
