@@ -17,15 +17,21 @@ jobs:
       - name: Verify checkout integrity
         run: |
           set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
           echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "expected=$expected"
           echo "HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          echo "TEST_BLOB=$(git rev-parse HEAD:tests/test_rest_connector.py)"
+          echo "WORKFLOW_BLOB=$(git rev-parse HEAD:.github/workflows/ci.yml)"
+          test "$(git rev-parse HEAD:tests/test_rest_connector.py)" = "db802a8e6010fe30e2237c22ab8c1858fd792647"
           python - <<'PY'
           from pathlib import Path
           path = Path("tests/test_rest_connector.py")
           text = path.read_text(encoding="utf-8")
           assert 'assert result["json"]["token"] == "Bearer [REDACTED]"' in text
           assert 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"' in text
+          assert 'assert result["json"]["token"] == "***"' not in text
           print(f"verified {path} contains canonical N6 redaction contract")
           print(f"test_size={path.stat().st_size}")
           PY
