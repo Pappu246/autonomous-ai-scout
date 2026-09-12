@@ -55,7 +55,6 @@ class RestResponse:
             try:
                 parsed = json.loads(text)
                 result["json"] = _redact_json(parsed)
-                # Keep the plain-text body in sync with the structured redaction path.
                 result["body"] = _redact_text(json.dumps(result["json"], ensure_ascii=False, separators=(",", ":")))
             except json.JSONDecodeError:
                 result["json_error"] = "invalid JSON response"
@@ -133,7 +132,6 @@ def validate_public_https_url(
     url: str,
     allowed_hosts: frozenset[str],
     *,
-    resolve_dns: bool = True,
     resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
 ) -> str:
     if not isinstance(url, str) or len(url) > 2048:
@@ -152,11 +150,10 @@ def validate_public_https_url(
         raise RestConnectorError("host is not explicitly allowlisted")
     if port not in (None, 443):
         raise RestConnectorError("only the default HTTPS port is allowed")
-    if resolve_dns:
-        resolve = resolver or _resolve_host_ips
-        addresses = resolve(host)
-        if any(not _is_public_address(address) for address in addresses):
-            raise RestConnectorError("resolved host address is not publicly routable")
+    resolve = resolver or _resolve_host_ips
+    addresses = resolve(host)
+    if any(not _is_public_address(address) for address in addresses):
+        raise RestConnectorError("resolved host address is not publicly routable")
     return url
 
 
@@ -195,7 +192,6 @@ class RestConnector:
         request: RestRequest,
         *,
         approved: bool = False,
-        resolve_dns: bool = True,
         resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
     ) -> RestResponse:
         method = request.method.upper().strip()
@@ -206,15 +202,20 @@ class RestConnector:
         body = request.body if isinstance(request.body, bytes) else bytes(request.body)
         if len(body) > MAX_REQUEST_BYTES:
             raise RestConnectorError("request body exceeds the size limit")
-        url = validate_public_https_url(request.url, self.allowed_hosts, resolve_dns=resolve_dns, resolver=resolver)
+        url = validate_public_https_url(request.url, self.allowed_hosts, resolver=resolver)
         headers = validate_headers(request.headers)
         if method in WRITE_METHODS:
             key = request.idempotency_key or deterministic_idempotency_key(method, url, body)
-            headers = {**headers, "Idempotency-Key": key}
+            headers = validate_headers({**headers, "Idempotency-Key": key})
         retries = 0
         redirects = 0
         while True:
             response = self.transport.request(method, url, headers=headers, body=body, timeout=self.timeout_seconds)
+            if len(response.headers) > MAX_HEADERS:
+                raise RestConnectorError("response headers exceed the allowed count")
+            response_header_bytes = sum(len(str(k).encode()) + len(str(v).encode()) for k, v in response.headers.items())
+            if response_header_bytes > MAX_HEADER_BYTES:
+                raise RestConnectorError("response headers exceed the size limit")
             if len(response.body) > MAX_RESPONSE_BYTES:
                 raise RestConnectorError("response exceeds the size limit")
             location = next((v for k, v in response.headers.items() if k.lower() == "location"), None)
@@ -222,9 +223,7 @@ class RestConnector:
                 redirects += 1
                 if redirects > MAX_REDIRECTS:
                     raise RestConnectorError("redirect limit exceeded")
-                url = validate_public_https_url(
-                    urljoin(url, location), self.allowed_hosts, resolve_dns=resolve_dns, resolver=resolver
-                )
+                url = validate_public_https_url(urljoin(url, location), self.allowed_hosts, resolver=resolver)
                 continue
             if response.status_code in {429, 500, 502, 503, 504} and method in SAFE_METHODS and retries < MAX_RETRIES:
                 retries += 1
@@ -236,8 +235,7 @@ class RestConnector:
         request: RestRequest,
         *,
         approved: bool = False,
-        resolve_dns: bool = True,
         resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
     ) -> dict[str, Any]:
-        response = self.request(request, approved=approved, resolve_dns=resolve_dns, resolver=resolver)
+        response = self.request(request, approved=approved, resolver=resolver)
         return response.safe_dict()
