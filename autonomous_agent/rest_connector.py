@@ -19,20 +19,10 @@ MAX_RETRIES = 2
 SAFE_METHODS = frozenset({"GET", "HEAD"})
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 BLOCKED_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie"})
-SECRET_RE = re.compile(r"(?i)(bearer\s+|api[_-]?key\s*=\s*|password\s*=\s*|secret\s*=\s*)[^\s,;&]+")
+SECRET_RE = re.compile(r"(?i)(bearer\s+|api[_-]?key\s*(?:=|:)\s*|password\s*(?:=|:)\s*|secret\s*(?:=|:)\s*)[^\s,;&}\]]+")
 SENSITIVE_JSON_KEYS = frozenset({
-    "access_token",
-    "api_key",
-    "apikey",
-    "authorization",
-    "client_secret",
-    "cookie",
-    "password",
-    "proxy_authorization",
-    "refresh_token",
-    "secret",
-    "set_cookie",
-    "token",
+    "access_token", "api_key", "apikey", "authorization", "client_secret", "cookie",
+    "password", "proxy_authorization", "refresh_token", "secret", "set_cookie", "token",
 })
 
 
@@ -96,10 +86,10 @@ def _redact_json(value: Any, *, key: str | None = None) -> Any:
 
 
 def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for key, value in headers.items():
-        out[str(key)] = "[REDACTED]" if str(key).lower() in BLOCKED_HEADERS else _redact_text(str(value))
-    return out
+    return {
+        str(key): "[REDACTED]" if str(key).lower() in BLOCKED_HEADERS else _redact_text(str(value))
+        for key, value in headers.items()
+    }
 
 
 def deterministic_idempotency_key(method: str, url: str, body: bytes) -> str:
