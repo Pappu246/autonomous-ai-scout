@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+import ipaddress
+from typing import Any, Callable, Mapping
 
 from .rest_connector import RestConnector, RestRequest
 
@@ -11,6 +12,7 @@ def execute_rest_tool(
     *,
     approved: bool = False,
     resolve_dns: bool = True,
+    resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(request, Mapping):
         raise ValueError("REST request must be structured")
@@ -38,4 +40,5 @@ def execute_rest_tool(
         ),
         approved=approved,
         resolve_dns=resolve_dns,
+        resolver=resolver,
     )
