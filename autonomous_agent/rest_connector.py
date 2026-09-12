@@ -73,6 +73,17 @@ def deterministic_idempotency_key(method: str, url: str, body: bytes) -> str:
     return hashlib.sha256(method.upper().encode() + b"\0" + url.encode() + b"\0" + body).hexdigest()
 
 
+def _is_public_address(address: ipaddress._BaseAddress) -> bool:
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
 def _resolve_host_ips(host: str) -> list[ipaddress._BaseAddress]:
     try:
         return [ipaddress.ip_address(host)]
@@ -103,10 +114,18 @@ def validate_public_https_url(url: str, allowed_hosts: frozenset[str], *, resolv
         raise RestConnectorError("host is not explicitly allowlisted")
     if parsed.port not in (None, 443):
         raise RestConnectorError("only the default HTTPS port is allowed")
-    for address in _resolve_host_ips(host) if resolve_dns else ():
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified:
-            raise RestConnectorError("resolved host address is not publicly routable")
+    addresses = _resolve_host_ips(host) if (resolve_dns or _looks_like_ip(host)) else ()
+    if any(not _is_public_address(address) for address in addresses):
+        raise RestConnectorError("resolved host address is not publicly routable")
     return url
+
+
+def _looks_like_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 
 def validate_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -117,7 +136,7 @@ def validate_headers(headers: Mapping[str, str]) -> dict[str, str]:
     for key, value in headers.items():
         name = str(key).strip()
         val = str(value)
-        if not name or any(ord(ch) < 32 for ch in name + val):
+        if not name or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + val):
             raise RestConnectorError("invalid header characters")
         if name.lower() in BLOCKED_HEADERS:
             raise RestConnectorError("credential-bearing headers must use credential references")
@@ -133,6 +152,8 @@ class RestConnector:
         hosts = frozenset(str(h).strip().lower().rstrip(".") for h in allowed_hosts if str(h).strip())
         if not hosts:
             raise RestConnectorError("at least one explicit host allowlist entry is required")
+        if transport is None:
+            raise RestConnectorError("an injected transport is required")
         self.allowed_hosts = hosts
         self.transport = transport
         self.timeout_seconds = max(0.1, min(float(timeout_seconds), MAX_TIMEOUT_SECONDS))
@@ -151,21 +172,23 @@ class RestConnector:
         if method in WRITE_METHODS:
             key = request.idempotency_key or deterministic_idempotency_key(method, url, body)
             headers = {**headers, "Idempotency-Key": key}
-        attempts = 1 + (MAX_RETRIES if method in SAFE_METHODS else 0)
-        for attempt in range(attempts):
+        retries = 0
+        redirects = 0
+        while True:
             response = self.transport.request(method, url, headers=headers, body=body, timeout=self.timeout_seconds)
             if len(response.body) > MAX_RESPONSE_BYTES:
                 raise RestConnectorError("response exceeds the size limit")
             location = next((v for k, v in response.headers.items() if k.lower() == "location"), None)
             if response.status_code in {301, 302, 303, 307, 308} and location:
-                if attempt >= MAX_REDIRECTS:
+                redirects += 1
+                if redirects > MAX_REDIRECTS:
                     raise RestConnectorError("redirect limit exceeded")
                 url = validate_public_https_url(urljoin(url, location), self.allowed_hosts, resolve_dns=resolve_dns)
                 continue
-            if response.status_code in {429, 500, 502, 503, 504} and method in SAFE_METHODS and attempt + 1 < attempts:
+            if response.status_code in {429, 500, 502, 503, 504} and method in SAFE_METHODS and retries < MAX_RETRIES:
+                retries += 1
                 continue
             return response
-        raise RestConnectorError("request retry/redirect policy exhausted")
 
     def safe_json(self, request: RestRequest, *, approved: bool = False, resolve_dns: bool = False) -> dict[str, Any]:
         response = self.request(request, approved=approved, resolve_dns=resolve_dns)
