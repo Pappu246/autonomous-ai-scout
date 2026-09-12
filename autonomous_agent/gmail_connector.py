@@ -104,5 +104,7 @@ class GmailConnector:
         message=_raw_message(to,subject,body,thread_id);digest=_fingerprint(message)
         if idempotency_key!=digest:raise GmailError("idempotency key does not match the message digest")
         if digest in self._send_keys:raise GmailError("duplicate email.send operation blocked by idempotency guard")
-        self._send_keys.add(digest);response=self._request("POST",f"{GMAIL_API_ROOT}/messages/send",body=message,retries=0);data={"recipient":to,"message_fingerprint":digest,"response":response};return GmailEvidence("email.send",data,_fingerprint(data))
+        response=self._request("POST",f"{GMAIL_API_ROOT}/messages/send",body=message,retries=0)
+        self._send_keys.add(digest)
+        data={"recipient":to,"message_fingerprint":digest,"response":response};return GmailEvidence("email.send",data,_fingerprint(data))
 def gmail_oauth_scopes(*,include_send=False):return (READ_SCOPE,COMPOSE_SCOPE,SEND_SCOPE) if include_send else (READ_SCOPE,COMPOSE_SCOPE)
