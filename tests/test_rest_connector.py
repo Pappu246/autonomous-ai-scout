@@ -80,6 +80,7 @@ def test_read_succeeds_and_redacts_text_and_json_secrets():
     result = api.safe_json(RestRequest("GET", "https://api.example.com/v1", {"Accept": "application/json"}), resolver=public_resolver)
     assert result["status_code"] == 200
     assert "secret-value" not in result["body"]
+    # N6 redaction contract: sensitive JSON values use the canonical placeholder.
     assert result["json"]["token"] == "Bearer [REDACTED]"
     assert result["json"]["nested"]["api_key"] == "[REDACTED]"
     assert transport.calls[0][0] == "GET"
