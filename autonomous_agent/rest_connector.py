@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import hashlib
+import ipaddress
+import json
+import re
+import socket
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Protocol
+from urllib.parse import urljoin, urlsplit
+
+MAX_TIMEOUT_SECONDS = 30
+MAX_RESPONSE_BYTES = 256 * 1024
+MAX_REQUEST_BYTES = 64 * 1024
+MAX_HEADERS = 40
+MAX_HEADER_BYTES = 8 * 1024
+MAX_REDIRECTS = 3
+MAX_RETRIES = 2
+SAFE_METHODS = frozenset({"GET", "HEAD"})
+WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+BLOCKED_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie"})
+SECRET_RE = re.compile(r"(?i)(bearer\s+|api[_-]?key\s*(?:=|:)\s*|password\s*(?:=|:)\s*|secret\s*(?:=|:)\s*)[^\s,;&}\]]+")
+SENSITIVE_JSON_KEYS = frozenset({
+    "access_token", "api_key", "apikey", "authorization", "client_secret", "cookie",
+    "password", "proxy_authorization", "refresh_token", "secret", "set_cookie", "token",
+})
+
+
+class RestConnectorError(ValueError):
+    pass
+
+
+class RestTransport(Protocol):
+    def request(self, method: str, url: str, *, headers: Mapping[str, str], body: bytes, timeout: float) -> "RestResponse": ...
+
+
+@dataclass(frozen=True)
+class RestResponse:
+    status_code: int
+    headers: Mapping[str, str]
+    body: bytes
+    url: str
+
+    def safe_dict(self) -> dict[str, Any]:
+        body = self.body[:MAX_RESPONSE_BYTES]
+        text = body.decode("utf-8", errors="replace")
+        content_type = next((v for k, v in self.headers.items() if k.lower() == "content-type"), "")
+        result: dict[str, Any] = {
+            "status_code": int(self.status_code),
+            "headers": _redact_headers(self.headers),
+            "body": _redact_text(text),
+            "url": self.url,
+        }
+        if "json" in str(content_type).lower():
+            try:
+                parsed = json.loads(text)
+                result["json"] = _redact_json(parsed)
+                result["body"] = _redact_text(json.dumps(result["json"], ensure_ascii=False, separators=(",", ":")))
+            except json.JSONDecodeError:
+                result["json_error"] = "invalid JSON response"
+        return result
+
+
+@dataclass(frozen=True)
+class RestRequest:
+    method: str
+    url: str
+    headers: Mapping[str, str]
+    body: bytes = b""
+    credential_ref: str | None = None
+    idempotency_key: str | None = None
+
+
+def _redact_text(value: str) -> str:
+    return SECRET_RE.sub(r"\1[REDACTED]", value)
+
+
+def _redact_json(value: Any, *, key: str | None = None) -> Any:
+    if key is not None and key.strip().lower().replace("-", "_") in SENSITIVE_JSON_KEYS:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact_json(item, key=str(item_key)) for item_key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_json(item) for item in value]
+    if isinstance(value, str):
+        return _redact_text(value)
+    return value
+
+
+def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    return {
+        str(key): "[REDACTED]" if str(key).lower() in BLOCKED_HEADERS else _redact_text(str(value))
+        for key, value in headers.items()
+    }
+
+
+def deterministic_idempotency_key(method: str, url: str, body: bytes) -> str:
+    return hashlib.sha256(method.upper().encode() + b"\0" + url.encode() + b"\0" + body).hexdigest()
+
+
+def _is_public_address(address: ipaddress._BaseAddress) -> bool:
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def _resolve_host_ips(host: str) -> list[ipaddress._BaseAddress]:
+    try:
+        return [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise RestConnectorError("host DNS resolution failed") from exc
+        addresses: list[ipaddress._BaseAddress] = []
+        for info in infos:
+            try:
+                addresses.append(ipaddress.ip_address(info[4][0]))
+            except ValueError:
+                continue
+        if not addresses:
+            raise RestConnectorError("host DNS resolution returned no addresses")
+        return sorted(set(addresses), key=str)
+
+
+def validate_public_https_url(
+    url: str,
+    allowed_hosts: frozenset[str],
+    *,
+    resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
+) -> str:
+    if not isinstance(url, str) or len(url) > 2048:
+        raise RestConnectorError("URL is invalid or exceeds the length limit")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise RestConnectorError("URL port is invalid") from exc
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme.lower() != "https" or not host:
+        raise RestConnectorError("only HTTPS URLs with a host are allowed")
+    if parsed.username is not None or parsed.password is not None:
+        raise RestConnectorError("userinfo in URLs is not allowed")
+    if host not in allowed_hosts:
+        raise RestConnectorError("host is not explicitly allowlisted")
+    if port not in (None, 443):
+        raise RestConnectorError("only the default HTTPS port is allowed")
+    resolve = resolver or _resolve_host_ips
+    addresses = resolve(host)
+    if any(not _is_public_address(address) for address in addresses):
+        raise RestConnectorError("resolved host address is not publicly routable")
+    return url
+
+
+def validate_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    if not isinstance(headers, Mapping) or len(headers) > MAX_HEADERS:
+        raise RestConnectorError("headers exceed the allowed count")
+    out: dict[str, str] = {}
+    total = 0
+    for key, value in headers.items():
+        name = str(key).strip()
+        val = str(value)
+        if not name or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + val):
+            raise RestConnectorError("invalid header characters")
+        if name.lower() in BLOCKED_HEADERS:
+            raise RestConnectorError("credential-bearing headers must use credential references")
+        total += len(name.encode()) + len(val.encode())
+        if total > MAX_HEADER_BYTES:
+            raise RestConnectorError("headers exceed the size limit")
+        out[name] = val
+    return out
+
+
+class RestConnector:
+    def __init__(self, allowed_hosts: set[str] | frozenset[str], *, transport: RestTransport, timeout_seconds: float = 10.0):
+        hosts = frozenset(str(h).strip().lower().rstrip(".") for h in allowed_hosts if str(h).strip())
+        if not hosts:
+            raise RestConnectorError("at least one explicit host allowlist entry is required")
+        if transport is None:
+            raise RestConnectorError("an injected transport is required")
+        self.allowed_hosts = hosts
+        self.transport = transport
+        self.timeout_seconds = max(0.1, min(float(timeout_seconds), MAX_TIMEOUT_SECONDS))
+
+    def request(
+        self,
+        request: RestRequest,
+        *,
+        approved: bool = False,
+        resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
+    ) -> RestResponse:
+        method = request.method.upper().strip()
+        if method not in SAFE_METHODS | WRITE_METHODS:
+            raise RestConnectorError("HTTP method is not supported")
+        if method in WRITE_METHODS and not approved:
+            raise RestConnectorError("write requests require explicit human approval")
+        body = request.body if isinstance(request.body, bytes) else bytes(request.body)
+        if len(body) > MAX_REQUEST_BYTES:
+            raise RestConnectorError("request body exceeds the size limit")
+        url = validate_public_https_url(request.url, self.allowed_hosts, resolver=resolver)
+        headers = validate_headers(request.headers)
+        if method in WRITE_METHODS:
+            key = request.idempotency_key or deterministic_idempotency_key(method, url, body)
+            headers = validate_headers({**headers, "Idempotency-Key": key})
+        retries = 0
+        redirects = 0
+        while True:
+            response = self.transport.request(method, url, headers=headers, body=body, timeout=self.timeout_seconds)
+            if len(response.headers) > MAX_HEADERS:
+                raise RestConnectorError("response headers exceed the allowed count")
+            response_header_bytes = sum(len(str(k).encode()) + len(str(v).encode()) for k, v in response.headers.items())
+            if response_header_bytes > MAX_HEADER_BYTES:
+                raise RestConnectorError("response headers exceed the size limit")
+            if len(response.body) > MAX_RESPONSE_BYTES:
+                raise RestConnectorError("response exceeds the size limit")
+            location = next((v for k, v in response.headers.items() if k.lower() == "location"), None)
+            if response.status_code in {301, 302, 303, 307, 308} and location:
+                redirects += 1
+                if redirects > MAX_REDIRECTS:
+                    raise RestConnectorError("redirect limit exceeded")
+                url = validate_public_https_url(urljoin(url, location), self.allowed_hosts, resolver=resolver)
+                continue
+            if response.status_code in {429, 500, 502, 503, 504} and method in SAFE_METHODS and retries < MAX_RETRIES:
+                retries += 1
+                continue
+            return response
+
+    def safe_json(
+        self,
+        request: RestRequest,
+        *,
+        approved: bool = False,
+        resolver: Callable[[str], list[ipaddress._BaseAddress]] | None = None,
+    ) -> dict[str, Any]:
+        response = self.request(request, approved=approved, resolver=resolver)
+        return response.safe_dict()
