@@ -40,5 +40,24 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: python -m pip install --upgrade pip && pip install -e '.[test]'
+      - name: Verify pytest source resolution
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          path = Path("tests/test_rest_connector.py")
+          data = path.read_bytes()
+          print(f"cwd={Path.cwd()}")
+          print(f"source={path.resolve()}")
+          print(f"sha256={hashlib.sha256(data).hexdigest()}")
+          print(f"contains_redacted={'assert result[\"json\"][\"token\"] == \"Bearer [REDACTED]\"' in data.decode()}")
+          print(f"contains_stars={'assert result[\"json\"][\"token\"] == \"***\"' in data.decode()}")
+          import ast
+          tree = ast.parse(data.decode())
+          target = next(node for node in ast.walk(tree) if isinstance(node, ast.Assert) and 'token' in ast.unparse(node.test))
+          print(f"token_assert_ast={ast.unparse(target.test)}")
+          PY
+          python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
       - name: Test
         run: pytest -q
