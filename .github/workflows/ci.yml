@@ -14,6 +14,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checkout integrity
+        run: |
+          set -euo pipefail
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_rest_connector.py")
+          text = path.read_text(encoding="utf-8")
+          assert 'assert result["json"]["token"] == "Bearer [REDACTED]"' in text
+          assert 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"' in text
+          print(f"verified {path} contains canonical N6 redaction contract")
+          print(f"test_size={path.stat().st_size}")
+          PY
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
