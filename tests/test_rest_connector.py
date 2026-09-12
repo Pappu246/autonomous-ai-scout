@@ -151,7 +151,7 @@ def test_credential_reference_is_metadata_only():
 
 def test_write_header_budget_includes_idempotency_key():
     api, _ = connector(response())
-    headers = {f"X-Test-{index}": "v" for index in range(39)}
+    headers = {f"X-Test-{index}": "v" * 200 for index in range(39)}
     request = RestRequest("POST", "https://api.example.com/v1", headers, b"x")
     with pytest.raises(RestConnectorError, match="headers"):
         api.request(request, approved=True, resolver=public_resolver)
