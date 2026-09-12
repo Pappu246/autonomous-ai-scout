@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","gmail"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","gmail","calendar"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -76,7 +76,20 @@ def _run_gmail(connector,request,limit):
         else:return False,"sandbox gmail allowlist supports only search/read/thread/draft/send",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("GMAIL",op),truncated
     except Exception as exc:return False,f"Gmail operation failed: {type(exc).__name__}",("GMAIL",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None):
+def _run_calendar(connector,request,limit):
+    if connector is None or not isinstance(request,Mapping):return False,"calendar requires an approved injected Calendar connector and structured request",(),False
+    op=str(request.get("operation","")).strip().lower()
+    try:
+        if op=="read":payload=connector.read(str(request.get("event_id","")),str(request.get("calendar_id","primary"))).safe_dict()
+        elif op=="list":payload=connector.list(str(request.get("calendar_id","primary")),time_min=request.get("time_min"),time_max=request.get("time_max"),query=str(request.get("query","")),results=int(request.get("results",20))).safe_dict()
+        elif op=="find_free_time":payload=connector.find_free_time(time_min=str(request.get("time_min","")),time_max=str(request.get("time_max","")),calendar_id=str(request.get("calendar_id","primary")),duration_minutes=int(request.get("duration_minutes",30))).safe_dict()
+        elif op=="create":payload=connector.create(calendar_id=str(request.get("calendar_id","primary")),event=request.get("event",{}),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False))).safe_dict()
+        elif op=="update":payload=connector.update(calendar_id=str(request.get("calendar_id","primary")),event_id=str(request.get("event_id","")),event=request.get("event",{}),etag=request.get("etag"),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False))).safe_dict()
+        elif op=="cancel":payload=connector.cancel(calendar_id=str(request.get("calendar_id","primary")),event_id=str(request.get("event_id","")),etag=str(request.get("etag","")),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False))).safe_dict()
+        else:return False,"sandbox calendar allowlist supports only read/list/find_free_time/create/update/cancel",(),False
+        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("CALENDAR",op),truncated
+    except Exception as exc:return False,f"Calendar operation failed: {type(exc).__name__}",("CALENDAR",op),False
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
@@ -86,6 +99,8 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         success,output,command,truncated=_run_filesystem(workspace_connector,workspace_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
     if op=="gmail":
         success,output,command,truncated=_run_gmail(gmail_connector,gmail_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
+    if op=="calendar":
+        success,output,command,truncated=_run_calendar(calendar_connector,calendar_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="inspect":
         files=[]
         for path in sorted(root_path.rglob("*")):

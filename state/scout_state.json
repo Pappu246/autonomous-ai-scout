@@ -1,6 +1,6 @@
 {
   "dashboard_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/dashboard.md",
-  "fingerprint": "a78eb78e96b25c3ddf9f49c8f39d8d99356505fabb5f69fe36ede1bc7c109cf2",
+  "fingerprint": "deef0bb5d24f6286bd07e2f55601cbce15e895ad6443412d7a0d93bdc1c9796e",
   "improvement_proposals": [
     {
       "actions": [
@@ -8,20 +8,20 @@
         "move credentials to environment/secret storage",
         "add a regression check for secret-pattern detection"
       ],
-      "rationale": "A secret-like assignment was detected in tests/test_draft_pr_automation.py.",
+      "rationale": "A high-confidence secret-like assignment was detected in tests/test_draft_pr_automation.py.",
       "repository": "Pappu246/autonomous-ai-scout",
       "requires_approval": true,
       "risk": "high",
       "title": "Remove hard-coded secret risk"
     }
   ],
-  "last_run": "2026-09-11T18:47:29.275332+00:00",
+  "last_run": "2026-09-12T11:19:23.860310+00:00",
   "last_task": "",
   "meaningful_change": true,
   "opportunity_history_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/opportunity_history.json",
   "pr_proposals": [
     {
-      "body": "## Proposed improvement\n\nA secret-like assignment was detected in tests/test_draft_pr_automation.py.\n\n### Planned steps\n- identify the secret source and affected files\n- move credentials to environment/secret storage\n- add a regression check for secret-pattern detection\n\n**Risk:** high\n**Approval required:** yes\n\nNo branch, commit, merge, or deployment is created automatically.",
+      "body": "## Proposed improvement\n\nA high-confidence secret-like assignment was detected in tests/test_draft_pr_automation.py.\n\n### Planned steps\n- identify the secret source and affected files\n- move credentials to environment/secret storage\n- add a regression check for secret-pattern detection\n\n**Risk:** high\n**Approval required:** yes\n\nNo branch, commit, merge, or deployment is created automatically.",
       "id": "5aec7ef1e187e08b",
       "repository": "Pappu246/autonomous-ai-scout",
       "requires_approval": true,
@@ -36,15 +36,15 @@
     }
   ],
   "release_hashes": {
-    "https://ai.google.dev/gemini-api/docs/changelog": "d17a1735a150bda4777f0d4a8180069be935de96b0881dffeafdf6e9ead5836b",
-    "https://console.groq.com/docs/changelog": "8a2d836bae2dc85adacc59b23d809a030559e11edb4dfa0151d0e8ea46831616",
-    "https://openrouter.ai/models?pricing=free": "5cb58854b49239003ddc70bf6902e065dc0b49458d16cbc5f1d8d3d9047ee5df"
+    "https://ai.google.dev/gemini-api/docs/changelog": "93141f108640628a0b64cb91ec693ebc3b936cc0e8a244e231311c93be299682",
+    "https://console.groq.com/docs/changelog": "04b42c07e68bc8f6ffd262f7d680b2ef932f10513ff965dd9b506770efdba08f",
+    "https://openrouter.ai/models?pricing=free": "77f00292afc321e67216218b5b596298eb3b5320b3634b43c1c423f6e97da58c"
   },
   "report_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/latest_report.md",
   "source_hashes": {
-    "https://ai.google.dev/gemini-api/docs/pricing": "929f16aa4a5309914e49b87c704dd51849e2c94fef545490b63a267ad3d8d82d",
-    "https://console.groq.com/docs/rate-limits": "5ce4c54027ef65fb614210e86928e07f33eaff7dad228410ee3294125171012f",
-    "https://openrouter.ai/pricing": "c3d1a1aa0bab323a46da330c8543e9b87fd9c1d1b01c27c66cf66b8fae0e70ed"
+    "https://ai.google.dev/gemini-api/docs/pricing": "ec24758496b43ccd52e61ebe628fa48ca1e30f8e44668f1950c9fe802135c2b1",
+    "https://console.groq.com/docs/rate-limits": "d009f13dac5fbb223f128badf3a1f1fdc7525efa0a85df5ee12a7549e85f6049",
+    "https://openrouter.ai/pricing": "8f693ec4de564987cd54e16581a197f88f57bbb7436c99a73f566f9a3c9f16b2"
   },
   "verified_free_models": [
     "gemini/gemini-3.7-flash",

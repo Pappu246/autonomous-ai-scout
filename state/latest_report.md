@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-11T18:47:29.275332+00:00
+Generated: 2026-09-12T11:19:23.860310+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -13,7 +13,7 @@ Meaningful change: YES
 
 ## Project findings
 
-- **HIGH — Pappu246/autonomous-ai-scout: Possible hard-coded secret** — A secret-like assignment was detected in tests/test_draft_pr_automation.py. Recommendation: Move credentials to environment/secret storage and rotate exposed credentials.
+- **HIGH — Pappu246/autonomous-ai-scout: Possible hard-coded secret** — A high-confidence secret-like assignment was detected in tests/test_draft_pr_automation.py. Recommendation: Move credentials to environment/secret storage and rotate exposed credentials.
 - **LOW — Pappu246/autonomous-ai-scout: No dependency lockfile detected** — A supported dependency manifest exists but no common lockfile was found. Recommendation: Commit a lockfile when the package manager supports one to improve reproducibility and reviewability.
 
 ## Monetization / opportunity ideas

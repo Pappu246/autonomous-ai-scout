@@ -7,20 +7,27 @@ from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
-_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":()}
+_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"calendar":(),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":()}
 def _digest(task,intent,tool_names):return hashlib.sha256(json.dumps({"task":task,"intent":intent,"tools":tool_names},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+def _calendar_tools(task):
+    text=task.lower()
+    if any(x in text for x in ("cancel","delete event")):return ("calendar.event.cancel",)
+    if any(x in text for x in ("update","reschedule","move meeting","modify event")):return ("calendar.event.update",)
+    if any(x in text for x in ("create","book","add event","schedule a meeting","schedule meeting")):return ("calendar.event.create",)
+    if any(x in text for x in ("free time","available time","availability")):return ("calendar.find_free_time",)
+    if any(x in text for x in ("read event","event details","get event")):return ("calendar.read",)
+    return ("calendar.list",)
+def _required_tools(task,intent):return _calendar_tools(task) if intent=="calendar" else _INTENT_TO_TOOLS.get(intent,())
 def _select_tools(registry,intent,task=""):
-    names=_INTENT_TO_TOOLS.get(intent,())
+    names=_required_tools(task,intent)
     if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
     return tuple(tool for name in names if (tool:=registry.get(name)) is not None)
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
-    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_INTENT_TO_TOOLS.get(intent.value,());selected=_select_tools(registry,intent,raw)
-    if intent.value=="email" and any(x in raw.lower() for x in ("draft","compose")):required=("email.draft",)
-    descriptions=decompose_task(raw,intent);missing=tuple(name for name in required if registry.get(name) is None)
+    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent.value);selected=_select_tools(registry,intent.value,raw)
     if intent.value in {"automate","unknown"}:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
-    elif missing:reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
+    elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
-    steps=[]
+    descriptions=decompose_task(raw,intent);steps=[]
     for index,tool in enumerate(selected,1):
         description=descriptions[min(index-1,len(descriptions)-1)] if descriptions else f"Run {tool.name}.";decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=audit_available)
         if not decision.allowed:executable,reason=False,f"Authorization blocked for {tool.name}: {decision.reason}"
