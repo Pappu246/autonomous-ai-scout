@@ -44,16 +44,19 @@ class RestResponse:
     def safe_dict(self) -> dict[str, Any]:
         body = self.body[:MAX_RESPONSE_BYTES]
         text = body.decode("utf-8", errors="replace")
+        content_type = next((v for k, v in self.headers.items() if k.lower() == "content-type"), "")
         result: dict[str, Any] = {
             "status_code": int(self.status_code),
             "headers": _redact_headers(self.headers),
             "body": _redact_text(text),
             "url": self.url,
         }
-        content_type = next((v for k, v in self.headers.items() if k.lower() == "content-type"), "")
         if "json" in str(content_type).lower():
             try:
-                result["json"] = _redact_json(json.loads(text))
+                parsed = json.loads(text)
+                result["json"] = _redact_json(parsed)
+                # Keep the plain-text body in sync with the structured redaction path.
+                result["body"] = _redact_text(json.dumps(result["json"], ensure_ascii=False, separators=(",", ":")))
             except json.JSONDecodeError:
                 result["json_error"] = "invalid JSON response"
         return result
