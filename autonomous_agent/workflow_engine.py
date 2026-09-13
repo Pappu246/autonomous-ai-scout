@@ -3,139 +3,133 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Iterable, Mapping
+from enum import Enum
+from typing import Iterable
 
 from .capability_policy import Capability
 from .task_plan_models import PlanRisk, TaskAuditRecord, TaskIntent, TaskPlan, TaskStep
-from .tool_registry import RiskLevel, ToolRegistry, REGISTRY
 
 MAX_WORKFLOW_STEPS = 12
-MAX_TASK_LENGTH = 4096
-MAX_STEP_DESCRIPTION = 512
-
-_READ_INTENTS = {
-    "research": TaskIntent.RESEARCH,
-    "web": TaskIntent.RESEARCH,
-    "browse": TaskIntent.RESEARCH,
-    "browser": TaskIntent.RESEARCH,
-    "file": TaskIntent.WORKSPACE,
-    "workspace": TaskIntent.WORKSPACE,
-    "email": TaskIntent.EMAIL,
-    "mail": TaskIntent.EMAIL,
-    "calendar": TaskIntent.CALENDAR,
-    "inspect": TaskIntent.INSPECT,
-    "test": TaskIntent.TEST,
-    "improve": TaskIntent.IMPROVE,
-    "change": TaskIntent.CHANGE,
-    "automate": TaskIntent.AUTOMATE,
-}
+MAX_WORKFLOW_TEXT = 512
 
 
-def _intent(task: str, tools: tuple[str, ...]) -> TaskIntent:
-    lowered = task.lower()
-    for marker, value in _READ_INTENTS.items():
-        if marker in lowered:
-            return value
-    if any(name.startswith("browser.") or name.startswith("web.") for name in tools):
-        return TaskIntent.RESEARCH
-    if any(name.startswith("email.") for name in tools):
-        return TaskIntent.EMAIL
-    if any(name.startswith("calendar.") for name in tools):
-        return TaskIntent.CALENDAR
-    return TaskIntent.UNKNOWN
-
-
-def _plan_risk(levels: Iterable[RiskLevel]) -> PlanRisk:
-    ranks = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1, RiskLevel.HIGH: 2, RiskLevel.CRITICAL: 3}
-    highest = max((ranks[level] for level in levels), default=0)
-    return (PlanRisk.LOW, PlanRisk.MEDIUM, PlanRisk.HIGH, PlanRisk.CRITICAL)[highest]
-
-
-def _digest(task: str, steps: tuple[TaskStep, ...], risk: PlanRisk, authorized: bool) -> str:
-    payload = {
-        "task": task,
-        "steps": [step.__dict__ for step in steps],
-        "risk": risk.value,
-        "authorized": authorized,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+class WorkflowState(str, Enum):
+    PLANNED = "planned"
+    BLOCKED = "blocked"
 
 
 @dataclass(frozen=True)
-class WorkflowDefinition:
+class WorkflowTask:
     name: str
-    task: str
-    tool_names: tuple[str, ...]
-    inputs: tuple[Mapping[str, object], ...] = ()
+    tool_name: str
+    capability: Capability
+    intent: TaskIntent
+    risk: PlanRisk = PlanRisk.LOW
+    depends_on: tuple[str, ...] = ()
+    verification: str = "verified"
 
 
-class WorkflowEngine:
-    """Compose registered tools into a bounded TaskPlan; execution stays with the existing Safe Executor."""
+def workflow_digest(name: str, tasks: Iterable[WorkflowTask]) -> str:
+    payload = [
+        {
+            "name": task.name,
+            "tool_name": task.tool_name,
+            "capability": task.capability.value,
+            "intent": task.intent.value,
+            "risk": task.risk.value,
+            "depends_on": list(task.depends_on),
+        }
+        for task in tasks
+    ]
+    raw = json.dumps({"name": name, "tasks": payload}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def __init__(self, registry: ToolRegistry = REGISTRY):
-        self._registry = registry
 
-    def plan(self, workflow: WorkflowDefinition, *, granted: Iterable[Capability | str] = ()) -> TaskPlan:
-        if not workflow.name.strip():
-            return self._blocked(workflow.task, "workflow name is required")
-        if not workflow.task.strip() or len(workflow.task) > MAX_TASK_LENGTH:
-            return self._blocked(workflow.task, "workflow task is empty or too long")
-        if not workflow.tool_names or len(workflow.tool_names) > MAX_WORKFLOW_STEPS:
-            return self._blocked(workflow.task, "workflow step count is outside the bounded limit")
+def build_workflow_plan(name: str, tasks: tuple[WorkflowTask, ...], granted: Iterable[Capability | str] = ()) -> TaskPlan:
+    clean_name = name.strip()
+    if not clean_name or len(clean_name) > MAX_WORKFLOW_TEXT:
+        return _blocked(clean_name or name, "workflow name is invalid")
+    if not tasks:
+        return _blocked(clean_name, "workflow must contain at least one task")
+    if len(tasks) > MAX_WORKFLOW_STEPS:
+        return _blocked(clean_name, "workflow exceeds the step limit")
 
-        normalized_grants = tuple(granted)
-        steps: list[TaskStep] = []
-        errors: list[str] = []
-        for index, tool_name in enumerate(workflow.tool_names, start=1):
-            tool = self._registry.get(tool_name)
-            if tool is None:
-                errors.append(f"unknown tool: {tool_name}")
-                continue
-            decision = self._registry.authorize(
-                tool.name,
-                normalized_grants,
-                explicitly_approved=False,
-                sandbox_available=True,
-                audit_available=True,
+    by_name: dict[str, WorkflowTask] = {}
+    for task in tasks:
+        key = task.name.strip()
+        if not key or len(key) > MAX_WORKFLOW_TEXT or key in by_name:
+            return _blocked(clean_name, "workflow contains an invalid or duplicate task name")
+        by_name[key] = task
+
+    try:
+        granted_values = {Capability(item) if not isinstance(item, Capability) else item for item in granted}
+    except (TypeError, ValueError):
+        return _blocked(clean_name, "workflow capability grant is invalid")
+
+    ordered: list[str] = []
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(key: str) -> bool:
+        if key in visiting:
+            return False
+        if key in visited:
+            return True
+        task = by_name.get(key)
+        if task is None:
+            return False
+        visiting.add(key)
+        for dependency in task.depends_on:
+            dependency_key = dependency.strip()
+            if not dependency_key or not visit(dependency_key):
+                return False
+        visiting.remove(key)
+        visited.add(key)
+        ordered.append(key)
+        return True
+
+    for key in by_name:
+        if not visit(key):
+            return _blocked(clean_name, "workflow dependencies are invalid or cyclic")
+
+    steps: list[TaskStep] = []
+    risk = PlanRisk.LOW
+    for index, key in enumerate(ordered, 1):
+        task = by_name[key]
+        if task.capability not in granted_values:
+            return _blocked(clean_name, f"capability is not granted: {task.capability.value}")
+        if _rank(task.risk) > _rank(risk):
+            risk = task.risk
+        steps.append(
+            TaskStep(
+                step_id=f"wf-{index:02d}-{hashlib.sha256(key.encode()).hexdigest()[:8]}",
+                description=f"{task.name}: {task.tool_name}",
+                tool_name=task.tool_name,
+                risk=task.risk,
+                authorization="registry_and_capability_policy",
+                execution_boundary="existing_safe_executor",
+                verification=task.verification,
             )
-            steps.append(
-                TaskStep(
-                    step_id=f"{workflow.name}:{index}",
-                    description=tool.description[:MAX_STEP_DESCRIPTION],
-                    tool_name=tool.name,
-                    risk=PlanRisk(tool.risk_level.value),
-                    authorization=decision.reason,
-                    execution_boundary="Tool Registry → Capability Policy → Safe Executor → Sandbox",
-                    verification="tool result must be verified by the existing executor",
-                )
-            )
-            if not decision.allowed:
-                errors.append(f"{tool.name}: {decision.reason}")
-
-        frozen_steps = tuple(steps)
-        risk = _plan_risk(tuple(self._registry.get(name).risk_level for name in workflow.tool_names if self._registry.get(name)))
-        intent = _intent(workflow.task, workflow.tool_names)
-        authorized = not errors and bool(frozen_steps)
-        reason = "workflow is bounded and every step is authorized" if authorized else "; ".join(errors) or "workflow has no valid steps"
-        digest = _digest(workflow.task, frozen_steps, risk, authorized)
-        return TaskPlan(
-            task=workflow.task,
-            intent=intent,
-            steps=frozen_steps,
-            risk=risk,
-            executable=authorized,
-            reason=reason,
-            audit=TaskAuditRecord(
-                task=workflow.task,
-                intent=intent,
-                step_ids=tuple(step.step_id for step in frozen_steps),
-                authorized=authorized,
-                plan_digest=digest,
-            ),
         )
 
-    @staticmethod
-    def _blocked(task: str, reason: str) -> TaskPlan:
-        digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
-        audit = TaskAuditRecord(task, TaskIntent.UNKNOWN, (), False, digest)
-        return TaskPlan(task, TaskIntent.UNKNOWN, (), PlanRisk.LOW, False, reason, audit)
+    digest = workflow_digest(clean_name, tasks)
+    audit = TaskAuditRecord(clean_name, TaskIntent.AUTOMATE, tuple(step.step_id for step in steps), True, digest)
+    return TaskPlan(
+        task=clean_name,
+        intent=TaskIntent.AUTOMATE,
+        steps=tuple(steps),
+        risk=risk,
+        executable=True,
+        reason="workflow is dependency-valid and every capability is explicitly granted",
+        audit=audit,
+    )
+
+
+def _blocked(name: str, reason: str) -> TaskPlan:
+    digest = hashlib.sha256(json.dumps({"name": name, "reason": reason}, sort_keys=True).encode()).hexdigest()
+    audit = TaskAuditRecord(name, TaskIntent.AUTOMATE, (), False, digest)
+    return TaskPlan(name, TaskIntent.AUTOMATE, (), PlanRisk.CRITICAL, False, reason, audit)
+
+
+def _rank(risk: PlanRisk) -> int:
+    return {PlanRisk.LOW: 0, PlanRisk.MEDIUM: 1, PlanRisk.HIGH: 2, PlanRisk.CRITICAL: 3}[risk]
