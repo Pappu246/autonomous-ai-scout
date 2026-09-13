@@ -1,4 +1,4 @@
-from __future__
+from __future__ import annotations
 
 import hashlib
 import json
@@ -37,10 +37,7 @@ class WorkflowDefinition:
 
 
 def workflow_digest(name: str, tasks: Iterable[WorkflowTask]) -> str:
-    payload = [
-        {"name": task.name, "tool_name": task.tool_name, "capability": task.capability.value, "intent": task.intent.value, "risk": task.risk.value, "depends_on": list(task.depends_on)}
-        for task in tasks
-    ]
+    payload = [{"name": task.name, "tool_name": task.tool_name, "capability": task.capability.value, "intent": task.intent.value, "risk": task.risk.value, "depends_on": list(task.depends_on)} for task in tasks]
     raw = json.dumps({"name": name, "tasks": payload}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
