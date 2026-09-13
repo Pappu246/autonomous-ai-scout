@@ -18,23 +18,18 @@ jobs:
         run: |
           set -euo pipefail
           expected="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "GITHUB_SHA=$GITHUB_SHA"
-          echo "expected=$expected"
-          echo "HEAD=$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$expected"
           test "$(git rev-parse HEAD:tests/test_rest_connector.py)" = "db802a8e6010fe30e2237c22ab8c1858fd792647"
           python - <<'PY'
           from pathlib import Path
-          path = Path("tests/test_rest_connector.py")
-          text = path.read_text(encoding="utf-8")
+          text = Path("tests/test_rest_connector.py").read_text(encoding="utf-8")
           canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
           canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
           obsolete_token = 'assert result["json"]["token"] == "***"'
           assert canonical_token in text
           assert canonical_api_key in text
           assert obsolete_token not in text
-          print(f"verified {path} contains canonical N6 redaction contract")
-          print(f"test_size={path.stat().st_size}")
+          print("working-tree redaction contract verified")
           PY
       - uses: actions/setup-python@v5
         with:
@@ -47,25 +42,18 @@ jobs:
           python - <<'PY'
           import ast
           import hashlib
+          import importlib.util
           from pathlib import Path
 
           path = Path("tests/test_rest_connector.py").resolve()
           data = path.read_bytes()
           text = data.decode("utf-8")
-          canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
-          canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
-          obsolete_token = 'assert result["json"]["token"] == "***"'
-
           print(f"cwd={Path.cwd()}")
           print(f"source={path}")
           print(f"sha256={hashlib.sha256(data).hexdigest()}")
-          print(f"contains_canonical={canonical_token in text}")
-          print(f"contains_nested_canonical={canonical_api_key in text}")
-          print(f"contains_obsolete={obsolete_token in text}")
-          assert canonical_token in text
-          assert canonical_api_key in text
-          assert obsolete_token not in text
-
+          assert 'assert result["json"]["token"] == "Bearer [REDACTED]"' in text
+          assert 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"' in text
+          assert 'assert result["json"]["token"] == "***"' not in text
           tree = ast.parse(text, filename=str(path))
           matches = []
           for node in ast.walk(tree):
@@ -73,8 +61,15 @@ jobs:
                   rendered = ast.unparse(node.test)
                   if "result" in rendered and "token" in rendered:
                       matches.append(rendered)
-          assert matches, "token assertion not found in AST"
+          assert matches
           assert all("***" not in item for item in matches), matches
+          spec = importlib.util.spec_from_file_location("n6_test_rest_connector", path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          source_file = Path(module.__file__).resolve()
+          print(f"imported_source={source_file}")
+          assert source_file == path
           print(f"token_assert_ast={matches}")
           PY
           python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
