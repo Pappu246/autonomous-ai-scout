@@ -18,9 +18,6 @@ jobs:
         run: |
           set -euo pipefail
           expected="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "GITHUB_SHA=$GITHUB_SHA"
-          echo "expected=$expected"
-          echo "HEAD=$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$expected"
           test "$(git rev-parse HEAD:tests/test_rest_connector.py)" = "db802a8e6010fe30e2237c22ab8c1858fd792647"
           python - <<'PY'
@@ -49,16 +46,14 @@ jobs:
           import importlib.util
           import sys
           from pathlib import Path
-
           path = Path("tests/test_rest_connector.py").resolve()
           data = path.read_bytes()
           text = data.decode("utf-8")
-          print(f"cwd={Path.cwd()}")
-          print(f"source={path}")
-          print(f"sha256={hashlib.sha256(data).hexdigest()}")
           canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
           canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
           obsolete_token = 'assert result["json"]["token"] == "***"'
+          print(f"source={path}")
+          print(f"sha256={hashlib.sha256(data).hexdigest()}")
           assert canonical_token in text
           assert canonical_api_key in text
           assert obsolete_token not in text
