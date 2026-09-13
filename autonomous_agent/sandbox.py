@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","gmail","calendar"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","gmail","calendar","browser"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -89,7 +89,17 @@ def _run_calendar(connector,request,limit):
         else:return False,"sandbox calendar allowlist supports only read/list/find_free_time/create/update/cancel",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("CALENDAR",op),truncated
     except Exception as exc:return False,f"Calendar operation failed: {type(exc).__name__}",("CALENDAR",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None):
+def _run_browser(connector,request,limit):
+    if connector is None or not isinstance(request,Mapping):return False,"browser requires an approved injected connector and structured request",(),False
+    op=str(request.get("operation","")).strip().lower()
+    try:
+        if op=="open":payload=connector.open(str(request.get("url","")),timeout_seconds=int(request.get("timeout_seconds",20))).safe_dict()
+        elif op=="click":payload=connector.click(str(request.get("url","")),str(request.get("selector","")),timeout_seconds=int(request.get("timeout_seconds",20))).safe_dict()
+        elif op=="extract":payload=connector.extract(str(request.get("url","")),tuple(str(x) for x in request.get("fields",()))).safe_dict()
+        else:return False,"sandbox browser allowlist supports only open/click/extract",(),False
+        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("BROWSER",op),truncated
+    except Exception as exc:return False,f"browser operation failed: {type(exc).__name__}",("BROWSER",op),False
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
@@ -101,6 +111,8 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         success,output,command,truncated=_run_gmail(gmail_connector,gmail_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="calendar":
         success,output,command,truncated=_run_calendar(calendar_connector,calendar_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
+    if op=="browser":
+        success,output,command,truncated=_run_browser(browser_connector,browser_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="inspect":
         files=[]
         for path in sorted(root_path.rglob("*")):
