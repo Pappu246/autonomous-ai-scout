@@ -18,6 +18,9 @@ jobs:
         run: |
           set -euo pipefail
           expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "expected=$expected"
+          echo "HEAD=$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$expected"
           test "$(git rev-parse HEAD:tests/test_rest_connector.py)" = "db802a8e6010fe30e2237c22ab8c1858fd792647"
           python - <<'PY'
@@ -39,10 +42,12 @@ jobs:
       - name: Verify pytest source resolution
         run: |
           set -euo pipefail
-          python - <<'PY'
+          rm -rf .pytest_cache tests/__pycache__ __pycache__
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python - <<'PY'
           import ast
           import hashlib
           import importlib.util
+          import sys
           from pathlib import Path
 
           path = Path("tests/test_rest_connector.py").resolve()
@@ -51,9 +56,12 @@ jobs:
           print(f"cwd={Path.cwd()}")
           print(f"source={path}")
           print(f"sha256={hashlib.sha256(data).hexdigest()}")
-          assert 'assert result["json"]["token"] == "Bearer [REDACTED]"' in text
-          assert 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"' in text
-          assert 'assert result["json"]["token"] == "***"' not in text
+          canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
+          canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
+          obsolete_token = 'assert result["json"]["token"] == "***"'
+          assert canonical_token in text
+          assert canonical_api_key in text
+          assert obsolete_token not in text
           tree = ast.parse(text, filename=str(path))
           matches = []
           for node in ast.walk(tree):
@@ -66,12 +74,11 @@ jobs:
           spec = importlib.util.spec_from_file_location("n6_test_rest_connector", path)
           assert spec is not None and spec.loader is not None
           module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
           spec.loader.exec_module(module)
-          source_file = Path(module.__file__).resolve()
-          print(f"imported_source={source_file}")
-          assert source_file == path
+          assert Path(module.__file__).resolve() == path
           print(f"token_assert_ast={matches}")
           PY
-          python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
       - name: Test
-        run: pytest -q
+        run: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
