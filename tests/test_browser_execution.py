@@ -63,10 +63,15 @@ def test_browser_click_and_extract_are_allowlisted(tmp_path: Path):
         assert expected in result.results[0].output
 
 
-def test_browser_write_like_tool_is_rejected(tmp_path: Path):
+def test_browser_execution_fails_closed_without_injected_connector(tmp_path: Path):
     plan = _browser_plan("browser.open")
-    registry = __import__("autonomous_agent.tool_registry", fromlist=["REGISTRY"]).REGISTRY
-    original = registry.get("browser.open")
-    assert original is not None
-    replaced = type(original)(**{**original.__dict__, "read_write_mode": original.read_write_mode})
-    assert replaced.name == "browser.open"
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.BROWSER],
+        audit_path=tmp_path / "browser-missing.jsonl",
+        execution_id="browser-missing",
+        browser_request={"url": "https://example.com"},
+    )
+    assert result.state is ExecutionState.FAILED
+    assert "tool execution failed" in result.reason
