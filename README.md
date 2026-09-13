@@ -23,14 +23,26 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 6. Persistent JSON state and Markdown report.
 7. Hourly GitHub Actions execution.
 8. Optional Gmail SMTP delivery only when the required secrets exist.
+9. Bounded TaskPlan → Tool Registry → Capability Policy → Safe Executor → Sandbox runtime.
+10. Bounded cross-domain workflow planning and controlled browser operations through an injected transport.
 
 ## Local run
 
 ```bash
 python -m pip install -e '.[test]'
 pytest -q
+
+# One autonomous task through the centralized execution boundary
+python -m autonomous_agent.runtime "inspect repository"
+
+# Same runtime after installation
+./.venv/bin/autonomous-scout "run the tests"
+
+# Full scheduled scout/report pipeline
 python -m autonomous_agent.main
 ```
+
+The task runtime is deliberately conservative: safe read-only tasks can execute autonomously; write, merge, deploy, billing, secret-management, and destructive actions stay behind their existing approval boundaries.
 
 ## GitHub Actions secrets for email/benchmarks
 
