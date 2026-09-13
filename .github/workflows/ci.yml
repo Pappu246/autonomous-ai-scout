@@ -74,6 +74,7 @@ jobs:
                   if "result" in rendered and "token" in rendered:
                       matches.append(rendered)
           assert matches, "token assertion not found in AST"
+          assert all("***" not in item for item in matches), matches
           print(f"token_assert_ast={matches}")
           PY
           python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
