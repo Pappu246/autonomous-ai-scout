@@ -17,7 +17,10 @@ def _calendar_tools(task):
     if any(x in text for x in ("free time","available time","availability")):return ("calendar.find_free_time",)
     if any(x in text for x in ("read event","event details","get event")):return ("calendar.read",)
     return ("calendar.list",)
-def _required_tools(task,intent):return _calendar_tools(task) if intent=="calendar" else _INTENT_TO_TOOLS.get(intent,())
+def _required_tools(task,intent):
+    if intent=="calendar":return _calendar_tools(task)
+    if intent=="research" and any(x in task.lower().split() for x in ("browse","browser")):return ("browser.open",)
+    return _INTENT_TO_TOOLS.get(intent,())
 def _select_tools(registry,intent,task=""):
     names=_required_tools(task,intent)
     if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
