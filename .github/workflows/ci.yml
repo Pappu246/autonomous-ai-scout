@@ -29,9 +29,12 @@ jobs:
           from pathlib import Path
           path = Path("tests/test_rest_connector.py")
           text = path.read_text(encoding="utf-8")
-          assert 'assert result["json"]["token"] == "Bearer [REDACTED]"' in text
-          assert 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"' in text
-          assert 'assert result["json"]["token"] == "***"' not in text
+          canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
+          canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
+          obsolete_token = 'assert result["json"]["token"] == "***"'
+          assert canonical_token in text
+          assert canonical_api_key in text
+          assert obsolete_token not in text
           print(f"verified {path} contains canonical N6 redaction contract")
           print(f"test_size={path.stat().st_size}")
           PY
@@ -44,19 +47,34 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import ast
           import hashlib
           from pathlib import Path
-          path = Path("tests/test_rest_connector.py")
+
+          path = Path("tests/test_rest_connector.py").resolve()
           data = path.read_bytes()
+          text = data.decode("utf-8")
+          canonical_token = 'assert result["json"]["token"] == "Bearer [REDACTED]"'
+          canonical_api_key = 'assert result["json"]["nested"]["api_key"] == "[REDACTED]"'
+          obsolete_token = 'assert result["json"]["token"] == "***"'
+
           print(f"cwd={Path.cwd()}")
-          print(f"source={path.resolve()}")
+          print(f"source={path}")
           print(f"sha256={hashlib.sha256(data).hexdigest()}")
-          print(f"contains_redacted={'assert result[\"json\"][\"token\"] == \"Bearer [REDACTED]\"' in data.decode()}")
-          print(f"contains_stars={'assert result[\"json\"][\"token\"] == \"***\"' in data.decode()}")
-          import ast
-          tree = ast.parse(data.decode())
-          target = next(node for node in ast.walk(tree) if isinstance(node, ast.Assert) and 'token' in ast.unparse(node.test))
-          print(f"token_assert_ast={ast.unparse(target.test)}")
+          print(f"contains_canonical={canonical_token in text}")
+          print(f"contains_nested_canonical={canonical_api_key in text}")
+          print(f"contains_obsolete={obsolete_token in text}")
+          assert canonical_token in text
+          assert canonical_api_key in text
+          assert obsolete_token not in text
+
+          tree = ast.parse(text, filename=str(path))
+          token_asserts = [
+              node for node in ast.walk(tree)
+              if isinstance(node, ast.Assert) and "token" in ast.unparse(node.test)
+          ]
+          assert token_asserts, "token assertion not found in AST"
+          print(f"token_assert_ast={ast.unparse(token_asserts[0].test)}")
           PY
           python -m pytest --collect-only -q tests/test_rest_connector.py::test_read_succeeds_and_redacts_text_and_json_secrets
       - name: Test
