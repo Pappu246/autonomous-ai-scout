@@ -4,9 +4,11 @@ import hashlib
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Mapping
+from pathlib import Path
+from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
+from .execution_engine import ExecutionResult, execute_plan
 from .task_plan_models import PlanRisk, TaskIntent, TaskPlan, TaskStep, TaskAuditRecord
 
 
@@ -118,6 +120,58 @@ def build_workflow_plan(name: str, tasks: tuple[WorkflowTask, ...], granted: Ite
         executable=True,
         reason="workflow is dependency-valid and every capability is explicitly granted",
         audit=audit,
+    )
+
+
+def execute_workflow_plan(
+    plan: TaskPlan,
+    root: Path,
+    *,
+    granted: Iterable[Capability | str] = (),
+    explicitly_approved: bool = False,
+    sandbox_available: bool = True,
+    audit_path: Path,
+    execution_id: str,
+    max_retries: int = 0,
+    timeout_seconds: int = 30,
+    output_limit: int = 64 * 1024,
+    memory: Any = None,
+    project: str = "local",
+    web_connector: Any = None,
+    web_requests: Mapping[str, Any] | None = None,
+    workspace_connector: Any = None,
+    workspace_requests: Mapping[str, Any] | None = None,
+    gmail_connector: Any = None,
+    gmail_requests: Mapping[str, Any] | None = None,
+    calendar_connector: Any = None,
+    calendar_requests: Mapping[str, Any] | None = None,
+    browser_connector: Any = None,
+    browser_requests: Mapping[str, Any] | None = None,
+) -> ExecutionResult:
+    """Execute an already planned workflow only through the existing Safe Executor."""
+    return execute_plan(
+        plan,
+        root,
+        granted=granted,
+        explicitly_approved=explicitly_approved,
+        sandbox_available=sandbox_available,
+        audit_path=audit_path,
+        execution_id=execution_id,
+        max_retries=max_retries,
+        timeout_seconds=timeout_seconds,
+        output_limit=output_limit,
+        memory=memory,
+        project=project,
+        web_connector=web_connector,
+        web_request=web_requests,
+        workspace_connector=workspace_connector,
+        workspace_request=workspace_requests,
+        gmail_connector=gmail_connector,
+        gmail_request=gmail_requests,
+        calendar_connector=calendar_connector,
+        calendar_request=calendar_requests,
+        browser_connector=browser_connector,
+        browser_request=browser_requests,
     )
 
 
