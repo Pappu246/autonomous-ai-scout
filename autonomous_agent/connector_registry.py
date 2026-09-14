@@ -73,3 +73,26 @@ class ConnectorRegistry:
             d=tools.authorize(name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=audit_available)
             if not d.allowed: return d
         return CapabilityDecision(True,"connector is permitted by existing Tool Registry and capability policy",spec.registered_tools[0])
+
+def _make_connector(identity, description, category, capability, scopes, auth, credentials, network, mode, risk, approval, sandbox, audit, tools, enabled=True, registered_tools=()):
+    schema=_schema()
+    return ConnectorRegistry((ConnectorSpec(identity,description,category,(capability.value,),tuple(scopes),auth,credentials,network,mode,risk,approval,sandbox,audit,tuple(registered_tools),enabled,input_schema=schema,output_schema=schema),),tool_registry=tools)
+
+def web_connector(tool_registry=REGISTRY):
+    return _make_connector("web_research","Bounded public web research connector","web",Capability.WEB_RESEARCH,("public:read",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.REQUIRED,ReadWriteMode.READ_ONLY,RiskLevel.MEDIUM,ApprovalRequirement.NONE,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,registered_tools=("web.search","web.read","web.extract","web.compare"))
+
+def filesystem_connector(tool_registry=REGISTRY):
+    schema=_schema()
+    read=ConnectorSpec("filesystem_workspace_read","Bounded workspace filesystem reads","files",(Capability.FILES_WORKSPACE.value,), ("workspace:read",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.READ_ONLY,RiskLevel.LOW,ApprovalRequirement.NONE,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.read","filesystem.list"),True,input_schema=schema,output_schema=schema)
+    write=ConnectorSpec("filesystem_workspace_write","Approval-gated workspace filesystem writes","files",(Capability.FILES_WORKSPACE.value,), ("workspace:write",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.HIGH,ApprovalRequirement.EXPLICIT,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.write","filesystem.transform"),True,input_schema=schema,output_schema=schema)
+    return ConnectorRegistry((read,write),tool_registry=tool_registry)
+
+def gmail_connector(tool_registry=REGISTRY,*,enabled=False):
+    from .gmail_tooling import register_gmail_tools
+    register_gmail_tools(tool_registry)
+    return _make_connector("gmail","Official Gmail REST/OAuth connector; disabled until a legitimate OAuth connection is configured","email",Capability.EMAIL,("gmail.readonly","gmail.compose","gmail.send"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled, ("email.search","email.read","email.thread","email.draft","email.send"))
+
+def calendar_connector(tool_registry=REGISTRY,*,enabled=False):
+    from .calendar_tooling import register_calendar_tools
+    register_calendar_tools(tool_registry)
+    return _make_connector("calendar","Official Calendar REST/OAuth connector; disabled until a legitimate OAuth connection is configured","calendar",Capability.CALENDAR,("calendar.readonly","calendar.events"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled,("calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"))
