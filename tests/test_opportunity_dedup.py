@@ -32,3 +32,12 @@ def test_deduplicate_preserves_distinct_order_and_does_not_mutate_input() -> Non
     result = deduplicate_opportunities([first, second])
 
     assert result == [first, second]
+
+
+def test_deduplicate_handles_empty_normalized_key_without_collapsing_items() -> None:
+    first = Opportunity(title="!!!", description="first", score=10, next_step="")
+    second = Opportunity(title="@@@", description="second", score=20, next_step="")
+
+    result = deduplicate_opportunities([first, second])
+
+    assert result == [first, second]
