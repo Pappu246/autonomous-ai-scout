@@ -8,6 +8,7 @@ from typing import Any
 
 MAX_RECORD_BYTES = 16_384
 MAX_READ_RECORDS = 1_000
+MAX_JOURNAL_BYTES = 1_048_576
 
 @dataclass(frozen=True)
 class RunJournalRecord:
@@ -19,13 +20,38 @@ class RunJournalRecord:
     result_count: int
     recorded_at: str
 
+def _compact_for_append(path: Path, incoming_bytes: int) -> None:
+    """Keep the newest complete lines that fit before appending a record."""
+    if incoming_bytes > MAX_JOURNAL_BYTES:
+        raise ValueError("run journal record exceeds journal size limit")
+    try:
+        existing = path.read_bytes()
+    except FileNotFoundError:
+        return
+    if len(existing) + incoming_bytes <= MAX_JOURNAL_BYTES:
+        return
+
+    budget = MAX_JOURNAL_BYTES - incoming_bytes
+    kept: list[bytes] = []
+    total = 0
+    for raw in reversed(existing.splitlines(keepends=True)):
+        if total + len(raw) > budget:
+            break
+        kept.append(raw)
+        total += len(raw)
+    kept.reverse()
+    path.write_bytes(b"".join(kept))
+
 def append_run_record(path: Path, record: RunJournalRecord) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(asdict(record), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if len(payload.encode("utf-8")) > MAX_RECORD_BYTES:
+    payload_bytes = payload.encode("utf-8")
+    if len(payload_bytes) > MAX_RECORD_BYTES:
         raise ValueError("run journal record exceeds size limit")
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(payload + "\n")
+    line = payload_bytes + b"\n"
+    _compact_for_append(path, len(line))
+    with path.open("ab") as handle:
+        handle.write(line)
 
 def make_run_record(*, execution_id: str, task: str, result: Any) -> RunJournalRecord:
     return RunJournalRecord(
