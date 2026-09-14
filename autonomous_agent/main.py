@@ -27,9 +27,9 @@ from .router import choose_model
 from .state import StateStore
 from .startup_reconciliation import reconcile_startup
 from .queue_lifecycle_sync import reconcile_queue_lifecycle, has_blocking_drift
-from .task_engine import execute_task
 from .verify import verify_candidate
 from .emailer import send_report
+from .runtime import run_task
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "providers.json"
@@ -86,7 +86,7 @@ def run() -> ScoutReport:
     safety_blocks = startup_blocks > 0 or sync_blocks
 
     task_request = os.getenv("TASK_REQUEST", "").strip()
-    task_result = execute_task(task_request, ROOT) if task_request and not safety_blocks else None
+    task_result = run_task(task_request, root=ROOT) if task_request and not safety_blocks else None
 
     previous_sources = previous.get("source_hashes", {})
     candidates = candidates_from_registry(registry.get("providers", []))
@@ -116,7 +116,7 @@ def run() -> ScoutReport:
         if llm_plan:
             action_proposal = build_action_proposal(task_request, llm_plan.steps, llm_plan.requires_approval)
         else:
-            action_proposal = build_action_proposal(task_request, tuple(task_result.plan.actions) if task_result else ())
+            action_proposal = build_action_proposal(task_request, (), False)
 
     owner = os.getenv("SCOUT_OWNER", "Pappu246")
     exclude = {os.getenv("GITHUB_REPOSITORY", ""), "Pappu246/autonomous-ai-scout"}
@@ -174,10 +174,9 @@ def run() -> ScoutReport:
     if task_request and safety_blocks:
         report.notes.append("Task execution was withheld because startup/lifecycle synchronization detected blocked or inconsistent persisted state.")
     elif task_result:
-        report.notes.append(f"Task intent: {task_result.plan.intent.value}; status: {task_result.status}; risk: {task_result.plan.risk}.")
-        report.notes.append(f"Task plan: {task_result.plan.explanation}")
-        if task_result.status == "approval_required":
-            report.notes.append("The requested task reached the write boundary; no source modification, merge, or deployment was performed without approval.")
+        report.notes.append(f"Task execution result: state={task_result.state.value}; reason={task_result.reason}; attempts={task_result.attempts}.")
+        for item in task_result.results[:10]:
+            report.notes.append(f"Task operation: {item.operation}; success={item.success}; verification={item.verification_status}.")
     if llm_plan:
         report.notes.append(f"LLM plan selected {llm_plan.provider}/{llm_plan.model}: {llm_plan.summary}")
         report.notes.append("LLM-proposed steps: " + " | ".join(llm_plan.steps))
@@ -185,11 +184,11 @@ def run() -> ScoutReport:
         report.notes.append("No optional free LLM plan was produced; deterministic bounded task planning remains the fallback and no paid model is used.")
     if action_proposal:
         report.notes.append(f"Action boundary: status={action_proposal.status.value}; approval_required={action_proposal.requires_approval}; reason={action_proposal.reason}")
-        queued = enqueue_proposal(ACTION_QUEUE_PATH, action_proposal, task_result.plan.risk if task_result else "medium")
+        queued = enqueue_proposal(ACTION_QUEUE_PATH, action_proposal, "low")
         if queued:
             report.notes.append(f"Approval queue: pending action {queued.id} recorded; execution remains blocked until an explicit approval flow is added.")
         if action_proposal.requires_approval:
-            proposal_steps = llm_plan.steps if llm_plan else tuple(task_result.plan.actions) if task_result else ()
+            proposal_steps = llm_plan.steps if llm_plan else ()
             patch = build_patch_proposal(task_request, proposal_steps, llm_plan.summary if llm_plan else "Sandboxed proposal generated from deterministic planning.")
             save_proposal(PATCH_PROPOSAL_PATH, patch)
             report.notes.append(f"Sandboxed patch proposal: {patch.id} saved for review; no source patch was generated or applied.")
