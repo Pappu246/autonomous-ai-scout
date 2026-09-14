@@ -18,7 +18,21 @@ def test_path_traversal_absolute_and_workspace_escape(tmp_path):
     for p in ("../x","/etc/passwd"):
         with pytest.raises(WorkspaceError):c.read(p)
 def test_symlink_escape_is_blocked(tmp_path):
-    outside=tmp_path.parent/"outside-n3.txt";outside.write_text("secret",encoding="utf-8");link=tmp_path/"link";link.symlink_to(outside)
+    outside = tmp_path.parent / "outside-n3.txt"
+    outside.write_text("secret", encoding="utf-8")
+    link = tmp_path / "link"
+
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
+        link.symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
     try:
         c=_workspace(tmp_path)
         with pytest.raises(WorkspaceError):c.read("link")
