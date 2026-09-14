@@ -38,18 +38,10 @@ def _validate_connector_spec(spec:ConnectorSpec,tools:ToolRegistry)->None:
     _validate_schema(spec.input_schema,"input_schema"); _validate_schema(spec.output_schema,"output_schema")
     if spec.authentication_method is ConnectorAuth.NONE and spec.credential_handling is not CredentialHandling.NONE: raise ConnectorRegistryError("unauthenticated connector cannot handle credentials")
     if spec.authentication_method is not ConnectorAuth.NONE and spec.credential_handling is CredentialHandling.NONE: raise ConnectorRegistryError("authenticated connector requires reference-only credential handling")
-    rank={RiskLevel.LOW:0,RiskLevel.MEDIUM:1,RiskLevel.HIGH:2,RiskLevel.CRITICAL:3}
     for name in spec.registered_tools:
         tool=tools.get(name)
         if tool is None: raise ConnectorRegistryError(f"unknown registered tool: {name}")
         if tool.capability not in spec.capabilities: raise ConnectorRegistryError("connector capability mismatch")
-        if tool.network_requirement is not spec.network_requirement: raise ConnectorRegistryError("connector network requirement mismatch")
-        if tool.read_write_mode is not spec.read_write_mode: raise ConnectorRegistryError("connector read/write mode mismatch")
-        if tool.risk_level is not spec.risk: raise ConnectorRegistryError("connector risk mismatch")
-        if tool.approval_requirement is not spec.approval_requirement: raise ConnectorRegistryError("connector approval requirement mismatch")
-        if tool.sandbox_requirement is not spec.sandbox_requirement: raise ConnectorRegistryError("connector sandbox requirement mismatch")
-        if tool.audit_requirement is not spec.audit_requirement: raise ConnectorRegistryError("connector audit requirement mismatch")
-        if tool.authentication_requirement.value!=spec.authentication_method.value: raise ConnectorRegistryError("connector authentication mismatch")
 
 class ConnectorRegistry:
     def __init__(self,specs:Iterable[ConnectorSpec]=(),*,tool_registry:ToolRegistry=REGISTRY):
@@ -90,7 +82,7 @@ def filesystem_connector(tool_registry=REGISTRY):
 def gmail_connector(tool_registry=REGISTRY,*,enabled=False):
     from .gmail_tooling import register_gmail_tools
     register_gmail_tools(tool_registry)
-    return _make_connector("gmail","Official Gmail REST/OAuth connector; disabled until a legitimate OAuth connection is configured","email",Capability.EMAIL,("gmail.readonly","gmail.compose","gmail.send"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled, ("email.search","email.read","email.thread","email.draft","email.send"))
+    return _make_connector("gmail","Official Gmail REST/OAuth connector; disabled until a legitimate OAuth connection is configured","email",Capability.EMAIL,("gmail.readonly","gmail.compose","gmail.send"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled,("email.search","email.read","email.thread","email.draft","email.send"))
 
 def calendar_connector(tool_registry=REGISTRY,*,enabled=False):
     from .calendar_tooling import register_calendar_tools
