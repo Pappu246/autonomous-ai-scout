@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .execution_engine import ExecutionResult, ExecutionState, execute_plan
-from .run_journal import append_run_record, make_run_record
+from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_plan_models import PlanRisk, TaskAuditRecord, TaskIntent, TaskPlan
 from .tool_registry import REGISTRY, ToolRegistry
 from .workflow_engine import WorkflowDefinition, WorkflowEngine
@@ -55,7 +55,21 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one bounded Autonomous AI Scout task")
     parser.add_argument("task", nargs="?", default=os.getenv("TASK_REQUEST", "inspect repository"))
     parser.add_argument("--root", default=str(ROOT)); parser.add_argument("--audit", default=str(AUDIT_PATH)); parser.add_argument("--journal", default=str(JOURNAL_PATH))
+    parser.add_argument("--history", action="store_true", help="print bounded runtime history summary and recent records")
+    parser.add_argument("--history-limit", type=int, default=20, help="number of recent valid history records to print")
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.history:
+        records = read_run_records(Path(args.journal).resolve(), limit=args.history_limit)
+        summary = summarize_run_records(records)
+        print(f"total={summary['total']}")
+        print(f"verified={summary['verified']}")
+        print(f"blocked={summary['blocked']}")
+        print(f"failed={summary['failed']}")
+        for record in records:
+            print(f"execution_id={record.execution_id} state={record.state} task={record.task} attempts={record.attempts} results={record.result_count} recorded_at={record.recorded_at}")
+        return 0
+
     result = run_task(args.task, root=Path(args.root).resolve(), audit_path=Path(args.audit).resolve(), journal_path=Path(args.journal).resolve())
     print(f"state={result.state.value}"); print(f"reason={result.reason}"); print(f"attempts={result.attempts}")
     for item in result.results:
