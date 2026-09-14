@@ -67,14 +67,7 @@ def _safe_data(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _entry_hash(entry: Mapping[str, Any]) -> str:
-    payload = {
-        "project": entry.get("project"),
-        "kind": entry.get("kind"),
-        "fingerprint": entry.get("fingerprint"),
-        "outcome": entry.get("outcome"),
-        "data": entry.get("data"),
-        "previous_hash": entry.get("previous_hash", ""),
-    }
+    payload = {"project": entry.get("project"), "kind": entry.get("kind"), "fingerprint": entry.get("fingerprint"), "outcome": entry.get("outcome"), "data": entry.get("data"), "previous_hash": entry.get("previous_hash", "")}
     return _digest(payload)
 
 
@@ -100,9 +93,7 @@ class CrossProjectMemory:
             return [], False
         previous = ""
         for item in entries:
-            if item.get("previous_hash", "") != previous:
-                return [], False
-            if item.get("event_hash") != _entry_hash(item):
+            if item.get("previous_hash", "") != previous or item.get("event_hash") != _entry_hash(item):
                 return [], False
             previous = str(item["event_hash"])
         return entries, True
@@ -122,14 +113,7 @@ class CrossProjectMemory:
         sealed: list[dict[str, Any]] = []
         previous = ""
         for item in kept:
-            clean = {
-                "project": item.get("project"),
-                "kind": item.get("kind"),
-                "fingerprint": item.get("fingerprint"),
-                "outcome": item.get("outcome"),
-                "data": item.get("data", {}),
-                "previous_hash": previous,
-            }
+            clean = {"project": item.get("project"), "kind": item.get("kind"), "fingerprint": item.get("fingerprint"), "outcome": item.get("outcome"), "data": item.get("data", {}), "previous_hash": previous}
             clean["event_hash"] = _entry_hash(clean)
             sealed.append(clean)
             previous = clean["event_hash"]
@@ -150,13 +134,7 @@ class CrossProjectMemory:
         entries, valid = self._load()
         if not valid:
             return False
-        safe = {
-            "project": _safe_text(event.project),
-            "kind": _safe_text(event.kind),
-            "fingerprint": _digest(event.project, event.kind, event.fingerprint),
-            "outcome": _safe_text(event.outcome),
-            "data": _safe_data(event.data),
-        }
+        safe = {"project": _safe_text(event.project), "kind": _safe_text(event.kind), "fingerprint": _digest(event.project, event.kind, event.fingerprint), "outcome": _safe_text(event.outcome), "data": _safe_data(event.data)}
         entries.append(safe)
         return self._save(entries)
 
@@ -166,12 +144,7 @@ class CrossProjectMemory:
             return False
         project_name, kind_name = _safe_text(project), _safe_text(kind)
         stored = _digest(project, kind, fingerprint)
-        return any(
-            item.get("project") == project_name
-            and item.get("kind") == kind_name
-            and item.get("fingerprint") in {stored, _safe_text(fingerprint)}
-            for item in entries
-        )
+        return any(item.get("project") == project_name and item.get("kind") == kind_name and item.get("fingerprint") in {stored, _safe_text(fingerprint)} for item in entries)
 
     def record_task(self, project: str, task: str, *, intent: str, outcome: str) -> bool:
         return self.record(MemoryEvent(project, "task", _digest(project, task), outcome, {"task_digest": _digest(task), "intent": intent}))
@@ -199,7 +172,7 @@ class CrossProjectMemory:
         return not self.has(project=project, kind="recommendation", fingerprint=_digest(project, recommendation))
 
     def record_improvement(self, project: str, improvement: str, *, status: str) -> bool:
-        return self.record(MemoryEvent(project, "improvement", _digest(project, improvement), status, {"improvement_digest": _digest(improvement)}))
+        return self.record(MemoryEvent(project, "improvement", improvement, status, {"improvement_digest": _digest(improvement)}))
 
     def record_health_baseline(self, project: str, baseline: Mapping[str, Any]) -> bool:
         safe = _safe_data(baseline)
