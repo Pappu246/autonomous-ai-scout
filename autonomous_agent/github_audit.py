@@ -117,6 +117,9 @@ def audit_owner(owner: str, exclude: set[str] | None = None) -> list[dict[str, A
         if metadata.get("fork") or metadata.get("archived") or name in exclude:
             continue
         profile = build_project_profile(name, metadata)
+        if profile.get("incomplete"):
+            results.append({"repository": name, "severity": "warning", "title": "Project technical profile refresh incomplete", "detail": "One or more GitHub profile endpoints could not be read; the previous profile baseline was preserved.", "recommendation": "Retry the profile refresh after GitHub/API access recovers."})
+            continue
         old = previous_profiles.get(name)
         profiles[name] = profile
         if old is None:
