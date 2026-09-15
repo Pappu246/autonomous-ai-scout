@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-13T16:41:18.437268+00:00
+Generated: 2026-09-15T17:20:42.052740+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -35,7 +35,7 @@ Meaningful change: YES
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
-- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 3, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
+- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 15, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
 - Official release change: openrouter — Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file changes, run commands, launch applications,  (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
