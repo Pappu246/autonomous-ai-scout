@@ -76,7 +76,7 @@ def web_connector(tool_registry=REGISTRY):
 def filesystem_connector(tool_registry=REGISTRY):
     schema=_schema()
     read=ConnectorSpec("filesystem_workspace_read","Bounded workspace filesystem reads","files",(Capability.FILES_WORKSPACE.value,), ("workspace:read",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.READ_ONLY,RiskLevel.LOW,ApprovalRequirement.NONE,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.read","filesystem.list"),True,input_schema=schema,output_schema=schema)
-    write=ConnectorSpec("filesystem_workspace_write","Approval-gated workspace filesystem writes","files",(Capability.FILES_WORKSPACE.value,), ("workspace:write",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.HIGH,ApprovalRequirement.EXPLICIT,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.write","filesystem.transform"),True,input_schema=schema,output_schema=schema)
+    write=ConnectorSpec("filesystem_workspace_write","Approval-gated workspace filesystem writes","files",(Capability.FILES_WORKSPACE.value,), ("workspace:write",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.HIGH,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.write","filesystem.transform"),True,input_schema=schema,output_schema=schema)
     return ConnectorRegistry((read,write),tool_registry=tool_registry)
 
 def gmail_connector(tool_registry=REGISTRY,*,enabled=False):
