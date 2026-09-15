@@ -95,9 +95,10 @@ class ConnectorSpec:
 
 class ConnectorRegistry:
     def __init__(self, specs: Iterable[ConnectorSpec], *, tool_registry: ToolRegistry = REGISTRY):
+        specs = tuple(specs)
         self._tools = tool_registry
         self._specs = {spec.connector_id: spec for spec in specs}
-        if len(self._specs) != len(tuple(specs)):
+        if len(self._specs) != len(specs):
             raise ConnectorRegistryError("duplicate connector id")
         for spec in self._specs.values():
             for capability in spec.capabilities:
