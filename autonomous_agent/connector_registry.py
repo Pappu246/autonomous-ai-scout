@@ -4,87 +4,159 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Mapping
 
-from .capability_policy import Capability, CapabilityDecision
-from .tool_registry import ApprovalRequirement, AuditRequirement, NetworkRequirement, ReadWriteMode, RiskLevel, SandboxRequirement, ToolRegistry, REGISTRY
+from .capability_policy import Capability
+from .tool_registry import REGISTRY, ToolRegistry
+
 
 class ConnectorAuth(str, Enum):
-    NONE="none"; USER_AUTH="user_auth"; SERVICE_AUTH="service_auth"; ELEVATED_AUTH="elevated_auth"
+    NONE = "none"
+    USER_AUTH = "user_auth"
+
+
 class CredentialHandling(str, Enum):
-    NONE="none"; REFERENCE_ONLY="reference_only"; PROVIDER_MANAGED_REFERENCE="provider_managed_reference"
-ConnectorSchema=Mapping[str,object]
-SUPPORTED_SCHEMA_TYPES=frozenset({"object","array","string","number","integer","boolean"})
-SCHEMA_VERSION="1.0"
+    NONE = "none"
+    REFERENCE_ONLY = "reference_only"
+
+
+class NetworkRequirement(str, Enum):
+    NONE = "none"
+    REQUIRED = "required"
+
+
+class ReadWriteMode(str, Enum):
+    READ_ONLY = "read_only"
+    CONTROLLED_WRITE = "controlled_write"
+    HIGH_RISK_WRITE = "high_risk_write"
+
+
+class RiskLevel(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ApprovalRequirement(str, Enum):
+    NONE = "none"
+    EXPLICIT = "explicit"
+    HUMAN_REVIEW = "human_review"
+
+
+class SandboxRequirement(str, Enum):
+    NONE = "none"
+    REQUIRED = "required"
+
+
+class AuditRequirement(str, Enum):
+    REQUIRED = "required"
+
+
+class ConnectorRegistryError(ValueError):
+    pass
+
 
 @dataclass(frozen=True)
 class ConnectorSpec:
-    identity:str; description:str; category:str; capabilities:tuple[str,...]; scopes:tuple[str,...]
-    authentication_method:ConnectorAuth; credential_handling:CredentialHandling
-    network_requirement:NetworkRequirement; read_write_mode:ReadWriteMode; risk:RiskLevel
-    approval_requirement:ApprovalRequirement; sandbox_requirement:SandboxRequirement; audit_requirement:AuditRequirement
-    registered_tools:tuple[str,...]; enabled:bool; version:str="1.0"; schema_version:str=SCHEMA_VERSION
-    input_schema:ConnectorSchema|None=None; output_schema:ConnectorSchema|None=None
+    connector_id: str
+    description: str
+    domain: str
+    capabilities: tuple[str, ...]
+    scopes: tuple[str, ...]
+    auth: ConnectorAuth
+    credential_handling: CredentialHandling
+    network_requirement: NetworkRequirement
+    read_write_mode: ReadWriteMode
+    risk_level: RiskLevel
+    approval_requirement: ApprovalRequirement
+    sandbox_requirement: SandboxRequirement
+    audit_requirement: AuditRequirement
+    tool_names: tuple[str, ...]
+    enabled: bool = True
+    input_schema: Mapping[str, object] | None = None
+    output_schema: Mapping[str, object] | None = None
 
-class ConnectorRegistryError(ValueError): pass
+    @property
+    def capability(self) -> str:
+        return self.capabilities[0] if self.capabilities else ""
 
-def _schema()->ConnectorSchema:return {"type":"object","properties":{},"additionalProperties":True}
-def _validate_schema(schema:ConnectorSchema|None,field:str)->None:
-    if not isinstance(schema,Mapping) or schema.get("type") not in SUPPORTED_SCHEMA_TYPES: raise ConnectorRegistryError(f"{field} must be a structured schema with a supported type")
+    def authorize(self, tool_name: str, *, explicitly_approved: bool = False, registry: ToolRegistry | None = None) -> bool:
+        registry = registry or REGISTRY
+        if not self.enabled or tool_name not in self.tool_names:
+            return False
+        spec = registry.get(tool_name)
+        if spec is None:
+            return False
+        if spec.capability not in self.capabilities:
+            return False
+        if spec.approval_requirement is ApprovalRequirement.NONE:
+            return True
+        return explicitly_approved and spec.approval_requirement in {ApprovalRequirement.EXPLICIT, ApprovalRequirement.HUMAN_REVIEW}
 
-def _validate_connector_spec(spec:ConnectorSpec,tools:ToolRegistry)->None:
-    if not isinstance(spec,ConnectorSpec) or not spec.identity or spec.identity!=spec.identity.strip().lower() or " " in spec.identity: raise ConnectorRegistryError("connector identity invalid")
-    if not spec.description.strip() or not spec.category.strip() or not spec.capabilities or not spec.scopes: raise ConnectorRegistryError("connector metadata incomplete")
-    if spec.enabled and not spec.registered_tools: raise ConnectorRegistryError("enabled connector must expose at least one registered tool")
-    if spec.schema_version!=SCHEMA_VERSION: raise ConnectorRegistryError("unsupported connector schema version")
-    _validate_schema(spec.input_schema,"input_schema"); _validate_schema(spec.output_schema,"output_schema")
-    if spec.authentication_method is ConnectorAuth.NONE and spec.credential_handling is not CredentialHandling.NONE: raise ConnectorRegistryError("unauthenticated connector cannot handle credentials")
-    if spec.authentication_method is not ConnectorAuth.NONE and spec.credential_handling is CredentialHandling.NONE: raise ConnectorRegistryError("authenticated connector requires reference-only credential handling")
-    for name in spec.registered_tools:
-        tool=tools.get(name)
-        if tool is None: raise ConnectorRegistryError(f"unknown registered tool: {name}")
-        if tool.capability not in spec.capabilities: raise ConnectorRegistryError("connector capability mismatch")
 
 class ConnectorRegistry:
-    def __init__(self,specs:Iterable[ConnectorSpec]=(),*,tool_registry:ToolRegistry=REGISTRY):
-        self._tools=tool_registry; self._items={}; [self.register(s) for s in specs]
-    def register(self,spec):
-        _validate_connector_spec(spec,self._tools)
-        if spec.identity in self._items: raise ConnectorRegistryError(f"connector already registered: {spec.identity}")
-        self._items[spec.identity]=spec; return spec
-    def get(self,identity): return self._items.get(identity.strip().lower()) if isinstance(identity,str) else None
-    def list(self): return tuple(self._items[k] for k in sorted(self._items))
-    def resolve_tool(self,identity,tool_name):
-        spec=self.get(identity); return self._tools.get(tool_name) if spec and spec.enabled and tool_name in spec.registered_tools else None
-    def authorize(self,identity,granted=(),*,explicitly_approved=False,sandbox_available=True,audit_available=True,registry=None):
-        spec=self.get(identity)
-        if spec is None: return CapabilityDecision(False,"connector is not registered","")
-        if not spec.enabled: return CapabilityDecision(False,"connector is disabled","")
-        try: _validate_connector_spec(spec,self._tools)
-        except ConnectorRegistryError as exc: return CapabilityDecision(False,f"connector/tool contract mismatch: {exc}","")
-        tools=registry or self._tools
-        for name in spec.registered_tools:
-            d=tools.authorize(name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=audit_available)
-            if not d.allowed: return d
-        return CapabilityDecision(True,"connector is permitted by existing Tool Registry and capability policy",spec.registered_tools[0])
+    def __init__(self, specs: Iterable[ConnectorSpec], *, tool_registry: ToolRegistry = REGISTRY):
+        specs = tuple(specs)
+        self._tools = tool_registry
+        self._specs = {spec.connector_id: spec for spec in specs}
+        if len(self._specs) != len(specs):
+            raise ConnectorRegistryError("duplicate connector id")
+        for spec in self._specs.values():
+            for capability in spec.capabilities:
+                if capability not in {item.value for item in Capability}:
+                    raise ConnectorRegistryError(f"unknown capability: {capability}")
+                if any(self._tools.get(name) is None for name in spec.tool_names):
+                    raise ConnectorRegistryError(f"connector tool is not registered: {spec.connector_id}")
 
-def _make_connector(identity, description, category, capability, scopes, auth, credentials, network, mode, risk, approval, sandbox, audit, tools, enabled=True, registered_tools=()):
-    schema=_schema()
-    return ConnectorRegistry((ConnectorSpec(identity,description,category,(capability.value,),tuple(scopes),auth,credentials,network,mode,risk,approval,sandbox,audit,tuple(registered_tools),enabled,input_schema=schema,output_schema=schema),),tool_registry=tools)
+    def get(self, connector_id: str) -> ConnectorSpec | None:
+        return self._specs.get(connector_id)
 
-def web_connector(tool_registry=REGISTRY):
-    return _make_connector("web_research","Bounded public web research connector","web",Capability.WEB_RESEARCH,("public:read",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.REQUIRED,ReadWriteMode.READ_ONLY,RiskLevel.MEDIUM,ApprovalRequirement.NONE,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,registered_tools=("web.search","web.read","web.extract","web.compare"))
+    def all(self) -> tuple[ConnectorSpec, ...]:
+        return tuple(self._specs.values())
 
-def filesystem_connector(tool_registry=REGISTRY):
-    schema=_schema()
-    read=ConnectorSpec("filesystem_workspace_read","Bounded workspace filesystem reads","files",(Capability.FILES_WORKSPACE.value,), ("workspace:read",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.READ_ONLY,RiskLevel.LOW,ApprovalRequirement.NONE,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.read","filesystem.list"),True,input_schema=schema,output_schema=schema)
-    write=ConnectorSpec("filesystem_workspace_write","Approval-gated workspace filesystem writes","files",(Capability.FILES_WORKSPACE.value,), ("workspace:write",),ConnectorAuth.NONE,CredentialHandling.NONE,NetworkRequirement.NONE,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.HIGH,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,("filesystem.write","filesystem.transform"),True,input_schema=schema,output_schema=schema)
-    return ConnectorRegistry((read,write),tool_registry=tool_registry)
 
-def gmail_connector(tool_registry=REGISTRY,*,enabled=False):
+def _schema() -> dict[str, object]:
+    return {"type": "object", "additionalProperties": True}
+
+
+def web_connector(tool_registry: ToolRegistry = REGISTRY):
+    spec = ConnectorSpec("web", "Bounded public-web research connector", "web", (Capability.WEB_RESEARCH.value,), ("web:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.LOW, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("web.search", "web.read", "web.extract", "web.compare"), True, input_schema=_schema(), output_schema=_schema())
+    return ConnectorRegistry((spec,), tool_registry=tool_registry)
+
+
+def filesystem_connector(tool_registry: ToolRegistry = REGISTRY):
+    spec = ConnectorSpec("filesystem_workspace", "Approval-gated workspace filesystem connector", "files", (Capability.FILES_WORKSPACE.value,), ("workspace:read", "workspace:write"), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.NONE, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform"), True, input_schema=_schema(), output_schema=_schema())
+    return ConnectorRegistry((spec,), tool_registry=tool_registry)
+
+
+def gmail_connector(tool_registry: ToolRegistry = REGISTRY, *, enabled: bool = False):
     from .gmail_tooling import register_gmail_tools
     register_gmail_tools(tool_registry)
-    return _make_connector("gmail","Official Gmail REST/OAuth connector; disabled until a legitimate OAuth connection is configured","email",Capability.EMAIL,("gmail.readonly","gmail.compose","gmail.send"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled,("email.search","email.read","email.thread","email.draft","email.send"))
+    spec = ConnectorSpec("gmail", "Official Gmail REST/OAuth connector; disabled until a legitimate OAuth connection is configured", "gmail", (Capability.EMAIL.value,), ("gmail.readonly", "gmail.compose", "gmail.send"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.CRITICAL, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("email.search", "email.read", "email.thread", "email.draft", "email.send"), enabled, input_schema=_schema(), output_schema=_schema())
+    return ConnectorRegistry((spec,), tool_registry=tool_registry)
 
-def calendar_connector(tool_registry=REGISTRY,*,enabled=False):
+
+def calendar_connector(tool_registry: ToolRegistry = REGISTRY, *, enabled: bool = False):
     from .calendar_tooling import register_calendar_tools
     register_calendar_tools(tool_registry)
-    return _make_connector("calendar","Official Calendar REST/OAuth connector; disabled until a legitimate OAuth connection is configured","calendar",Capability.CALENDAR,("calendar.readonly","calendar.events"),ConnectorAuth.USER_AUTH,CredentialHandling.REFERENCE_ONLY,NetworkRequirement.REQUIRED,ReadWriteMode.CONTROLLED_WRITE,RiskLevel.CRITICAL,ApprovalRequirement.HUMAN_REVIEW,SandboxRequirement.REQUIRED,AuditRequirement.REQUIRED,tool_registry,enabled,("calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"))
+    spec = ConnectorSpec("calendar", "Official Calendar REST/OAuth connector; disabled until a legitimate OAuth connection is configured", "calendar", (Capability.CALENDAR.value,), ("calendar.readonly", "calendar.events"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.CRITICAL, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("calendar.read", "calendar.list", "calendar.find_free_time", "calendar.event.create", "calendar.event.update", "calendar.event.cancel"), enabled, input_schema=_schema(), output_schema=_schema())
+    return ConnectorRegistry((spec,), tool_registry=tool_registry)
+
+
+def rest_connector(tool_registry=REGISTRY, *, enabled=False, allowed_hosts=(), transport=None):
+    from .rest_connector import RestConnector
+    schema = _schema()
+    tools = ("rest.get", "rest.head", "rest.write")
+    spec = ConnectorSpec("generic_rest", "Bounded generic REST connector; disabled until explicit API host allowlisting and legitimate credentials are configured", "rest", (Capability.REST_API.value,), ("rest:read", "rest:write"), ConnectorAuth.USER_AUTH, CredentialHandling.REFERENCE_ONLY, NetworkRequirement.REQUIRED, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.CRITICAL, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, tools, enabled, input_schema=schema, output_schema=schema)
+    if any(tool_registry.get(name) is None for name in tools):
+        if tool_registry is REGISTRY:
+            raise ConnectorRegistryError("REST tools are not registered in the target registry")
+        from .tool_registry import BUILTIN_TOOLS
+        for builtin in BUILTIN_TOOLS:
+            if builtin.name.startswith("rest.") and tool_registry.get(builtin.name) is None:
+                tool_registry.register(builtin)
+    connector = None
+    if allowed_hosts:
+        if transport is None:
+            raise ConnectorRegistryError("REST connector requires an injected transport")
+        connector = RestConnector(set(allowed_hosts), transport=transport)
+    return ConnectorRegistry((spec,), tool_registry=tool_registry), connector
