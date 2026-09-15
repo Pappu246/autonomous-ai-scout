@@ -18,9 +18,11 @@ Phase J coordinates existing authority boundaries. It is not an executor, sandbo
 8. **Availability is separate from registration and authorization.** A registered connector can be disabled; an enabled connector is not automatically authorized.
 9. **Credentials** are represented only by bounded references. Credential values must not enter metadata, plans, memory, logs, tests, or reports.
 
-## Current-main limitation
+## Current-main status
 
-Phase J is intentionally based on current `main`. The Phase-G safe executor and Phase-H memory implementation are not on `main` yet, so this branch provides the orchestration contract and safe planning/reporting boundary without reimplementing either component. Once those approved changes land, their existing executor and memory interfaces can be injected without changing the authorization architecture.
+The current `main` includes the bounded Safe Executor, lifecycle integration, runtime history, controlled browser, cross-domain workflow planning, and the connector foundation. Phase J should continue to compose these existing boundaries rather than reimplementing execution, lifecycle, audit, memory, or authorization.
+
+The remaining integration work is incremental: each future domain must reuse the existing Tool Registry and capability policy, then pass through the existing executor, verification, and audit boundaries. No new authority is implied by orchestration alone.
 
 ## Future domains
 
