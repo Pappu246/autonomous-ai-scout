@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-16T01:52:19.394172+00:00
+Generated: 2026-09-16T06:54:07.987270+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -37,5 +37,5 @@ Meaningful change: YES
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 15, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
-- Official release change: openrouter — Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file changes, run commands, launch applications,  (https://openrouter.ai/models?pricing=free)
+- Official release change: openrouter — Official release source changed. (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
