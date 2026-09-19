@@ -1,6 +1,3 @@
-from types import SimpleNamespace
-
-from autonomous_agent.ai_coding_brain import RepositoryContext
 from autonomous_agent.coding_provider import ChatProviderConfig
 from autonomous_agent.provider_router import (
     CodingProviderRouter,
@@ -10,85 +7,226 @@ from autonomous_agent.provider_router import (
 from autonomous_agent.self_improvement import PatchCandidate
 
 
+def _spec(
+    name,
+    key_env,
+    priority=100,
+    cost="free",
+    max_attempts=1,
+):
+    return ProviderSpec(
+        name=name,
+        config=ChatProviderConfig(
+            endpoint="https://example.invalid/v1/chat/completions",
+            model="demo",
+            api_key_env=key_env,
+        ),
+        priority=priority,
+        cost_class=cost,
+        max_attempts=max_attempts,
+    )
+
+
 def _proposal():
-    return SimpleNamespace(problem="fix", proposed_solution="change", validation_strategy=(), affected_area=())
+    return type(
+        "Proposal",
+        (),
+        {
+            "problem": "fix bug",
+            "proposed_solution": "change code",
+            "validation_strategy": ("python -m pytest -q",),
+            "affected_area": ("app.py",),
+        },
+    )()
 
 
-def _candidate():
-    return PatchCandidate("--- a/x\n+++ b/x\n", {"x": "ok"}, "done", ())
+def _context():
+    return type(
+        "Context",
+        (),
+        {
+            "repository": "owner/repo",
+            "files": (),
+        },
+    )()
 
 
-class FakeModel:
-    def __init__(self, outcomes):
-        self.outcomes = outcomes
+def test_router_skips_unconfigured_and_sorts(monkeypatch):
+    monkeypatch.setenv("B_KEY", "x")
 
-    def generate_patch(self, **kwargs):
-        value = self.outcomes.pop(0)
-        if isinstance(value, Exception):
-            raise value
-        return value
+    router = CodingProviderRouter(
+        [
+            _spec("b", "B_KEY", 20),
+            _spec("a", "A_KEY", 10),
+        ],
+        sleep=lambda _: None,
+    )
+
+    assert [item.name for item in router.providers] == ["a", "b"]
 
 
-def test_router_falls_back_after_provider_failure(monkeypatch):
-    monkeypatch.setenv("KEY_A", "secret-a")
-    monkeypatch.setenv("KEY_B", "secret-b")
+def test_router_falls_back_after_invalid_candidate(monkeypatch):
+    monkeypatch.setenv("A_KEY", "a")
+    monkeypatch.setenv("B_KEY", "b")
+
+    class Bad:
+        def generate_patch(self, **kwargs):
+            return None
+
+    class Good:
+        def generate_patch(self, **kwargs):
+            return PatchCandidate(
+                "diff",
+                {"app.py": "print(1)\n"},
+                "ok",
+                (),
+            )
+
     models = {
-        "a": FakeModel([RuntimeError("boom")]),
-        "b": FakeModel([_candidate()]),
+        "A_KEY": Bad(),
+        "B_KEY": Good(),
     }
-    specs = (
-        ProviderSpec("a", ChatProviderConfig("a", "m", "KEY_A"), priority=1),
-        ProviderSpec("b", ChatProviderConfig("b", "m", "KEY_B"), priority=2),
+
+    router = CodingProviderRouter(
+        [
+            _spec("a", "A_KEY", 10),
+            _spec("b", "B_KEY", 20),
+        ],
+        model_factory=lambda config: models[config.api_key_env],
+        sleep=lambda _: None,
     )
-    router = CodingProviderRouter(specs, model_factory=lambda config: models[config.endpoint])
-    result = router.generate_patch(proposal=_proposal(), context=RepositoryContext("r", ()))
-    assert result == _candidate()
-    assert [item.status for item in router.last_attempts] == ["failed", "succeeded"]
 
-
-def test_router_skips_missing_key_and_paid_route_by_default(monkeypatch):
-    monkeypatch.delenv("MISSING", raising=False)
-    monkeypatch.setenv("PAID", "secret")
-    called = []
-    specs = (
-        ProviderSpec("missing", ChatProviderConfig("a", "m", "MISSING"), priority=1),
-        ProviderSpec("paid", ChatProviderConfig("b", "m", "PAID"), priority=2, cost_class="paid"),
+    result = router.generate_patch(
+        proposal=_proposal(),
+        context=_context(),
     )
-    router = CodingProviderRouter(specs, model_factory=lambda config: called.append(config) or FakeModel([_candidate()]))
-    assert router.generate_patch(proposal=_proposal(), context=RepositoryContext("r", ())) is None
-    assert called == []
-    assert [item.status for item in router.last_attempts] == ["skipped", "skipped"]
+
+    assert result is not None
+    assert result.summary == "ok"
+    assert [item.provider for item in router.last_attempts] == ["a", "b"]
 
 
-def test_router_bounds_retries(monkeypatch):
-    monkeypatch.setenv("KEY", "secret")
-    model = FakeModel([None, None, _candidate(), _candidate()])
-    spec = ProviderSpec("p", ChatProviderConfig("x", "m", "KEY"), max_attempts=99)
-    router = CodingProviderRouter((spec,), model_factory=lambda config: model)
-    assert router.generate_patch(proposal=_proposal(), context=RepositoryContext("r", ())) == _candidate()
+def test_router_retries_are_bounded(monkeypatch):
+    monkeypatch.setenv("KEY", "x")
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def generate_patch(self, **kwargs):
+            self.calls += 1
+            raise TimeoutError("temporary")
+
+    model = Flaky()
+
+    router = CodingProviderRouter(
+        [
+            _spec(
+                "flaky",
+                "KEY",
+                max_attempts=99,
+            )
+        ],
+        model_factory=lambda _: model,
+        sleep=lambda _: None,
+    )
+
+    result = router.generate_patch(
+        proposal=_proposal(),
+        context=_context(),
+    )
+
+    assert result is None
+    assert model.calls == 3
     assert len(router.last_attempts) == 3
 
 
-def test_providers_from_env_requires_complete_explicit_route(monkeypatch):
-    for key in list(__import__("os").environ):
-        if key.startswith("CODING_PROVIDER_"):
-            monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("CODING_PROVIDER_1_NAME", "groq-like")
-    monkeypatch.setenv("CODING_PROVIDER_1_ENDPOINT", "https://example.invalid/chat")
-    monkeypatch.setenv("CODING_PROVIDER_1_MODEL", "model")
-    monkeypatch.setenv("CODING_PROVIDER_1_API_KEY_ENV", "MY_KEY")
-    monkeypatch.setenv("CODING_PROVIDER_1_COST_CLASS", "free")
-    monkeypatch.setenv("CODING_PROVIDER_1_PRIORITY", "5")
-    routes = providers_from_env()
-    assert len(routes) == 1
-    assert routes[0].name == "groq-like"
-    assert routes[0].config.api_key_env == "MY_KEY"
-    assert routes[0].cost_class == "free"
+def test_paid_provider_is_not_selected_by_default(monkeypatch):
+    monkeypatch.setenv("PAID_KEY", "secret")
+
+    class Paid:
+        def generate_patch(self, **kwargs):
+            raise AssertionError("paid provider selected")
+
+    router = CodingProviderRouter(
+        [
+            _spec(
+                "paid",
+                "PAID_KEY",
+                cost="paid",
+            )
+        ],
+        model_factory=lambda _: Paid(),
+        sleep=lambda _: None,
+    )
+
+    result = router.generate_patch(
+        proposal=_proposal(),
+        context=_context(),
+    )
+
+    assert result is None
+    assert router.last_attempts[0].status == "skipped"
 
 
-def test_attempt_metadata_never_contains_key_value(monkeypatch):
-    monkeypatch.setenv("KEY", "super-secret-value")
-    spec = ProviderSpec("p", ChatProviderConfig("x", "m", "KEY"))
-    router = CodingProviderRouter((spec,), model_factory=lambda config: FakeModel([RuntimeError("super-secret-value")]))
-    router.generate_patch(proposal=_proposal(), context=RepositoryContext("r", ()))
-    assert "super-secret-value" not in repr(router.last_attempts)
+def test_paid_provider_requires_explicit_opt_in(monkeypatch):
+    monkeypatch.setenv("PAID_KEY", "secret")
+
+    class Paid:
+        def generate_patch(self, **kwargs):
+            return PatchCandidate(
+                "diff",
+                {"app.py": "print(3)\n"},
+                "paid",
+                (),
+            )
+
+    router = CodingProviderRouter(
+        [
+            _spec(
+                "paid",
+                "PAID_KEY",
+                cost="paid",
+            )
+        ],
+        allow_paid=True,
+        model_factory=lambda _: Paid(),
+    )
+
+    result = router.generate_patch(
+        proposal=_proposal(),
+        context=_context(),
+    )
+
+    assert result is not None
+    assert result.summary == "paid"
+
+
+def test_provider_env_parser_does_not_store_secret(monkeypatch):
+    monkeypatch.setenv("CODING_PROVIDER_1_NAME", "groq")
+    monkeypatch.setenv(
+        "CODING_PROVIDER_1_ENDPOINT",
+        "https://example.invalid",
+    )
+    monkeypatch.setenv(
+        "CODING_PROVIDER_1_MODEL",
+        "demo",
+    )
+    monkeypatch.setenv(
+        "CODING_PROVIDER_1_API_KEY_ENV",
+        "GROQ_API_KEY",
+    )
+    monkeypatch.setenv(
+        "CODING_PROVIDER_1_COST_CLASS",
+        "free",
+    )
+    monkeypatch.setenv(
+        "GROQ_API_KEY",
+        "super-secret",
+    )
+
+    providers = providers_from_env()
+
+    assert len(providers) == 1
+    assert providers[0].config.api_key_env == "GROQ_API_KEY"
+    assert "super-secret" not in repr(providers[0])

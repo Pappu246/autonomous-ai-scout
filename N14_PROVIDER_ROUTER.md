@@ -1,48 +1,95 @@
-# N14 — Production Coding Provider Layer
+\# N14 — Production Coding Provider Layer
 
-N14 turns the N13 provider-neutral coding model boundary into a bounded production routing layer.
 
-## Flow
 
-```text
-Improvement proposal
-  -> CodingProviderRouter
-  -> explicitly configured eligible provider
-  -> bounded retry/fallback
-  -> N13 patch candidate
-  -> patch review
-  -> temporary-workspace validation
-  -> READY_FOR_APPROVAL
-  -> N12 GitHub worker
-```
+\## Purpose
 
-## Safety invariants
 
-- Routes are configured explicitly through environment variables.
-- API-key values are never stored in provider specs or attempt metadata.
-- Missing keys cause a route to be skipped.
-- Paid routes are disabled by default and require `allow_paid=True`.
-- Fallback occurs only among configured routes.
-- Retries are capped at three attempts per provider.
-- Provider exceptions and invalid candidates fail closed.
-- No provider endpoint/model is silently invented.
-- N14 does not branch, commit, open a PR, merge, deploy, or manage billing.
 
-## Environment configuration
+N14 introduces a bounded provider-routing layer above the N13 AI Coding Brain.
 
-A route uses `CODING_PROVIDER_<N>_*` variables, for N=1..8:
 
-```text
-CODING_PROVIDER_1_NAME
-CODING_PROVIDER_1_ENDPOINT
-CODING_PROVIDER_1_MODEL
-CODING_PROVIDER_1_API_KEY_ENV
-CODING_PROVIDER_1_COST_CLASS       # free|paid|unknown
-CODING_PROVIDER_1_PRIORITY
-CODING_PROVIDER_1_MAX_ATTEMPTS
-CODING_PROVIDER_1_TIMEOUT_SECONDS
-```
 
-`API_KEY_ENV` contains the *name* of the environment variable holding the credential, not the credential itself.
+The layer separates:
 
-N14 deliberately stays endpoint-neutral. Provider-specific defaults should only be added when their official API contract is intentionally supported and tested.
+
+
+\- provider selection
+
+\- provider configuration
+
+\- capability filtering
+
+\- cost policy
+
+\- retry handling
+
+\- provider fallback
+
+\- secret-safe configuration
+
+
+
+from the core autonomous coding workflow.
+
+
+
+N14 does not bypass the safety boundaries established by N13, N12, or the approval lifecycle.
+
+
+
+\---
+
+
+
+\## System Architecture
+
+
+
+```mermaid
+
+flowchart TD
+
+&#x20;   A\[Improvement Proposal] --> B\[N14 Provider Router]
+
+
+
+&#x20;   B --> C{Provider Policy}
+
+
+
+&#x20;   C -->|Eligible| D\[Configured Coding Provider]
+
+&#x20;   C -->|Rejected| E\[Skip Provider]
+
+
+
+&#x20;   D --> F\[N13 AI Coding Brain]
+
+
+
+&#x20;   F --> G{Valid PatchCandidate?}
+
+
+
+&#x20;   G -->|Yes| H\[Patch Review]
+
+&#x20;   G -->|No| I\[Bounded Retry / Fallback]
+
+
+
+&#x20;   I --> D
+
+
+
+&#x20;   H --> J\[Sandbox Validation]
+
+&#x20;   J --> K\[READY\_FOR\_APPROVAL]
+
+
+
+&#x20;   K --> L\[Human Approval]
+
+&#x20;   L --> M\[N12 GitHub Worker]
+
+&#x20;   M --> N\[Draft PR]
