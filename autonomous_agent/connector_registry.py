@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Iterable, Mapping
 
 from .capability_policy import Capability, CapabilityDecision
-from .tool_registry import REGISTRY, ToolRegistry
+from .tool_registry import (REGISTRY, ToolRegistry, ApprovalRequirement, AuditRequirement, NetworkRequirement, ReadWriteMode, RiskLevel, SandboxRequirement)
 
 
 class ConnectorAuth(str, Enum):
@@ -16,39 +16,6 @@ class ConnectorAuth(str, Enum):
 class CredentialHandling(str, Enum):
     NONE = "none"
     REFERENCE_ONLY = "reference_only"
-
-
-class NetworkRequirement(str, Enum):
-    NONE = "none"
-    REQUIRED = "required"
-
-
-class ReadWriteMode(str, Enum):
-    READ_ONLY = "read_only"
-    CONTROLLED_WRITE = "controlled_write"
-    HIGH_RISK_WRITE = "high_risk_write"
-
-
-class RiskLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-class ApprovalRequirement(str, Enum):
-    NONE = "none"
-    EXPLICIT = "explicit"
-    HUMAN_REVIEW = "human_review"
-
-
-class SandboxRequirement(str, Enum):
-    NONE = "none"
-    REQUIRED = "required"
-
-
-class AuditRequirement(str, Enum):
-    REQUIRED = "required"
 
 
 class ConnectorRegistryError(ValueError):
