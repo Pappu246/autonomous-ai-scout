@@ -35,7 +35,7 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 
 The repository's CI contract requires `pytest -q` on push and pull request workflows. A change is considered validated only after the corresponding workflow run completes successfully.
 
-For the current `main`, GitHub Actions CI has verified the regression suite at **445 passed** on the latest merged N10 commit.
+For the current `main`, GitHub Actions CI has verified the regression suite at **451 passed** on the latest merged N11 commit.
 
 ## Local run
 
