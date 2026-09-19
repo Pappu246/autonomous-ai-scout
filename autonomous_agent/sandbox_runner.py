@@ -1,5 +1,5 @@
 from __future__ import annotations
-import shutil, subprocess, tempfile
+import os, shutil, subprocess, tempfile
 from pathlib import Path
 from .self_improvement import PatchCandidate, ValidationResult
 
@@ -20,13 +20,19 @@ class LocalSandboxTestRunner:
         for command in commands:
             if not self._allowed(command): return ValidationResult(False,f"test command is not allowlisted: {command[:120]}")
         with tempfile.TemporaryDirectory(prefix="autonomous-scout-test-") as tmp:
-            root=Path(tmp); shutil.copytree(self.workspace,root,dirs_exist_ok=True)
+            root=Path(tmp)
+            shutil.copytree(self.workspace, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", ".env", ".env.*", "state", "__pycache__"))
+            approved = tuple(getattr(proposal, "validation_strategy", ()) or ()) if proposal is not None else ()
+            if candidate.test_commands and approved and any(command not in approved for command in candidate.test_commands):
+                return ValidationResult(False, "model-supplied test command is not in the proposal validation allowlist")
             for path,content in candidate.file_contents.items():
                 target=(root/path).resolve()
                 if root not in target.parents: return ValidationResult(False,"candidate path escapes sandbox")
                 target.parent.mkdir(parents=True,exist_ok=True); target.write_text(content,encoding="utf-8")
             for command in commands:
-                try: completed=subprocess.run(command.split(),cwd=root,capture_output=True,text=True,timeout=self.timeout_seconds,shell=False)
+                try:
+                    env = {"PATH": os.environ.get("PATH", "") , "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+                    completed=subprocess.run(command.split(),cwd=root,capture_output=True,text=True,timeout=self.timeout_seconds,shell=False,env=env)
                 except subprocess.TimeoutExpired: return ValidationResult(False,f"validation timed out: {command[:120]}")
                 except OSError as exc: return ValidationResult(False,f"validation could not start: {type(exc).__name__}")
                 if completed.returncode!=0:
