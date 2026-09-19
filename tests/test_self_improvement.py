@@ -40,6 +40,7 @@ class Generator:
 
     def generate(self, proposal, *, feedback="", previous=None):
         self.calls.append((feedback, previous))
+        self.last_feedback = feedback
         return PatchCandidate(DIFF, FILES, "Fix regression", ("python -m pytest -q",))
 
 
@@ -91,7 +92,7 @@ def test_failed_validation_causes_bounded_revision():
     assert result.status is ImprovementStatus.READY_FOR_APPROVAL
     assert len(result.attempts) == 2
     assert generator.calls == 2
-    assert generator.last_feedback if hasattr(generator, "last_feedback") else True
+    assert generator.last_feedback == "test_x failed"
 
 
 def test_revision_budget_is_bounded():
