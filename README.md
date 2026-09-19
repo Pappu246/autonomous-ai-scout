@@ -29,13 +29,13 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 12. Bounded filesystem workspace connector with safety and approval controls.
 13. Bounded Gmail and Calendar connectors with disabled-by-default/live-credential safeguards.
 14. Cross-connector safety validation and deterministic regression coverage.
-15. Ordered approval/action lifecycle gates from proposal through verified completion.\n16. Bounded self-improvement loop with patch review, injected validation, and capped revision attempts; successful candidates stop at human approval.\n17. Real GitHub worker control plane: approved branch/commit/draft-PR execution plus CI/PR observation, with merge/deploy kept outside the worker.\n18. Real AI coding brain boundary: bounded repository context, secret redaction, model-generated patch candidates, patch review, validation, and capped revision before human approval.
+15. Ordered approval/action lifecycle gates from proposal through verified completion.\n16. Bounded self-improvement loop with patch review, injected validation, and capped revision attempts; successful candidates stop at human approval.\n17. Real GitHub worker control plane: approved branch/commit/draft-PR execution plus CI/PR observation, with merge/deploy kept outside the worker.\n18. Real AI coding brain boundary: bounded repository context, secret redaction, model-generated patch candidates, patch review, validation, and capped revision before human approval.\n19. Production coding provider router: explicit environment-configured routes, free-first/paid opt-in policy, bounded retries, fail-closed fallback, and secret-safe attempt metadata.
 
 ## Validation
 
 The repository's CI contract requires `pytest -q` on push and pull request workflows. A change is considered validated only after the corresponding workflow run completes successfully.
 
-For the current `main`, GitHub Actions CI has verified the regression suite at **451 passed** on the latest merged N11 commit.
+For `main`, GitHub Actions CI is the source of truth for the latest verified regression count. N14 remains incomplete until its pull-request workflow succeeds.
 
 ## Local run
 
