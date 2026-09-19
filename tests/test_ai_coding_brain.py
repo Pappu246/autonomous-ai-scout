@@ -69,6 +69,36 @@ def test_inspector_redacts_secrets_and_bounds_context():
     assert context.truncated is True
 
 
+def test_inspector_materializes_paths_from_one_shot_iterable():
+    seen = []
+
+    def reader(repo, path):
+        seen.append(path)
+        return path
+
+    paths = (path for path in ("a.py", "b.py"))
+    context = GitRepositoryInspector(reader).inspect("owner/repo", paths)
+
+    assert seen == ["a.py", "b.py"]
+    assert [item.path for item in context.files] == ["a.py", "b.py"]
+    assert context.truncated is False
+
+
+def test_inspector_marks_file_limit_without_consuming_paths_twice():
+    seen = []
+
+    def reader(repo, path):
+        seen.append(path)
+        return path
+
+    paths = (f"{index}.py" for index in range(31))
+    context = GitRepositoryInspector(reader).inspect("owner/repo", paths)
+
+    assert len(seen) == 30
+    assert len(context.files) == 30
+    assert context.truncated is True
+
+
 def test_prompt_contains_constraints_and_context():
     context = RepositoryContext("owner/repo", (RepositoryFile("app.py", "print(1)"),))
     prompt = build_model_prompt(make_proposal(), context, feedback="tests failed")
