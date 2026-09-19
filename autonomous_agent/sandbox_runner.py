@@ -31,7 +31,8 @@ class LocalSandboxTestRunner:
                 target.parent.mkdir(parents=True,exist_ok=True); target.write_text(content,encoding="utf-8")
             for command in commands:
                 try:
-                    env = {"PATH": os.environ.get("PATH", "") , "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+                    env = os.environ.copy()
+                    env.update({"PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
                     completed=subprocess.run(command.split(),cwd=root,capture_output=True,text=True,timeout=self.timeout_seconds,shell=False,env=env)
                 except subprocess.TimeoutExpired: return ValidationResult(False,f"validation timed out: {command[:120]}")
                 except OSError as exc: return ValidationResult(False,f"validation could not start: {type(exc).__name__}")
