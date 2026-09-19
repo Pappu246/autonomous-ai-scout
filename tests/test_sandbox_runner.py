@@ -15,4 +15,18 @@ def test_sandbox_runner_rejects_model_commands_outside_proposal_allowlist(tmp_pa
 def test_sandbox_runner_rejects_shell_commands(tmp_path:Path):
     result=LocalSandboxTestRunner(tmp_path).validate(None,PatchCandidate("",{},"bad",("python -c print(1)",)))
     assert not result.passed
+def test_sandbox_runner_does_not_inherit_host_environment_secrets(tmp_path: Path, monkeypatch):
+    (tmp_path/"test_env.py").write_text(
+        """import os
 
+def test_secret_not_visible():
+    assert os.getenv("SCOUT_TEST_SECRET") is None
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SCOUT_TEST_SECRET", "must-not-leak")
+    result = LocalSandboxTestRunner(tmp_path).validate(
+        None,
+        PatchCandidate("", {}, "env isolation", ("python -m pytest -q test_env.py",)),
+    )
+    assert result.passed
