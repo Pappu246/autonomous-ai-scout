@@ -1,4 +1,4 @@
-from autonomous_agent.capability_policy import Capability, check_capability
+from autonomous_agent.capability_policy import Capability, authorize_tool, check_capability
 
 
 def test_safe_capability_requires_explicit_grant():
