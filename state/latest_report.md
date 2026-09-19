@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-16T06:54:07.987270+00:00
+Generated: 2026-09-19T11:39:22.820636+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -9,7 +9,6 @@ Meaningful change: YES
 - **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 - **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
-- **openrouter / openrouter/free** — benchmark: not run; official source changed since last run — [official source](https://openrouter.ai/pricing)
 
 ## Project findings
 
@@ -18,8 +17,8 @@ Meaningful change: YES
 
 ## Monetization / opportunity ideas
 
-- **Build a free-model AI toolkit** (63/100) — 5 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
-- **Turn repeated project maintenance into a service** (58/100) — The scout sees 1 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
+- **Build a free-model AI toolkit** (58/100) — 4 candidate free-access model(s) were verified or surfaced. A reusable router/benchmark toolkit can become an open-source portfolio project or SaaS prototype. Next: Publish benchmark results and document where each free model is legitimately usable.
+- **Turn repeated project maintenance into a service** (53/100) — The scout sees 1 active public project(s) and 1 bug-related finding(s). A productized maintenance/audit service could turn existing engineering work into a portfolio offer. Next: Package a one-page offer: audit, prioritized fixes, tests, and monthly maintenance.
 
 ## Notes
 
@@ -35,7 +34,7 @@ Meaningful change: YES
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
-- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 15, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
+- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 17, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
 - Official release change: openrouter — Official release source changed. (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
