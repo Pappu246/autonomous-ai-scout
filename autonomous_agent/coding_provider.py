@@ -44,7 +44,12 @@ class OpenAICompatibleCodingModel:
         result = self._post(payload, {"Authorization":f"Bearer {api_key}","Content-Type":"application/json"})
         content = result["choices"][0]["message"]["content"]
         if not isinstance(content, str): return None
-        match = re.search(r"\\{.*\\}", content, re.S)
+        match = re.search(r"\{.*\}", content, re.S)
         if not match: return None
-        data = json.loads(match.group(0))
+        try:
+            data = json.loads(match.group(0))
+            file_contents = {str(k): str(v) for k, v in dict(data["file_contents"]).items()}
+            return PatchCandidate(str(data["unified_diff"]), file_contents, str(data["summary"]), tuple(str(x) for x in data.get("test_commands", ())))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
         return PatchCandidate(str(data["unified_diff"]), {str(k):str(v) for k,v in dict(data["file_contents"]).items()}, str(data["summary"]), tuple(str(x) for x in data.get("test_commands",())))
