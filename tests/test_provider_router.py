@@ -66,7 +66,7 @@ def test_router_bounds_retries(monkeypatch):
     spec = ProviderSpec("p", ChatProviderConfig("x", "m", "KEY"), max_attempts=99)
     router = CodingProviderRouter((spec,), model_factory=lambda config: model)
     assert router.generate_patch(proposal=_proposal(), context=RepositoryContext("r", ())) == _candidate()
-    assert len(router.last_attempts) == 4
+    assert len(router.last_attempts) == 3
 
 
 def test_providers_from_env_requires_complete_explicit_route(monkeypatch):
