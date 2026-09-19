@@ -1,4 +1,4 @@
-from autonomous_agent.capability_policy import Capability, authorize_tool, check_capability
+from autonomous_agent.capability_policy import Capability, check_capability
 
 
 def test_safe_capability_requires_explicit_grant():
@@ -29,7 +29,7 @@ def test_unknown_or_malformed_capability_fails_closed():
 
 
 def test_browser_capability_is_registered_and_safe():
-    from autonomous_agent.tool_registry import get_tool
+    from autonomous_agent.tool_registry import authorize_tool, get_tool
     assert Capability.BROWSER.value == "browser"
     assert get_tool("browser.open") is not None
     decision = authorize_tool("browser.open", [Capability.BROWSER])
