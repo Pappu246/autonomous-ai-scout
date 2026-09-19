@@ -47,9 +47,11 @@ class Generator:
 class RevisingGenerator:
     def __init__(self):
         self.calls = 0
+        self.last_feedback = ""
 
     def generate(self, proposal, *, feedback="", previous=None):
         self.calls += 1
+        self.last_feedback = feedback
         if self.calls == 1:
             return PatchCandidate(DIFF, FILES, "First attempt")
         return PatchCandidate(DIFF, FILES, "Revised attempt", ("python -m pytest -q",))
