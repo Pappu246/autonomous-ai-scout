@@ -29,7 +29,7 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 12. Bounded filesystem workspace connector with safety and approval controls.
 13. Bounded Gmail and Calendar connectors with disabled-by-default/live-credential safeguards.
 14. Cross-connector safety validation and deterministic regression coverage.
-15. Ordered approval/action lifecycle gates from proposal through verified completion.\n16. Bounded self-improvement loop with patch review, injected validation, and capped revision attempts; successful candidates stop at human approval.\n17. Real GitHub worker control plane: approved branch/commit/draft-PR execution plus CI/PR observation, with merge/deploy kept outside the worker.
+15. Ordered approval/action lifecycle gates from proposal through verified completion.\n16. Bounded self-improvement loop with patch review, injected validation, and capped revision attempts; successful candidates stop at human approval.\n17. Real GitHub worker control plane: approved branch/commit/draft-PR execution plus CI/PR observation, with merge/deploy kept outside the worker.\n18. Real AI coding brain boundary: bounded repository context, secret redaction, model-generated patch candidates, patch review, validation, and capped revision before human approval.
 
 ## Validation
 
@@ -73,7 +73,7 @@ If these are absent, the agent continues in discovery/audit/report mode and does
 
 - broader official changelog/release discovery
 - richer multi-provider benchmark adapters
-- sandboxed patch generation and tests beyond proposal-only boundaries
+- provider-backed AI coding brain adapters and sandboxed patch validation\n- dashboard
 - approval-gated PR creation
 - dashboard and deeper provider-specific sandbox patch generation/validation adapters
 
