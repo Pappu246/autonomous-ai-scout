@@ -31,7 +31,6 @@ def reconcile_startup(
         return tuple(
             ReconciliationDecision(item.id, LifecycleState.BLOCKED, item.status, "blocked", "lifecycle ledger is invalid")
             for item in queue
-            if item.status != "blocked"
         )
 
     decisions: list[ReconciliationDecision] = []
