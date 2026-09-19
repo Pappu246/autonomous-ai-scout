@@ -34,6 +34,10 @@ class PendingAction:
     status: str = "pending"
     created_at: str = ""
 
+    @classmethod
+    def create(cls, action_id: str, task: str, steps, *, status: str = "pending", risk: str = "low", reason: str = "test action", created_at: str = ""):
+        return cls(str(action_id), str(task), tuple(steps), str(risk), str(reason), str(status), str(created_at))
+
 
 RISK_PRIORITY = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 MAX_PENDING_ACTIONS = 50
