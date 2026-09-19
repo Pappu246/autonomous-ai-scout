@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Mapping
 
-from .capability_policy import Capability
+from .capability_policy import Capability, CapabilityDecision
 from .tool_registry import REGISTRY, ToolRegistry
 
 
@@ -76,6 +76,26 @@ class ConnectorSpec:
     output_schema: Mapping[str, object] | None = None
 
     @property
+    def identity(self) -> str:
+        return self.connector_id
+
+    @property
+    def category(self) -> str:
+        return self.domain
+
+    @property
+    def authentication_method(self) -> ConnectorAuth:
+        return self.auth
+
+    @property
+    def risk(self) -> RiskLevel:
+        return self.risk_level
+
+    @property
+    def registered_tools(self) -> tuple[str, ...]:
+        return self.tool_names
+
+    @property
     def capability(self) -> str:
         return self.capabilities[0] if self.capabilities else ""
 
@@ -94,7 +114,7 @@ class ConnectorSpec:
 
 
 class ConnectorRegistry:
-    def __init__(self, specs: Iterable[ConnectorSpec], *, tool_registry: ToolRegistry = REGISTRY):
+    def __init__(self, specs: Iterable[ConnectorSpec] = (), *, tool_registry: ToolRegistry = REGISTRY):
         specs = tuple(specs)
         self._tools = tool_registry
         self._specs = {spec.connector_id: spec for spec in specs}
@@ -111,7 +131,27 @@ class ConnectorRegistry:
         return self._specs.get(connector_id)
 
     def all(self) -> tuple[ConnectorSpec, ...]:
-        return tuple(self._specs.values())
+        return tuple(self._specs[k] for k in sorted(self._specs))
+
+    def list(self) -> tuple[ConnectorSpec, ...]:
+        return self.all()
+
+    def resolve_tool(self, connector_id: str, tool_name: str):
+        spec = self.get(connector_id)
+        return self._tools.get(tool_name) if spec and spec.enabled and tool_name in spec.tool_names else None
+
+    def authorize(self, connector_id: str, granted=(), *, explicitly_approved=False, sandbox_available=True, audit_available=True, registry=None) -> CapabilityDecision:
+        spec = self.get(connector_id)
+        if spec is None:
+            return CapabilityDecision(False, "connector is not registered", "")
+        if not spec.enabled:
+            return CapabilityDecision(False, "connector is disabled", "")
+        tools = registry or self._tools
+        for name in spec.tool_names:
+            decision = tools.authorize(name, granted, explicitly_approved=explicitly_approved, sandbox_available=sandbox_available, audit_available=audit_available)
+            if not decision.allowed:
+                return decision
+        return CapabilityDecision(True, "connector is permitted by existing Tool Registry and capability policy", spec.tool_names[0] if spec.tool_names else spec.capability)
 
 
 def _schema() -> dict[str, object]:
@@ -119,13 +159,15 @@ def _schema() -> dict[str, object]:
 
 
 def web_connector(tool_registry: ToolRegistry = REGISTRY):
-    spec = ConnectorSpec("web", "Bounded public-web research connector", "web", (Capability.WEB_RESEARCH.value,), ("web:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.LOW, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("web.search", "web.read", "web.extract", "web.compare"), True, input_schema=_schema(), output_schema=_schema())
+    spec = ConnectorSpec("web_research", "Bounded public-web research connector", "web", (Capability.WEB_RESEARCH.value,), ("web:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.REQUIRED, ReadWriteMode.READ_ONLY, RiskLevel.LOW, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("web.search", "web.read", "web.extract", "web.compare"), True, input_schema=_schema(), output_schema=_schema())
     return ConnectorRegistry((spec,), tool_registry=tool_registry)
 
 
 def filesystem_connector(tool_registry: ToolRegistry = REGISTRY):
-    spec = ConnectorSpec("filesystem_workspace", "Approval-gated workspace filesystem connector", "files", (Capability.FILES_WORKSPACE.value,), ("workspace:read", "workspace:write"), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.NONE, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform"), True, input_schema=_schema(), output_schema=_schema())
-    return ConnectorRegistry((spec,), tool_registry=tool_registry)
+    schema = _schema()
+    read = ConnectorSpec("filesystem_workspace_read", "Bounded workspace filesystem reads", "files", (Capability.FILES_WORKSPACE.value,), ("workspace:read",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.NONE, ReadWriteMode.READ_ONLY, RiskLevel.LOW, ApprovalRequirement.NONE, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("filesystem.list", "filesystem.read"), True, input_schema=schema, output_schema=schema)
+    write = ConnectorSpec("filesystem_workspace_write", "Approval-gated workspace filesystem writes", "files", (Capability.FILES_WORKSPACE.value,), ("workspace:write",), ConnectorAuth.NONE, CredentialHandling.NONE, NetworkRequirement.NONE, ReadWriteMode.CONTROLLED_WRITE, RiskLevel.HIGH, ApprovalRequirement.HUMAN_REVIEW, SandboxRequirement.REQUIRED, AuditRequirement.REQUIRED, ("filesystem.write", "filesystem.transform"), True, input_schema=schema, output_schema=schema)
+    return ConnectorRegistry((read, write), tool_registry=tool_registry)
 
 
 def gmail_connector(tool_registry: ToolRegistry = REGISTRY, *, enabled: bool = False):
