@@ -23,18 +23,19 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 6. Persistent JSON state, bounded runtime history, and Markdown reporting.
 7. Hourly GitHub Actions execution with exact-head checkout validation.
 8. Optional Gmail SMTP delivery only when the required secrets exist.
-9. Bounded TaskPlan → Tool Registry → Capability Policy → Safe Executor → Sandbox runtime.
+9. Bounded TaskPlan → Tool Registry → Capability Policy → Safe Executor → Sandbox runtime with verified execution, bounded retries, audit, and recovery safeguards.
 10. Bounded cross-domain workflow planning and controlled browser operations through an injected transport.
 11. Read-only runtime history inspection through the CLI.
 12. Bounded filesystem workspace connector with safety and approval controls.
 13. Bounded Gmail and Calendar connectors with disabled-by-default/live-credential safeguards.
 14. Cross-connector safety validation and deterministic regression coverage.
+15. Ordered approval/action lifecycle gates from proposal through verified completion.
 
 ## Validation
 
 The repository's CI contract requires `pytest -q` on push and pull request workflows. A change is considered validated only after the corresponding workflow run completes successfully.
 
-For the current `main`, the local regression suite has been verified at **437 passed, 1 skipped**.
+For the current `main`, GitHub Actions CI has verified the regression suite at **445 passed** on the latest merged N10 commit.
 
 ## Local run
 
