@@ -47,12 +47,12 @@ class OpenAICompatibleCodingModel:
             if not isinstance(content, str): return None
             text = content.strip()
             if text.startswith("```") and text.endswith("```"):
-                text = re.sub(r"^```(?:json)?\\s*", "", text, count=1)
-                text = re.sub(r"\\s*```$", "", text, count=1).strip()
+                text = re.sub(r"^```(?:json)?\s*", "", text, count=1)
+                text = re.sub(r"\s*```$", "", text, count=1).strip()
             try:
                 data = json.loads(text)
             except json.JSONDecodeError:
-                match = re.search(r"\\{.*\\}", text, re.S)
+                match = re.search(r"\{.*\}", text, re.S)
                 if not match: return None
                 data = json.loads(match.group(0))
             if not isinstance(data, dict): return None
@@ -66,6 +66,4 @@ class OpenAICompatibleCodingModel:
                 tuple(str(x) for x in test_commands),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            return None        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return None
-        return PatchCandidate(str(data["unified_diff"]), {str(k):str(v) for k,v in dict(data["file_contents"]).items()}, str(data["summary"]), tuple(str(x) for x in data.get("test_commands",())))
