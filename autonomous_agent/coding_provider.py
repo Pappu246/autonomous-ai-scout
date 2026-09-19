@@ -42,14 +42,28 @@ class OpenAICompatibleCodingModel:
             {"role":"user","content":json.dumps(prompt, ensure_ascii=True)},
         ]}
         result = self._post(payload, {"Authorization":f"Bearer {api_key}","Content-Type":"application/json"})
-        content = result["choices"][0]["message"]["content"]
-        if not isinstance(content, str): return None
-        match = re.search(r"\{.*\}", content, re.S)
-        if not match: return None
         try:
-            data = json.loads(match.group(0))
-            file_contents = {str(k): str(v) for k, v in dict(data["file_contents"]).items()}
-            return PatchCandidate(str(data["unified_diff"]), file_contents, str(data["summary"]), tuple(str(x) for x in data.get("test_commands", ())))
+            content = result["choices"][0]["message"]["content"]
+            if not isinstance(content, str): return None
+            text = content.strip()
+            if text.startswith("```") and text.endswith("```"):
+                text = re.sub(r"^```(?:json)?\s*", "", text, count=1)
+                text = re.sub(r"\s*```$", "", text, count=1).strip()
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                match = re.search(r"\{.*\}", text, re.S)
+                if not match: return None
+                data = json.loads(match.group(0))
+            if not isinstance(data, dict): return None
+            raw_files = data.get("file_contents", {})
+            test_commands = data.get("test_commands", ())
+            if not isinstance(raw_files, dict) or not isinstance(test_commands, (list, tuple)): return None
+            return PatchCandidate(
+                str(data["unified_diff"]),
+                {str(k): str(v) for k, v in raw_files.items()},
+                str(data["summary"]),
+                tuple(str(x) for x in test_commands),
+            )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return None
-        return PatchCandidate(str(data["unified_diff"]), {str(k):str(v) for k,v in dict(data["file_contents"]).items()}, str(data["summary"]), tuple(str(x) for x in data.get("test_commands",())))
