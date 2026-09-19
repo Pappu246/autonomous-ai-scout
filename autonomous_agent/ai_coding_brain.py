@@ -84,9 +84,11 @@ class GitRepositoryInspector:
         self.reader = reader
 
     def inspect(self, repository: str, paths: Iterable[str]) -> RepositoryContext:
+        requested_paths = tuple(dict.fromkeys(paths))
         files: list[RepositoryFile] = []
         truncated = False
-        for path in tuple(dict.fromkeys(paths))[:_MAX_CONTEXT_FILES]:
+
+        for path in requested_paths[:_MAX_CONTEXT_FILES]:
             try:
                 content = self.reader(repository, path)
             except Exception:
@@ -96,8 +98,10 @@ class GitRepositoryInspector:
             bounded = _bounded(content)
             truncated = truncated or len(bounded) < len(content)
             files.append(RepositoryFile(path=path, content=bounded))
-        if len(tuple(paths)) > _MAX_CONTEXT_FILES:
+
+        if len(requested_paths) > _MAX_CONTEXT_FILES:
             truncated = True
+
         return RepositoryContext(repository, tuple(files), truncated)
 
 
