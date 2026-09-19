@@ -29,7 +29,7 @@ A free-first autonomous AI engineering scout. It runs on a schedule, verifies le
 12. Bounded filesystem workspace connector with safety and approval controls.
 13. Bounded Gmail and Calendar connectors with disabled-by-default/live-credential safeguards.
 14. Cross-connector safety validation and deterministic regression coverage.
-15. Ordered approval/action lifecycle gates from proposal through verified completion.
+15. Ordered approval/action lifecycle gates from proposal through verified completion.\n16. Bounded self-improvement loop with patch review, injected validation, and capped revision attempts; successful candidates stop at human approval.
 
 ## Validation
 
@@ -75,6 +75,6 @@ If these are absent, the agent continues in discovery/audit/report mode and does
 - richer multi-provider benchmark adapters
 - sandboxed patch generation and tests beyond proposal-only boundaries
 - approval-gated PR creation
-- dashboard and self-improvement evaluation loop
+- dashboard and deeper provider-specific sandbox patch generation/validation adapters
 
 These are intentionally not represented as complete capabilities until their corresponding implementation and validation lands on `main`.
