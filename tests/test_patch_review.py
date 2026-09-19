@@ -42,3 +42,29 @@ def test_review_patch_rejects_too_many_files():
     result = review_patch(diff)
     assert not result.allowed
     assert "too many files" in result.reason
+
+def test_review_patch_rejects_parent_traversal_path():
+    diff = """diff --git a/../../outside.py b/../../outside.py
+--- a/../../outside.py
++++ b/../../outside.py
+@@ -1 +1 @@
+-old
++new
+"""
+    result = review_patch(diff)
+    assert not result.allowed
+    assert "forbidden path" in result.reason
+
+
+def test_review_patch_rejects_absolute_and_windows_paths():
+    for path in ("/tmp/outside.py", "C:/outside.py", "C:\\outside.py"):
+        diff = f"""diff --git a/{path} b/{path}
+--- a/{path}
++++ b/{path}
+@@ -1 +1 @@
+-old
++new
+"""
+        result = review_patch(diff)
+        assert not result.allowed
+        assert "forbidden path" in result.reason
