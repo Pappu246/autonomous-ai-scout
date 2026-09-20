@@ -165,7 +165,7 @@ def execute_approved_change(
 
     try:
         if request.expected_head_sha and hasattr(backend, "create_branch_at_sha"):
-            branch = backend.create_branch_at_sha(request.repository, request.head_branch, request.expected_head_sha)
+            branch = backend.create_branch_at_sha(request.repository, request.head_branch, request.base_branch, request.expected_head_sha)
         else:
             branch = backend.create_branch(request.repository, request.head_branch, request.base_branch)
         commit = backend.commit_files(
