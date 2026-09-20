@@ -153,3 +153,23 @@ def test_find_existing_pull_request_is_conservative(monkeypatch):
     assert result.endswith("/pull/9")
     assert fake.calls[0][3]["head"] == "owner:improvement/one"
     assert fake.calls[0][3]["base"] == "main"
+
+def test_find_accepts_real_github_pull_list_response(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [[{"html_url": "https://github.com/owner/repo/pull/10"}]]
+
+    result = client(fake).find("owner/repo", "improvement/one", "main", "digest")
+
+    assert result.endswith("/pull/10")
+
+
+def test_get_accepts_pull_request_url(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"number": 7, "state": "open", "head": {"sha": "a" * 40}}]
+
+    result = client(fake).get("owner/repo", "https://github.com/owner/repo/pull/7")
+
+    assert result["number"] == 7
+    assert fake.calls[0][1].endswith("/pulls/7")
