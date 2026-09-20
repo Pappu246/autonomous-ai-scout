@@ -121,3 +121,20 @@ class GitHubWorker:
         if draft:
             return WorkerResult("draft_pr_ready", "draft PR exists and requires human review", pull_request=pull_request, ci_status=ci_status)
         return WorkerResult("review_ready", "open PR observed; human review/merge remains external", pull_request=pull_request, ci_status=ci_status)
+
+def build_github_worker_from_env(*, claim_store=None, config=None) -> GitHubWorker:
+    """Build the concrete GitHub worker adapters from environment configuration."""
+    from pathlib import Path
+
+    from .github_api import GitHubApiClient
+
+    client = GitHubApiClient(config)
+    store = Path(claim_store or Path("state") / "approval_claims")
+    return GitHubWorker(
+        head_provider=client,
+        existing_prs=client,
+        backend=client,
+        claim_store=store,
+        pull_requests=client,
+        ci=client,
+    )
