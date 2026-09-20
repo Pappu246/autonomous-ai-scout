@@ -73,7 +73,7 @@ def test_commit_files_creates_one_git_commit(monkeypatch):
     assert result == "g" * 40
     methods = [call[0] for call in fake.calls]
     assert methods == ["GET", "GET", "POST", "POST", "POST", "POST", "PATCH"]
-    tree_payload = fake.calls[5][4]
+    tree_payload = fake.calls[4][4]
     assert tree_payload["base_tree"] == "c" * 40
     assert len(tree_payload["tree"]) == 2
     assert fake.calls[-1][4] == {"sha": "g" * 40, "force": False}
