@@ -35,7 +35,10 @@ class Backend:
         self.calls = []
 
     def create_branch(self, repository, branch, base_branch):
-        self.calls.append(("branch", repository, branch, base_branch))
+        return self.create_branch_at_sha(repository, branch, base_branch, SHA)
+
+    def create_branch_at_sha(self, repository, branch, base_branch, expected_head_sha):
+        self.calls.append(("branch", repository, branch, base_branch, expected_head_sha))
         return branch
 
     def commit_files(self, repository, branch, files, message):
