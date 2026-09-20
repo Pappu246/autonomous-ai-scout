@@ -218,3 +218,27 @@ def test_request_fingerprint_tampering_fails_closed(tmp_path):
     result = prepare_draft_pr(item, approval, tampered, DIFF, FILES, head_provider=Head(), existing_prs=PRs(), backend=Backend(), claim_store=tmp_path / "claims", now=datetime.now(timezone.utc))
     assert result.allowed is False
     assert "request fingerprint mismatch" in result.reason
+
+def test_duplicate_lookup_error_fails_closed(tmp_path):
+    item = action()
+    approval = approval_for(item)
+    request = make_request(item, approval, tmp_path)
+
+    class BrokenLookup:
+        def find(self, *args):
+            raise RuntimeError("GitHub unavailable")
+
+    result = prepare_draft_pr(
+        item,
+        approval,
+        request,
+        DIFF,
+        FILES,
+        head_provider=Head(),
+        existing_prs=BrokenLookup(),
+        backend=Backend(),
+        claim_store=tmp_path / "claims",
+        now=datetime.now(timezone.utc),
+    )
+    assert result.allowed is False
+    assert "duplicate PR verification failed closed" in result.reason

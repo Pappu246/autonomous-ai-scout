@@ -189,12 +189,26 @@ def prepare_draft_pr(
         return DraftPrResult(False, "approved file contents fingerprint mismatch", request.request_fingerprint)
     if any("\x00" in content for content in file_contents.values()):
         return DraftPrResult(False, "changed file contains NUL bytes", request.request_fingerprint)
-    current_sha = head_provider.head_sha(request.repository, request.base_branch)
+    try:
+        current_sha = head_provider.head_sha(request.repository, request.base_branch)
+    except Exception as exc:
+        return DraftPrResult(
+            False,
+            f"target branch HEAD verification failed closed: {type(exc).__name__}",
+            request.request_fingerprint,
+        )
     if current_sha is None:
         return DraftPrResult(False, "target branch HEAD could not be verified", request.request_fingerprint)
     if current_sha.lower() != request.expected_head_sha.lower():
         return DraftPrResult(False, "target branch HEAD mismatch; approval is stale", request.request_fingerprint)
-    duplicate = existing_prs.find(request.repository, request.head_branch, request.base_branch, request.patch_digest)
+    try:
+        duplicate = existing_prs.find(request.repository, request.head_branch, request.base_branch, request.patch_digest)
+    except Exception as exc:
+        return DraftPrResult(
+            False,
+            f"duplicate PR verification failed closed: {type(exc).__name__}",
+            request.request_fingerprint,
+        )
     if duplicate:
         return DraftPrResult(False, "duplicate draft PR already exists", request.request_fingerprint)
     change_request = build_change_request(
