@@ -78,7 +78,7 @@ def _file_path(path: str) -> str:
 
 def _pull_number(value: str) -> str:
     text = value.strip()
-    match = re.search(r"/pull/(\\d+)(?:/|$)", text)
+    match = re.search(r"/pull/(\d+)(?:/|$)", text)
     return match.group(1) if match else text.lstrip("#")
 
 
