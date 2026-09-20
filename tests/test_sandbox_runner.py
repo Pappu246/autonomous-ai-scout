@@ -30,3 +30,15 @@ def test_secret_not_visible():
         PatchCandidate("", {}, "env isolation", ("python -m pytest -q test_env.py",)),
     )
     assert result.passed
+
+def test_sandbox_runner_rejects_absolute_and_parent_paths_in_commands(tmp_path: Path):
+    for command in (
+        "python -m pytest ../outside.py",
+        "python -m compileall /tmp/outside",
+        "pytest C:/outside",
+    ):
+        result = LocalSandboxTestRunner(tmp_path).validate(
+            None,
+            PatchCandidate("", {}, "bad", (command,)),
+        )
+        assert not result.passed
