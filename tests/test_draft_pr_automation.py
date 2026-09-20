@@ -50,7 +50,10 @@ class Backend:
         self.fail_at = fail_at
 
     def create_branch(self, repository, branch, base_branch):
-        self.calls.append(("branch", repository, branch, base_branch))
+        return self.create_branch_at_sha(repository, branch, "a" * 40)
+
+    def create_branch_at_sha(self, repository, branch, base_branch, expected_head_sha):
+        self.calls.append(("branch", repository, branch, base_branch, expected_head_sha))
         if self.fail_at == "branch":
             raise RuntimeError("interrupted")
         return branch
