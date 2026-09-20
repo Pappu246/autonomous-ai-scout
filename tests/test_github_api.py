@@ -45,9 +45,9 @@ def test_create_branch_uses_verified_base_head(monkeypatch):
         "GET",
         "https://api.github.test/repos/owner/repo/branches/main",
     )
-    assert fake.calls[1][0] == "POST"
-    assert fake.calls[1][3] is None
-    assert fake.calls[1][4]["sha"] == "a" * 40
+    assert [call[0] for call in fake.calls] == ["GET", "GET", "POST"]
+    assert fake.calls[2][3] is None
+    assert fake.calls[2][4]["sha"] == "a" * 40
     assert fake.calls[0][2]["Authorization"] == "Bearer secret"
 
 
