@@ -39,6 +39,7 @@ class GitHubChangeRequest:
     additions: int
     deletions: int
     requires_approval: bool = True
+    expected_head_sha: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,8 @@ class GitHubChangeBackend(Protocol):
     """Minimal side-effect boundary for a future GitHub API adapter."""
 
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str: ...
+
+    def create_branch_at_sha(self, repository: str, branch: str, expected_head_sha: str) -> str: ...
 
     def commit_files(
         self,
@@ -95,6 +98,7 @@ def build_change_request(
     title: str,
     body: str,
     unified_diff: str,
+    expected_head_sha: str = "",
 ) -> GitHubChangeRequest:
     """Create metadata for a GitHub change; this function performs no remote mutation."""
     review = review_patch(unified_diff)
@@ -119,6 +123,7 @@ def build_change_request(
         additions=review.additions,
         deletions=review.deletions,
         requires_approval=True,
+        expected_head_sha=expected_head_sha.strip().lower(),
     )
 
 
@@ -159,7 +164,10 @@ def execute_approved_change(
         return GitHubChangeResult(False, claimed.reason)
 
     try:
-        branch = backend.create_branch(request.repository, request.head_branch, request.base_branch)
+        if request.expected_head_sha and hasattr(backend, "create_branch_at_sha"):
+            branch = backend.create_branch_at_sha(request.repository, request.head_branch, request.expected_head_sha)
+        else:
+            branch = backend.create_branch(request.repository, request.head_branch, request.base_branch)
         commit = backend.commit_files(
             request.repository,
             request.head_branch,
