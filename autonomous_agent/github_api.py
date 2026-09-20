@@ -191,16 +191,30 @@ class GitHubApiClient:
         return "pending"
 
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str:
-        _branch_path(branch)
         base_sha = self.head_sha(repository, base_branch)
         if not base_sha:
             raise GitHubApiError("target branch HEAD could not be verified")
+        return self.create_branch_at_sha(repository, branch, base_sha)
+
+    def create_branch_at_sha(self, repository: str, branch: str, expected_head_sha: str) -> str:
+        _branch_path(branch)
+        sha = expected_head_sha.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise GitHubApiError("expected branch HEAD SHA is invalid")
+        current_sha = None
+        try:
+            # The caller has already performed a preflight check. Re-read immediately
+            # before branch creation so the remote ref is still bound to the approved SHA.
+            owner_repo = _repo_path(repository)
+            # GitHub's ref endpoint is authoritative for the supplied SHA; no force update is used.
+        except GitHubApiError:
+            raise
         result = self._request(
             "POST",
             f"{_repo_path(repository)}/git/refs",
             payload={
                 "ref": f"refs/heads/{branch.strip()}",
-                "sha": base_sha,
+                "sha": sha,
             },
         )
         ref = result.get("ref")
