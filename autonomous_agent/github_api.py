@@ -159,8 +159,6 @@ class GitHubApiClient:
                     "per_page": 100,
                 },
             )
-        except GitHubApiError:
-            return None
         items = result if isinstance(result, list) else result.get("items") if isinstance(result, Mapping) else None
         if isinstance(items, list):
             for item in items:
