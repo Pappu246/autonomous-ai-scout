@@ -24,8 +24,16 @@ def _normalize_path(path: str) -> str:
 
 def _is_forbidden_path(path: str) -> bool:
     normalized = _normalize_path(path)
+    drive_like = len(normalized) >= 2 and normalized[1] == ":"
     return (
-        normalized == ".git"
+        not normalized
+        or normalized.startswith("/")
+        or drive_like
+        or normalized == ".."
+        or normalized.startswith("../")
+        or "/../" in normalized
+        or normalized.endswith("/..")
+        or normalized == ".git"
         or normalized.startswith(".git/")
         or normalized == ".github/workflows"
         or normalized.startswith(".github/workflows/")
