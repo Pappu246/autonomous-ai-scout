@@ -172,6 +172,8 @@ class GitHubApiClient:
             "GET",
             f"{_repo_path(repository)}/pulls/{quote(_pull_number(pull_request), safe='')}",
         )
+        if not isinstance(result, Mapping):
+            raise GitHubApiError("GitHub returned an invalid pull request response")
         return dict(result)
 
     def status(self, repository: str, pull_request: str) -> str:
@@ -189,6 +191,7 @@ class GitHubApiClient:
         return "pending"
 
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str:
+        _branch_path(branch)
         base_sha = self.head_sha(repository, base_branch)
         if not base_sha:
             raise GitHubApiError("target branch HEAD could not be verified")
