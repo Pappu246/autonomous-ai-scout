@@ -119,6 +119,8 @@ flowchart LR
     N9 --> N10 --> N11 --> N12 --> N13 --> N14
 ```
 
+The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
+
 These are implementation boundaries, not claims that every possible autonomous workflow is complete.
 
 ---
@@ -389,6 +391,8 @@ REPORT_EMAIL         # report destination
 
 Coding providers use the `CODING_PROVIDER_N...` environment configuration described above.
 
+The concrete GitHub worker backend uses `GITHUB_TOKEN` (or the variable named by `GITHUB_TOKEN_ENV`) and the existing approval/identity/digest guards remain in front of every remote mutation.
+
 Missing credentials should result in a skipped capability, not an invented or hidden fallback.
 
 ---
@@ -415,11 +419,61 @@ A capability is not treated as complete merely because the implementation exists
 
 ---
 
+
+
+## Live coding path
+
+The repository now has a concrete, bounded path from a local checkout to a reviewable coding proposal:
+
+```text
+improvement proposal
+        │
+        ▼
+autonomous-scout-code
+        │
+        ▼
+provider router
+        │
+        ▼
+AI coding brain
+        │
+        ▼
+patch review
+        │
+        ▼
+sandbox validation
+        │
+        ▼
+READY_FOR_APPROVAL
+        │
+        ▼
+GitHub worker
+        │
+        ├── create dedicated branch
+        ├── create one Git tree + commit
+        └── open draft PR
+```
+
+Run the proposal-first coding path against a local checkout:
+
+```bash
+autonomous-scout-code \
+  --root . \
+  --project owner/repository \
+  --severity medium \
+  --title "CI regression" \
+  --detail "The test suite is failing in the affected area." \
+  --recommendation "Fix the regression and add focused coverage." \
+  --affected app.py tests/test_app.py
+```
+
+A successful run stops at `READY_FOR_APPROVAL`; it does not merge or deploy.
+
 ## Current status
 
 **Implemented through N14.**
 
-N14 adds the production coding-provider routing layer. The repository still requires real provider configuration and an end-to-end live coding run before the full production path can honestly be described as exercised against a real external model.
+N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
 The roadmap currently ends at **N14**. No later phase is represented here until it is actually defined and implemented.
 
