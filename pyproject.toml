@@ -15,6 +15,7 @@ autonomous-scout-run = "autonomous_agent.main:main"
 autonomous-scout-server = "autonomous_agent.server:main"
 autonomous-scout-code = "autonomous_agent.coding_cli:main"
 autonomous-scout-doctor = "autonomous_agent.doctor:main"
+autonomous-scout-approval = "autonomous_agent.approval_cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
