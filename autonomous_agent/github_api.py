@@ -48,7 +48,7 @@ def _repo_path(repository: str) -> str:
 
 def _branch_path(branch: str) -> str:
     value = branch.strip()
-    if not value or value.startswith("/") or ".." in value or "\\x00" in value:
+    if not value or value.startswith("/") or ".." in value or "\x00" in value:
         raise GitHubApiError("branch name is invalid")
     return quote(value, safe="")
 
@@ -148,17 +148,16 @@ class GitHubApiClient:
     def find(self, repository: str, head_branch: str, base_branch: str, patch_digest: str) -> str | None:
         del patch_digest  # Branch + base is a conservative duplicate boundary.
         owner = repository.strip().split("/", 1)[0]
-        try:
-            result = self._request(
-                "GET",
-                f"{_repo_path(repository)}/pulls",
-                params={
-                    "state": "open",
-                    "head": f"{owner}:{head_branch}",
-                    "base": base_branch,
-                    "per_page": 100,
-                },
-            )
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/pulls",
+            params={
+                "state": "open",
+                "head": f"{owner}:{head_branch}",
+                "base": base_branch,
+                "per_page": 100,
+            },
+        )
         items = result if isinstance(result, list) else result.get("items") if isinstance(result, Mapping) else None
         if isinstance(items, list):
             for item in items:
