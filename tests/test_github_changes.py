@@ -158,3 +158,27 @@ def test_execute_rejects_protected_head_branch(tmp_path):
     )
     assert not result.allowed
     assert "protected" in result.reason
+
+def test_execute_rejects_oversized_changed_file(tmp_path):
+    action = approved_action()
+    approval = approval_for(action)
+    request = build_change_request(
+        action,
+        "Pappu246/autonomous-ai-scout",
+        "main",
+        "agent/change-action-5",
+        "Improve safe inspection",
+        "Prepared for review only.",
+        DIFF,
+    )
+    result = execute_approved_change(
+        action,
+        approval,
+        request,
+        DIFF,
+        {"app.py": "x" * 200_001},
+        tmp_path / "claims",
+        FakeBackend(),
+    )
+    assert not result.allowed
+    assert "maximum size" in result.reason
