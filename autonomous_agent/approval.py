@@ -22,7 +22,7 @@ def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | N
         if action.id == action_id:
             if action.status in TERMINAL_STATUSES:
                 raise ValueError(f"approval action is already {action.status}")
-            updated = PendingAction(action.id, action.task, action.steps, action.risk, action.reason, decision)
+            updated = PendingAction(action.id, action.task, action.steps, action.risk, action.reason, decision, action.created_at)
             queue[index] = updated
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
