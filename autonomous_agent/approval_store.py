@@ -41,8 +41,9 @@ def create_approval(
     approved_at: datetime | None = None,
     ttl: timedelta | None = None,
 ) -> ApprovalRecord:
+    safe_id = _safe_action_id(action_id)
     queue = load_queue(queue_path)
-    action = next((item for item in queue if item.id == action_id), None)
+    action = next((item for item in queue if item.id == safe_id), None)
     if action is None:
         raise KeyError(f"approval action not found: {action_id}")
     updated = set_decision(queue_path, action_id, "approved", audit_path)
