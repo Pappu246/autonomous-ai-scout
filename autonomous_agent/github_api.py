@@ -117,7 +117,7 @@ class GitHubApiClient:
                 return {}
             return response.json()
 
-    def _request(self, method: str, path: str, *, params=None, payload=None) -> Mapping[str, Any]:
+    def _request(self, method: str, path: str, *, params=None, payload=None) -> Any:
         token = os.getenv(self.config.token_env, "").strip()
         if not token:
             raise GitHubApiError(f"GitHub credential environment variable {self.config.token_env!r} is not configured")
@@ -132,8 +132,6 @@ class GitHubApiClient:
             )
         except Exception as exc:
             raise GitHubApiError(f"GitHub API request failed: {type(exc).__name__}") from exc
-        if not isinstance(result, Mapping):
-            raise GitHubApiError("GitHub API returned an invalid response")
         return result
 
     def head_sha(self, repository: str, branch: str) -> str | None:
@@ -163,7 +161,7 @@ class GitHubApiClient:
             )
         except GitHubApiError:
             return None
-        items = result.get("items")
+        items = result if isinstance(result, list) else result.get("items") if isinstance(result, Mapping) else None
         if isinstance(items, list):
             for item in items:
                 if isinstance(item, Mapping):
