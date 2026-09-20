@@ -138,3 +138,21 @@ def test_approval_payload_is_redacted_and_non_mutating():
     payload = approval_payload(result)
     assert "supersecret" not in str(payload)
     assert result.status is ImprovementStatus.READY_FOR_APPROVAL
+
+def test_oversized_candidate_file_is_rejected_before_validation():
+    class OversizedGenerator:
+        def generate(self, proposal, *, feedback="", previous=None):
+            return PatchCandidate(
+                DIFF,
+                {"app.py": "x" * 200_001},
+                "oversized",
+            )
+
+    validator = Validator([ValidationResult(True, "should not run")])
+    result = SelfImprovementLoop(max_revisions=0).run(
+        proposal(), generator=OversizedGenerator(), validator=validator
+    )
+
+    assert result.status is ImprovementStatus.VALIDATION_FAILED
+    assert validator.calls == 0
+    assert "maximum size" in result.attempts[0].validation.detail

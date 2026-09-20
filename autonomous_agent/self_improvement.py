@@ -103,9 +103,23 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
     manifest = _normalize_manifest(candidate.file_contents)
     if manifest != review.files:
         return review, "file manifest does not exactly match the reviewed patch"
+    if any(not isinstance(content, str) for content in candidate.file_contents.values()):
+        return review, "changed file contents must be text"
+    total_bytes = 0
+    for content in candidate.file_contents.values():
+        size = len(content.encode("utf-8"))
+        if size > MAX_FILE_BYTES:
+            return review, "changed file exceeds maximum size"
+        total_bytes += size
+    if total_bytes > MAX_TOTAL_FILE_BYTES:
+        return review, "changed file contents exceed total size budget"
     if any("\x00" in content for content in candidate.file_contents.values()):
         return review, "changed file contains NUL bytes"
     return review, None
+
+
+MAX_FILE_BYTES = 200_000
+MAX_TOTAL_FILE_BYTES = 1_000_000
 
 
 class SelfImprovementLoop:

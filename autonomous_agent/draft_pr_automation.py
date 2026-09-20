@@ -219,6 +219,7 @@ def prepare_draft_pr(
         request.title,
         request.body,
         unified_diff,
+        expected_head_sha=request.expected_head_sha,
     )
     if change_request.patch_digest != request.patch_digest or change_request.action_id != request.action_id:
         return DraftPrResult(False, "existing change boundary rejected request identity", request.request_fingerprint)

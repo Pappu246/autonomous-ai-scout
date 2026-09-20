@@ -30,6 +30,7 @@ def test_create_branch_uses_verified_base_head(monkeypatch):
     fake = FakeApi()
     fake.responses = [
         {"commit": {"sha": "a" * 40}},
+        {"commit": {"sha": "a" * 40}},
         {"ref": "refs/heads/improvement/one"},
     ]
 
@@ -44,9 +45,9 @@ def test_create_branch_uses_verified_base_head(monkeypatch):
         "GET",
         "https://api.github.test/repos/owner/repo/branches/main",
     )
-    assert fake.calls[1][0] == "POST"
-    assert fake.calls[1][3] is None
-    assert fake.calls[1][4]["sha"] == "a" * 40
+    assert [call[0] for call in fake.calls] == ["GET", "GET", "POST"]
+    assert fake.calls[2][3] is None
+    assert fake.calls[2][4]["sha"] == "a" * 40
     assert fake.calls[0][2]["Authorization"] == "Bearer secret"
 
 
@@ -173,3 +174,21 @@ def test_get_accepts_pull_request_url(monkeypatch):
 
     assert result["number"] == 7
     assert fake.calls[0][1].endswith("/pulls/7")
+
+def test_create_branch_at_sha_rejects_stale_remote_head(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"commit": {"sha": "b" * 40}}]
+
+    try:
+        client(fake).create_branch_at_sha(
+            "owner/repo",
+            "improvement/one",
+            "main",
+            "a" * 40,
+        )
+    except GitHubApiError as exc:
+        assert "changed before branch creation" in str(exc)
+    else:
+        raise AssertionError("stale base HEAD must be rejected")
+    assert [call[0] for call in fake.calls] == ["GET"]
