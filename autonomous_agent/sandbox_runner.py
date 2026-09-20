@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, shutil, subprocess, tempfile
+import os, shlex, shutil, subprocess, tempfile
 from pathlib import Path
 from .self_improvement import PatchCandidate, ValidationResult
 
@@ -13,7 +13,26 @@ class LocalSandboxTestRunner:
         normalized=" ".join(command.strip().split())
         if any(x in normalized for x in ("&&","||",";","|",">","<","$(","`")): return False
         if " -c " in f" {normalized} " or " --command " in f" {normalized} ": return False
-        return any(normalized==p or normalized.startswith(p+" ") for p in _ALLOWED)
+        if not any(normalized==p or normalized.startswith(p+" ") for p in _ALLOWED): return False
+        try:
+            tokens = shlex.split(normalized, posix=os.name != "nt")
+        except ValueError:
+            return False
+        if not tokens:
+            return False
+        for token in tokens[1:]:
+            path_like = token.split("=", 1)[-1].replace("\\", "/")
+            drive_like = len(path_like) >= 2 and path_like[1] == ":"
+            traversal = (
+                path_like.startswith("/")
+                or path_like == ".."
+                or path_like.startswith("../")
+                or "/../" in path_like
+                or path_like.endswith("/..")
+            )
+            if drive_like or traversal:
+                return False
+        return True
     def validate(self, proposal, candidate:PatchCandidate, *, context=None)->ValidationResult:
         commands=candidate.test_commands or getattr(proposal,"validation_strategy",())
         if not commands: return ValidationResult(False,"no validation command supplied")
