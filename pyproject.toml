@@ -13,6 +13,7 @@ dependencies = [
 autonomous-scout = "autonomous_agent.runtime:main"
 autonomous-scout-run = "autonomous_agent.main:main"
 autonomous-scout-server = "autonomous_agent.server:main"
+autonomous-scout-code = "autonomous_agent.coding_cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
