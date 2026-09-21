@@ -160,3 +160,32 @@ def test_provider_requests_structured_output(monkeypatch):
     assert candidate is not None
     assert calls[0]["response_format"]["type"] == "json_schema"
     assert calls[0]["response_format"]["json_schema"]["name"] == "patch_candidate"
+
+
+def test_provider_prompt_separates_prose_validation_from_commands(monkeypatch):
+    calls = []
+
+    def post(endpoint, headers, payload, timeout):
+        calls.append(payload)
+        return {"choices": [{"message": {"content": '{"unified_diff":"diff","file_contents":{},"summary":"fix","test_commands":[]}'}}]}
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type(
+            "P", (), {
+                "problem": "fix",
+                "proposed_solution": "fix",
+                "validation_strategy": ("Run the complete existing test suite.",),
+                "affected_area": (),
+            }
+        )(),
+        context=RepositoryContext("owner/repo", ()),
+    )
+    assert candidate is not None
+    prompt = calls[0]["messages"][1]["content"]
+    assert "Prefer python -m pytest" in prompt
+    assert "validation steps" in prompt
