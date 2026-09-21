@@ -613,6 +613,20 @@ class CodingRunStore:
         execution = replace(record.execution, worker_state=_redact(worker_state, 256), reason=_redact(reason), pull_request=None if pull_request is None else _redact(pull_request, 2048), ci_status=None if ci_status is None else _redact(ci_status, 256), finished_at=_now(now))
         return self._transition(record, CodingRunState.EXECUTED, execution=execution, now=now)
 
+    def record_observation(self, run_id: str, *, worker_state: str, reason: str, ci_status: str | None, now: datetime | None = None) -> StoredCodingRun:
+        record = self.load(run_id)
+        if record.state is not CodingRunState.EXECUTED:
+            raise CodingRunStoreError("coding run observation requires an executed run")
+        execution = replace(
+            record.execution,
+            worker_state=_redact(worker_state, 256),
+            reason=_redact(reason),
+            ci_status=None if ci_status is None else _redact(ci_status, 256),
+        )
+        updated = replace(record, execution=execution, updated_at=_now(now))
+        self._write(updated)
+        return updated
+
     def mark_failed(self, run_id: str, *, worker_state: str, reason: str, now: datetime | None = None) -> StoredCodingRun:
         record = self.load(run_id)
         execution = replace(record.execution, worker_state=_redact(worker_state, 256), reason=_redact(reason), finished_at=_now(now))

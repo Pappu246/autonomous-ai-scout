@@ -109,6 +109,7 @@ def test_worker_creates_draft_pr_after_approved_gate(tmp_path):
     result = worker.execute(req, now=datetime.now(timezone.utc))
     assert result.state == "draft_pr_created"
     assert result.pull_request.endswith("/42")
+    assert result.ci_status == "queued"
     assert [x[0] for x in backend.calls] == ["branch", "commit", "pr"]
 
 
