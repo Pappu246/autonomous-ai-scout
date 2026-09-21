@@ -447,7 +447,13 @@ sandbox validation
 READY_FOR_APPROVAL
         │
         ▼
-GitHub worker
+persisted coding run
+        │
+        ▼
+explicit approval CLI
+        │
+        ▼
+approved GitHub worker
         │
         ├── create dedicated branch
         ├── create one Git tree + commit
@@ -464,10 +470,40 @@ autonomous-scout-code \
   --title "CI regression" \
   --detail "The test suite is failing in the affected area." \
   --recommendation "Fix the regression and add focused coverage." \
-  --affected app.py tests/test_app.py
+  --affected app.py tests/test_app.py \
+  --base-branch main \
+  --expected-head-sha "<exact 40-character origin/main SHA>"
 ```
 
-A successful run stops at `READY_FOR_APPROVAL`; it does not merge or deploy.
+A successful run persists its reviewed proposal, candidate patch, review result,
+identity digests, approved base HEAD, and approval action under
+`state/coding_runs/`. It prints the resulting `run_id` and `action_id`. It never
+persists provider keys, GitHub credentials, approval tokens, arbitrary
+environment values, or detected secret material.
+
+The cross-process operational flow is deliberately explicit:
+
+```bash
+# Review the durable, non-secret operational status.
+autonomous-scout-approval inspect <action_id>
+
+# A human decision updates the existing approval queue/audit and the persisted run.
+autonomous-scout-approval approve <action_id>
+# or: autonomous-scout-approval reject <action_id>
+
+# Rebuild the exact reviewed request and create one draft PR when every guard passes.
+autonomous-scout-approval execute <action_id>
+```
+
+`execute` requires the persisted run to be `APPROVED`, its original coding run
+to remain `READY_FOR_APPROVAL`, the current queue action and approval record to
+match their stored digests, a valid lifecycle ledger, and the original project,
+patch, file, and expected-HEAD identities to still match. The GitHub worker then
+repeats its existing target-HEAD, duplicate-PR, and single-use approval checks.
+It records `EXECUTING`, followed by `EXECUTED` or `FAILED`; rejected or invalid
+runs remain terminal. A process interruption leaves an execution marker and does
+not retry automatically. The worker creates only a draft PR and observes CI; it
+never auto-merges or deploys.
 
 ## Current status
 

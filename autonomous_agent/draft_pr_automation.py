@@ -61,7 +61,8 @@ def _safe(value: object, limit: int = 512) -> str:
     return _SECRET.sub("[REDACTED]", text)[:limit]
 
 
-def _content_digest(file_contents: Mapping[str, str]) -> str:
+def file_contents_digest(file_contents: Mapping[str, str]) -> str:
+    """Return the stable identity digest for approved resulting file contents."""
     payload = [(path.strip().replace("\\", "/").removeprefix("./"), str(content)) for path, content in file_contents.items()]
     payload.sort(key=lambda item: item[0])
     return hashlib.sha256(json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -86,7 +87,8 @@ def _request_digest(request: DraftPrRequest) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _validate_identity(repository: str, base_branch: str, head_branch: str, expected_head_sha: str) -> str | None:
+def validate_draft_identity(repository: str, base_branch: str, head_branch: str, expected_head_sha: str) -> str | None:
+    """Validate the immutable repository target used by a draft-PR request."""
     if not _OWNER_REPOSITORY.fullmatch(repository.strip()):
         return "repository must use owner/repository identity"
     if not base_branch.strip():
@@ -113,7 +115,7 @@ def build_draft_pr_request(
     *,
     now=None,
 ) -> DraftPrRequest:
-    identity_error = _validate_identity(repository, base_branch, head_branch, expected_head_sha)
+    identity_error = validate_draft_identity(repository, base_branch, head_branch, expected_head_sha)
     if identity_error:
         raise DraftPrPreparationError(identity_error)
     if action.status != "approved":
@@ -139,7 +141,7 @@ def build_draft_pr_request(
         head_branch=head_branch.strip(),
         expected_head_sha=expected_head_sha.strip().lower(),
         patch_digest=review.patch_digest,
-        file_contents_digest=_content_digest(file_contents),
+        file_contents_digest=file_contents_digest(file_contents),
         title=safe_title,
         body=safe_body,
         files=review.files,
@@ -174,7 +176,7 @@ def prepare_draft_pr(
     decision = validate_approval(action, approval, now, audit_path)
     if not decision.allowed:
         return DraftPrResult(False, decision.reason, request.request_fingerprint)
-    identity_error = _validate_identity(request.repository, request.base_branch, request.head_branch, request.expected_head_sha)
+    identity_error = validate_draft_identity(request.repository, request.base_branch, request.head_branch, request.expected_head_sha)
     if identity_error:
         return DraftPrResult(False, identity_error, request.request_fingerprint)
     review = review_patch(unified_diff)
@@ -185,7 +187,7 @@ def prepare_draft_pr(
     supplied_files = tuple(dict.fromkeys(path.strip().replace("\\", "/").removeprefix("./") for path in file_contents))
     if supplied_files != request.files:
         return DraftPrResult(False, "approved patch file manifest mismatch", request.request_fingerprint)
-    if _content_digest(file_contents) != request.file_contents_digest:
+    if file_contents_digest(file_contents) != request.file_contents_digest:
         return DraftPrResult(False, "approved file contents fingerprint mismatch", request.request_fingerprint)
     if any("\x00" in content for content in file_contents.values()):
         return DraftPrResult(False, "changed file contains NUL bytes", request.request_fingerprint)
