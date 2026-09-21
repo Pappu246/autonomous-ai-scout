@@ -30,6 +30,25 @@ class ChatProviderConfig:
     temperature: float | None = None
     structured_output: bool = False
 
+
+_PATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "unified_diff": {"type": "string"},
+        "file_contents": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "summary": {"type": "string"},
+        "test_commands": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["unified_diff", "file_contents", "summary", "test_commands"],
+    "additionalProperties": false,
+}
+
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
     def __init__(self, config: ChatProviderConfig, *, http_post: Callable | None = None):
