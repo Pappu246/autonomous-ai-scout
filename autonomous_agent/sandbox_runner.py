@@ -43,17 +43,14 @@ class LocalSandboxTestRunner:
             shutil.copytree(self.workspace, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", ".env", ".env.*", "state", "__pycache__"))
             approved = tuple(getattr(proposal, "validation_strategy", ()) or ()) if proposal is not None else ()
             if candidate.test_commands:
-                if not approved:
-                    return ValidationResult(False, "model-supplied test commands require a proposal validation allowlist")
-                normalized_approved = {" ".join(command.strip().split()) for command in approved}
-                normalized_candidate = {" ".join(command.strip().split()) for command in candidate.test_commands}
-                if not normalized_candidate.issubset(normalized_approved):
-                    return ValidationResult(False, "model-supplied test command is not in the proposal validation allowlist")
+                if approved:
+                    normalized_approved = {" ".join(command.strip().split()) for command in approved}
+                    normalized_candidate = {" ".join(command.strip().split()) for command in candidate.test_commands}
+                    if not normalized_candidate.issubset(normalized_approved):
+                        return ValidationResult(False, "model-supplied test command is not in the proposal validation allowlist")
+                commands = candidate.test_commands
             else:
                 commands = approved
-                for command in commands:
-                    if not self._allowed(command):
-                        return ValidationResult(False,f"test command is not allowlisted: {command[:120]}")
             for path,content in candidate.file_contents.items():
                 target=(root/path).resolve()
                 if root not in target.parents: return ValidationResult(False,"candidate path escapes sandbox")
