@@ -130,9 +130,7 @@ def analyze_impact(project: str, finding: ProjectFinding, intelligence: Mapping[
     priorities = intelligence.get("priorities", ())
     affected = tuple(_safe_text(item) for item in (priorities or signals or (finding.title,)))[:10]
     dependencies = tuple(_safe_text(item) for item in intelligence.get("dependencies", ()))[:20]
-    tests = (f"Add or update regression coverage for: {_safe_text(finding.title)}",)
-    if any(term in finding.title.lower() for term in ("test", "ci", "regression")):
-        tests = ("Run the complete existing test suite.", "Add a focused regression test for the observed failure.")
+    tests = ("python -m pytest -q",)
     return ImpactAnalysis(project=project, affected_components=affected or (_safe_text(finding.title),), dependencies=dependencies, regression_surface=(_safe_text(finding.title), *affected[:4]), required_tests=tests, side_effects=("No production mutation during proposal generation.", "Any source write remains behind the existing approval-gated change boundary."))
 
 
