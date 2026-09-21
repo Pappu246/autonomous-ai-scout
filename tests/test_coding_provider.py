@@ -11,6 +11,7 @@ def test_openai_compatible_provider_parses_candidate(monkeypatch):
     candidate=model.generate_patch(proposal=type("P",(),{"problem":"fix","proposed_solution":"fix","validation_strategy":("python -m pytest -q",),"affected_area":("app.py",)})(),context=RepositoryContext("owner/repo",(RepositoryFile("app.py","print(1)\\n"),)))
     assert candidate is not None and candidate.summary=="fix"
     assert calls[0][1]["Authorization"]=="Bearer secret"
+    assert "temperature" not in calls[0][2]
 def test_provider_fails_closed_on_malformed_response(monkeypatch):
     monkeypatch.setenv("TEST_KEY", "secret")
     def post(endpoint, headers, payload, timeout):
@@ -26,3 +27,43 @@ def test_provider_accepts_fenced_json(monkeypatch):
     model = OpenAICompatibleCodingModel(ChatProviderConfig("https://example.test", "demo", "TEST_KEY"), http_post=post)
     candidate = model.generate_patch(proposal=type("P", (), {"problem": "fix", "proposed_solution": "fix", "validation_strategy": (), "affected_area": ()})(), context=RepositoryContext("owner/repo", ()))
     assert candidate is not None and candidate.summary == "fix"
+
+
+def test_provider_can_opt_in_to_temperature(monkeypatch):
+    calls = []
+
+    def post(endpoint, headers, payload, timeout):
+        calls.append(payload)
+        return {
+            "choices": [{
+                "message": {
+                    "content": '{"unified_diff":"diff","file_contents":{},"summary":"fix","test_commands":[]}'
+                }
+            }]
+        }
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig(
+            "https://example.test",
+            "demo",
+            "TEST_KEY",
+            temperature=0.2,
+        ),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type(
+            "P",
+            (),
+            {
+                "problem": "fix",
+                "proposed_solution": "fix",
+                "validation_strategy": (),
+                "affected_area": (),
+            },
+        )(),
+        context=RepositoryContext("owner/repo", ()),
+    )
+    assert candidate is not None
+    assert calls[0]["temperature"] == 0.2
