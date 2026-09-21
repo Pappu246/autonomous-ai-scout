@@ -29,21 +29,27 @@ class OpenAICompatibleCodingModel:
     def __init__(self, config: ChatProviderConfig, *, http_post: Callable | None = None):
         self.config, self._http_post = config, http_post
     def _post(self, payload: Mapping[str, object], headers: Mapping[str, str]):
-        if self._http_post is not None:
-            return self._http_post(self.config.endpoint, headers, payload, self.config.timeout_seconds)
         import httpx
-        with httpx.Client(timeout=self.config.timeout_seconds) as client:
-            try:
+
+        try:
+            if self._http_post is not None:
+                return self._http_post(
+                    self.config.endpoint,
+                    headers,
+                    payload,
+                    self.config.timeout_seconds,
+                )
+            with httpx.Client(timeout=self.config.timeout_seconds) as client:
                 response = client.post(
                     self.config.endpoint,
                     headers=dict(headers),
                     json=dict(payload),
                 )
                 response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                body = _redact(exc.response.text)[:500]
-                raise ProviderRequestError(exc.response.status_code, body) from exc
-            return response.json()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            body = _redact(exc.response.text)[:500]
+            raise ProviderRequestError(exc.response.status_code, body) from exc
     def generate_patch(self, *, proposal, context: RepositoryContext, feedback="", previous=None):
         api_key = os.getenv(self.config.api_key_env)
         if not api_key: return None
