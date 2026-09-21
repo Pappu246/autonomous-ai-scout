@@ -28,6 +28,26 @@ class ChatProviderConfig:
     api_key_env: str
     timeout_seconds: float = 60.0
     temperature: float | None = None
+    structured_output: bool = False
+
+
+_PATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "unified_diff": {"type": "string"},
+        "file_contents": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "summary": {"type": "string"},
+        "test_commands": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["unified_diff", "file_contents", "summary", "test_commands"],
+    "additionalProperties": False,
+}
 
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
@@ -74,11 +94,33 @@ class OpenAICompatibleCodingModel:
         ]}
         if self.config.temperature is not None:
             payload["temperature"] = self.config.temperature
+        if self.config.structured_output:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "patch_candidate",
+                    "schema": _PATCH_SCHEMA,
+                },
+            }
         result = self._post(payload, {"Authorization":f"Bearer {api_key}","Content-Type":"application/json"})
         try:
-            content = result["choices"][0]["message"]["content"]
-            if not isinstance(content, str): return None
-            text = content.strip()
+            message = result["choices"][0]["message"]
+            if not isinstance(message, Mapping):
+                return None
+            if isinstance(message.get("parsed"), Mapping):
+                data = dict(message["parsed"])
+                text = ""
+            else:
+                content = message.get("content")
+                if isinstance(content, list):
+                    content = "".join(
+                        str(item.get("text", ""))
+                        for item in content
+                        if isinstance(item, Mapping)
+                    )
+                if not isinstance(content, str):
+                    return None
+                text = content.strip()
             if text.startswith("```") and text.endswith("```"):
                 text = re.sub(r"^```(?:json)?\s*", "", text, count=1)
                 text = re.sub(r"\s*```$", "", text, count=1).strip()

@@ -118,3 +118,45 @@ def test_provider_exposes_safe_http_error(monkeypatch):
         assert "secret-value" not in str(exc)
     else:
         raise AssertionError("ProviderRequestError was not raised")
+
+
+def test_provider_requests_structured_output(monkeypatch):
+    calls = []
+
+    def post(endpoint, headers, payload, timeout):
+        calls.append(payload)
+        return {
+            "choices": [{
+                "message": {
+                    "content": '{"unified_diff":"diff","file_contents":{},"summary":"fix","test_commands":[]}'
+                }
+            }]
+        }
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig(
+            "https://example.test",
+            "demo",
+            "TEST_KEY",
+            structured_output=True,
+        ),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type(
+            "P",
+            (),
+            {
+                "problem": "fix",
+                "proposed_solution": "fix",
+                "validation_strategy": (),
+                "affected_area": (),
+            },
+        )(),
+        context=RepositoryContext("owner/repo", ()),
+    )
+
+    assert candidate is not None
+    assert calls[0]["response_format"]["type"] == "json_schema"
+    assert calls[0]["response_format"]["json_schema"]["name"] == "patch_candidate"
