@@ -11,6 +11,7 @@ class ChatProviderConfig:
     model: str
     api_key_env: str
     timeout_seconds: float = 60.0
+    temperature: float | None = None
 
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
@@ -37,10 +38,12 @@ class OpenAICompatibleCodingModel:
             "output_schema": {"unified_diff":"string", "file_contents":{"path":"complete UTF-8 file"}, "summary":"string", "test_commands":["proposal commands only"]},
             "constraints": ["Return JSON only.", "Never include secrets or private keys.", "Do not touch .git, .env, .github/workflows, or state/secrets.", "Do not merge, deploy, bill, or make external side effects."],
         }
-        payload = {"model": self.config.model, "temperature": 0, "messages":[
+        payload = {"model": self.config.model, "messages":[
             {"role":"system","content":"You are a constrained software engineer. Produce only a reviewable patch candidate."},
             {"role":"user","content":json.dumps(prompt, ensure_ascii=True)},
         ]}
+        if self.config.temperature is not None:
+            payload["temperature"] = self.config.temperature
         result = self._post(payload, {"Authorization":f"Bearer {api_key}","Content-Type":"application/json"})
         try:
             content = result["choices"][0]["message"]["content"]
