@@ -5,6 +5,17 @@ from typing import Callable, Mapping
 from .ai_coding_brain import RepositoryContext, _redact
 from .self_improvement import PatchCandidate
 
+
+class ProviderRequestError(RuntimeError):
+    """Safe provider request failure with bounded diagnostic detail."""
+
+    def __init__(self, status_code: int, detail: str = ""):
+        self.status_code = int(status_code)
+        super().__init__(
+            f"provider returned HTTP {self.status_code}"
+            + (f": {detail}" if detail else "")
+        )
+
 @dataclass(frozen=True)
 class ChatProviderConfig:
     endpoint: str
@@ -22,8 +33,16 @@ class OpenAICompatibleCodingModel:
             return self._http_post(self.config.endpoint, headers, payload, self.config.timeout_seconds)
         import httpx
         with httpx.Client(timeout=self.config.timeout_seconds) as client:
-            response = client.post(self.config.endpoint, headers=dict(headers), json=dict(payload))
-            response.raise_for_status()
+            try:
+                response = client.post(
+                    self.config.endpoint,
+                    headers=dict(headers),
+                    json=dict(payload),
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                body = _redact(exc.response.text)[:500]
+                raise ProviderRequestError(exc.response.status_code, body) from exc
             return response.json()
     def generate_patch(self, *, proposal, context: RepositoryContext, feedback="", previous=None):
         api_key = os.getenv(self.config.api_key_env)
