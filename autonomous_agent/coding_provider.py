@@ -6,6 +6,11 @@ from .ai_coding_brain import RepositoryContext, _redact
 from .self_improvement import PatchCandidate
 
 
+_SECRET_JSON = re.compile(
+    r'(?i)(["\'](?:api[_-]?key|access[_-]?token|token|password|secret|authorization|credential)["\']\s*:\s*["\'])[^"\']+(["\'])'
+)
+
+
 class ProviderRequestError(RuntimeError):
     """Safe provider request failure with bounded diagnostic detail."""
 
@@ -48,7 +53,7 @@ class OpenAICompatibleCodingModel:
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as exc:
-            body = _SECRET_JSON.sub(r"\\1[REDACTED]\\2", _redact(exc.response.text))[:500]
+            body = _SECRET_JSON.sub(r"\1[REDACTED]\2", _redact(exc.response.text))[:500]
             raise ProviderRequestError(exc.response.status_code, body) from exc
     def generate_patch(self, *, proposal, context: RepositoryContext, feedback="", previous=None):
         api_key = os.getenv(self.config.api_key_env)
