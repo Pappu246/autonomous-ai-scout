@@ -43,3 +43,16 @@ def test_sandbox_runner_rejects_absolute_and_parent_paths_in_commands(tmp_path: 
             PatchCandidate("", {}, "bad", (command,)),
         )
         assert not result.passed
+
+
+def test_sandbox_runner_accepts_python3_alias_with_prose_validation_strategy(tmp_path: Path):
+    (tmp_path/"test_ok.py").write_text(
+        "def test_ok():\n    assert 2 + 2 == 4\n",
+        encoding="utf-8",
+    )
+    proposal = type("P", (), {"validation_strategy": ("Run the complete existing test suite.",)})()
+    result = LocalSandboxTestRunner(tmp_path).validate(
+        proposal,
+        PatchCandidate("", {}, "python alias", ("python3 -m pytest -q test_ok.py",)),
+    )
+    assert result.passed
