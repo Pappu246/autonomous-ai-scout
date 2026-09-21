@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Mapping, Protocol
 
 from .continuous_improvement import ImprovementProposal
@@ -152,11 +152,25 @@ class AICodingBrain:
         self.validator = ContextualPatchValidator(validator, inspector)
 
     def run(self, proposal: ImprovementProposal) -> ImprovementRun:
-        return self.loop.run(
+        result = self.loop.run(
             proposal,
             generator=self.generator,
             validator=self.validator,
         )
+        provider_attempts = getattr(self.generator.model, "last_attempts", ())
+        if result.candidate is None and provider_attempts:
+            failures = [
+                attempt.detail
+                for attempt in provider_attempts
+                if attempt.status == "failed" and attempt.detail
+            ]
+            if failures:
+                detail = str(failures[-1])[:700]
+                return replace(
+                    result,
+                    reason=f"{result.reason}; provider_detail={detail}",
+                )
+        return result
 
 
 def build_model_prompt(
