@@ -158,6 +158,8 @@ def providers_from_env() -> tuple[ProviderSpec, ...]:
             timeout = float(
                 os.getenv(prefix + "TIMEOUT_SECONDS", "60")
             )
+            raw_temperature = os.getenv(prefix + "TEMPERATURE", "").strip()
+            temperature = float(raw_temperature) if raw_temperature else None
         except ValueError:
             continue
 
@@ -177,6 +179,7 @@ def providers_from_env() -> tuple[ProviderSpec, ...]:
                     model=model,
                     api_key_env=api_key_env,
                     timeout_seconds=timeout,
+                    temperature=temperature,
                 ),
                 priority=priority,
                 cost_class=cost_class,
