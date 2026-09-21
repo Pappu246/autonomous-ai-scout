@@ -5,6 +5,22 @@ from typing import Callable, Mapping
 from .ai_coding_brain import RepositoryContext, _redact
 from .self_improvement import PatchCandidate
 
+
+_SECRET_JSON = re.compile(
+    r'(?i)(["\'](?:api[_-]?key|access[_-]?token|token|password|secret|authorization|credential)["\']\s*:\s*["\'])[^"\']+(["\'])'
+)
+
+
+class ProviderRequestError(RuntimeError):
+    """Safe provider request failure with bounded diagnostic detail."""
+
+    def __init__(self, status_code: int, detail: str = ""):
+        self.status_code = int(status_code)
+        super().__init__(
+            f"provider returned HTTP {self.status_code}"
+            + (f": {detail}" if detail else "")
+        )
+
 @dataclass(frozen=True)
 class ChatProviderConfig:
     endpoint: str
@@ -18,13 +34,27 @@ class OpenAICompatibleCodingModel:
     def __init__(self, config: ChatProviderConfig, *, http_post: Callable | None = None):
         self.config, self._http_post = config, http_post
     def _post(self, payload: Mapping[str, object], headers: Mapping[str, str]):
-        if self._http_post is not None:
-            return self._http_post(self.config.endpoint, headers, payload, self.config.timeout_seconds)
         import httpx
-        with httpx.Client(timeout=self.config.timeout_seconds) as client:
-            response = client.post(self.config.endpoint, headers=dict(headers), json=dict(payload))
-            response.raise_for_status()
-            return response.json()
+
+        try:
+            if self._http_post is not None:
+                return self._http_post(
+                    self.config.endpoint,
+                    headers,
+                    payload,
+                    self.config.timeout_seconds,
+                )
+            with httpx.Client(timeout=self.config.timeout_seconds) as client:
+                response = client.post(
+                    self.config.endpoint,
+                    headers=dict(headers),
+                    json=dict(payload),
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            body = _SECRET_JSON.sub(r"\1[REDACTED]\2", _redact(exc.response.text))[:500]
+            raise ProviderRequestError(exc.response.status_code, body) from exc
     def generate_patch(self, *, proposal, context: RepositoryContext, feedback="", previous=None):
         api_key = os.getenv(self.config.api_key_env)
         if not api_key: return None

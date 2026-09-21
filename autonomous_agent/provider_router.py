@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from .ai_coding_brain import CodingModel, RepositoryContext
-from .coding_provider import ChatProviderConfig, OpenAICompatibleCodingModel
+from .coding_provider import (
+    ChatProviderConfig,
+    OpenAICompatibleCodingModel,
+    ProviderRequestError,
+)
 from .self_improvement import PatchCandidate
 
 
@@ -91,6 +95,15 @@ class CodingProviderRouter(CodingModel):
                         feedback=feedback,
                         previous=previous,
                     )
+                except ProviderRequestError as exc:
+                    attempts.append(
+                        ProviderAttempt(
+                            spec.name,
+                            "failed",
+                            str(exc)[:600],
+                        )
+                    )
+                    candidate = None
                 except Exception as exc:
                     attempts.append(
                         ProviderAttempt(
