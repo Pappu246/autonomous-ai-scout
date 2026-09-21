@@ -34,10 +34,23 @@ class LocalSandboxTestRunner:
                 return False
         return True
     def validate(self, proposal, candidate:PatchCandidate, *, context=None)->ValidationResult:
-        commands=candidate.test_commands or getattr(proposal,"validation_strategy",())
-        if not commands: return ValidationResult(False,"no validation command supplied")
+        candidate_commands = tuple(candidate.test_commands)
+        approved = tuple(getattr(proposal, "validation_strategy", ()) or ()) if proposal is not None else ()
+        approved_commands = tuple(command for command in approved if self._allowed(command))
+        if candidate_commands:
+            commands = candidate_commands
+            if approved_commands:
+                normalized_approved = {" ".join(command.strip().split()) for command in approved_commands}
+                normalized_candidate = {" ".join(command.strip().split()) for command in candidate_commands}
+                if not normalized_candidate.issubset(normalized_approved):
+                    return ValidationResult(False, "model-supplied test command is not in the proposal validation allowlist")
+        else:
+            commands = approved_commands
+        if not commands:
+            return ValidationResult(False, "no executable validation command supplied")
         for command in commands:
-            if not self._allowed(command): return ValidationResult(False,f"test command is not allowlisted: {command[:120]}")
+            if not self._allowed(command):
+                return ValidationResult(False,f"test command is not allowlisted: {command[:120]}")
         with tempfile.TemporaryDirectory(prefix="autonomous-scout-test-") as tmp:
             root=Path(tmp)
             shutil.copytree(self.workspace, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", ".env", ".env.*", "state", "__pycache__"))
