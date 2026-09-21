@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from autonomous_agent.provider_router import ProviderAttempt
+
 from autonomous_agent.ai_coding_brain import (
     AICodingBrain,
     GitRepositoryInspector,
@@ -105,3 +107,26 @@ def test_prompt_contains_constraints_and_context():
     assert "reviewable patch candidate" in prompt
     assert "tests failed" in prompt
     assert "app.py" in prompt
+
+
+class FailingModel:
+    last_attempts = (
+        ProviderAttempt("gemini", "failed", "provider returned HTTP 429"),
+    )
+
+    def generate_patch(self, *, proposal, context, feedback="", previous=None):
+        return None
+
+
+def test_brain_surfaces_provider_failure_detail():
+    brain = AICodingBrain(
+        model=FailingModel(),
+        inspector=GitRepositoryInspector(lambda repo, path: "print(1)\n"),
+        validator=Runner(),
+        max_revisions=0,
+    )
+
+    result = brain.run(make_proposal())
+
+    assert result.status.value == "rejected"
+    assert "provider_detail=provider returned HTTP 429" in result.reason
