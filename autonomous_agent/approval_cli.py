@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     execute = sub.add_parser("execute", help="execute one explicitly approved persisted coding run")
     execute.add_argument("action_id")
 
+    observe = sub.add_parser("observe", help="observe an existing draft PR and persist its CI status")
+    observe.add_argument("action_id")
+
     args = parser.parse_args(argv)
     queue = Path(args.queue)
     audit = Path(args.audit)
@@ -88,6 +91,27 @@ def main(argv: list[str] | None = None) -> int:
         except CodingRunStoreError as exc:
             print(f"error={exc}")
             return 2
+
+    if args.command == "observe":
+        try:
+            record = runs.find_by_action(args.action_id)
+            pull_request = record.execution.pull_request
+            if record.state.value != "EXECUTED" or not pull_request:
+                print("error=executed coding run with a recorded pull request is required")
+                return 2
+            worker = build_github_worker_from_env(claim_store=claims)
+            result = worker.observe(record.repository, pull_request)
+            runs.record_observation(record.run_id, worker_state=result.state, reason=result.reason, ci_status=result.ci_status)
+        except CodingRunStoreError as exc:
+            print(f"error={exc}")
+            return 2
+        print(f"state={result.state}")
+        print(f"reason={result.reason}")
+        if result.pull_request:
+            print(f"pull_request={result.pull_request}")
+        if result.ci_status:
+            print(f"ci_status={result.ci_status}")
+        return 0
 
     try:
         worker = build_github_worker_from_env(claim_store=claims)
