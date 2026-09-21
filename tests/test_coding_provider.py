@@ -1,5 +1,11 @@
 from autonomous_agent.ai_coding_brain import RepositoryContext, RepositoryFile
-from autonomous_agent.coding_provider import ChatProviderConfig, OpenAICompatibleCodingModel
+import httpx
+
+from autonomous_agent.coding_provider import (
+    ChatProviderConfig,
+    OpenAICompatibleCodingModel,
+    ProviderRequestError,
+)
 
 def test_openai_compatible_provider_parses_candidate(monkeypatch):
     calls=[]
@@ -67,3 +73,48 @@ def test_provider_can_opt_in_to_temperature(monkeypatch):
     )
     assert candidate is not None
     assert calls[0]["temperature"] == 0.2
+
+
+def test_provider_exposes_safe_http_error(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://example.test"),
+        text='{"error":{"message":"quota exceeded","token":"secret-value"}}',
+    )
+
+    def post(endpoint, headers, payload, timeout):
+        raise httpx.HTTPStatusError(
+            "request failed",
+            request=response.request,
+            response=response,
+        )
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+
+    proposal = type(
+        "P",
+        (),
+        {
+            "problem": "fix",
+            "proposed_solution": "fix",
+            "validation_strategy": (),
+            "affected_area": (),
+        },
+    )()
+
+    try:
+        model.generate_patch(
+            proposal=proposal,
+            context=RepositoryContext("owner/repo", ()),
+        )
+    except ProviderRequestError as exc:
+        assert exc.status_code == 429
+        assert "quota exceeded" in str(exc)
+        assert "secret-value" not in str(exc)
+    else:
+        raise AssertionError("ProviderRequestError was not raised")
