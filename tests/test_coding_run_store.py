@@ -343,3 +343,25 @@ def test_approval_cli_inspects_approves_and_executes_persisted_run(tmp_path: Pat
     assert approval_cli.main([*common, "execute", "action-bridge"]) == 0
     assert "state=draft_pr_created" in capsys.readouterr().out
     assert len(worker.requests) == 1
+
+
+def test_coding_run_persists_ci_observation(tmp_path: Path):
+    store, _, queue, lifecycle = build_record(tmp_path)
+    approvals, audit = approve_record(tmp_path, store, queue, lifecycle)
+    store.begin_execution("run-bridge")
+    store.mark_executed(
+        "run-bridge",
+        worker_state="draft_pr_created",
+        reason="draft PR created",
+        pull_request="https://github.com/owner/repo/pull/9",
+        ci_status="queued",
+    )
+    updated = store.record_observation(
+        "run-bridge",
+        worker_state="ci_running",
+        reason="CI is still running",
+        ci_status="in_progress",
+    )
+    assert updated.state is CodingRunState.EXECUTED
+    assert updated.execution.ci_status == "in_progress"
+    assert updated.execution.pull_request.endswith("/9")
