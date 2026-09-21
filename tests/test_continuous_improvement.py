@@ -70,6 +70,7 @@ def test_proposal_contains_required_evidence_and_deterministic_fingerprint():
     assert first.rollback_strategy
     assert first.approval_requirement == "human_review_for_source_change"
     assert first.impact_analysis.project == "owner/repo"
+    assert first.validation_strategy == ("python -m pytest -q", "Run existing deterministic project-intelligence checks again.")
 
 
 def test_critical_security_outranks_cosmetic_work():
