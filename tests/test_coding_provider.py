@@ -187,5 +187,5 @@ def test_provider_prompt_separates_prose_validation_from_commands(monkeypatch):
     )
     assert candidate is not None
     prompt = calls[0]["messages"][1]["content"]
-    assert "Prefer python -m pytest" in prompt
+    assert "Leave test_commands empty" in prompt
     assert "validation steps" in prompt
