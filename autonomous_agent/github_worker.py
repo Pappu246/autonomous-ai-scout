@@ -97,7 +97,9 @@ class GitHubWorker:
         if not pr:
             return WorkerResult("blocked", "GitHub backend did not return a pull request", result)
 
-        return WorkerResult("draft_pr_created", "approved patch was committed and opened as a draft PR", result, pr)
+        observation = self.observe(request.repository, pr)
+        reason = f"approved patch was committed and opened as a draft PR; {observation.reason}"
+        return WorkerResult("draft_pr_created", reason, result, pr, observation.ci_status)
 
     def observe(self, repository: str, pull_request: str) -> WorkerResult:
         try:
