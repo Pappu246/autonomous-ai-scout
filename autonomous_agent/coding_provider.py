@@ -46,7 +46,7 @@ _PATCH_SCHEMA = {
         },
     },
     "required": ["unified_diff", "file_contents", "summary", "test_commands"],
-    "additionalProperties": false,
+    "additionalProperties": False,
 }
 
 class OpenAICompatibleCodingModel:
