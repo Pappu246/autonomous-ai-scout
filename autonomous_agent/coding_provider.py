@@ -48,7 +48,7 @@ class OpenAICompatibleCodingModel:
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as exc:
-            body = _redact(exc.response.text)[:500]
+            body = _SECRET_JSON.sub(r"\\1[REDACTED]\\2", _redact(exc.response.text))[:500]
             raise ProviderRequestError(exc.response.status_code, body) from exc
     def generate_patch(self, *, proposal, context: RepositoryContext, feedback="", previous=None):
         api_key = os.getenv(self.config.api_key_env)
