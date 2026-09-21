@@ -193,6 +193,13 @@ def providers_from_env() -> tuple[ProviderSpec, ...]:
                     api_key_env=api_key_env,
                     timeout_seconds=timeout,
                     temperature=temperature,
+                    structured_output=(
+                        os.getenv(
+                            prefix + "STRUCTURED_OUTPUT",
+                            "true" if name.lower() == "gemini" else "false",
+                        ).strip().lower()
+                        in {"1", "true", "yes", "on"}
+                    ),
                 ),
                 priority=priority,
                 cost_class=cost_class,
