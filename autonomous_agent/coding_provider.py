@@ -28,6 +28,7 @@ class ChatProviderConfig:
     api_key_env: str
     timeout_seconds: float = 60.0
     temperature: float | None = None
+    structured_output: bool = False
 
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
