@@ -85,8 +85,8 @@ class OpenAICompatibleCodingModel:
             "files": [{"path": f.path, "content": f.content} for f in context.files],
             "feedback": _redact(feedback)[:4000],
             "previous_summary": previous.summary if previous else "",
-            "output_schema": {"unified_diff":"string", "file_contents":{"path":"complete UTF-8 file"}, "summary":"string", "test_commands":["executable commands only; omit when validation plan is prose-only"]},
-            "validation_rule": "Prefer python -m pytest for Python tests; never convert prose validation steps into shell commands or invent an executable command.",
+            "output_schema": {"unified_diff":"string", "file_contents":{"path":"complete UTF-8 file"}, "summary":"string", "test_commands":["leave empty; sandbox validation executes the approved proposal commands"]},
+            "validation_rule": "Do not invent, rewrite, or translate validation steps into commands. Leave test_commands empty so the sandbox executes only its approved proposal commands.",
             "constraints": ["Return JSON only.", "Never include secrets or private keys.", "Do not touch .git, .env, .github/workflows, or state/secrets.", "Do not merge, deploy, bill, or make external side effects."],
         }
         payload = {"model": self.config.model, "messages":[
