@@ -10,6 +10,7 @@ from .capability_policy import Capability
 from .adaptive_execution import AdaptiveExecutionResult, Replanner, execute_adaptive_plan
 from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
 from .task_dag import DAGTaskSpec, LongHorizonPlanner, TaskDAGPlan
+from .task_queue import QueueItem, TaskQueueStore
 from .task_orchestrator import StructuredTask, TaskOrchestrator
 from .task_plan_models import TaskPlan
 from .task_planner import default_grants_for_task
@@ -80,6 +81,26 @@ class AutonomousTaskCore:
                 seen.add(capability)
                 values.append(capability)
         return tuple(values)
+
+    def submit_background(
+        self,
+        task: str,
+        *,
+        queue: TaskQueueStore,
+        task_id: str,
+        execution_id: str,
+        available_at: str | None = None,
+    ) -> QueueItem:
+        """Persist one validated task for a background worker."""
+        prepared = self.prepare(task)
+        if not prepared.plan.executable:
+            raise ValueError(prepared.plan.reason)
+        return queue.enqueue(
+            prepared.task,
+            task_id=task_id,
+            execution_id=execution_id,
+            available_at=available_at,
+        )
 
     def prepare_dag(
         self,
@@ -237,4 +258,4 @@ class AutonomousTaskCore:
         )
 
 
-__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "TaskDAGPlan"]
+__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "QueueItem", "TaskDAGPlan", "TaskQueueStore"]
