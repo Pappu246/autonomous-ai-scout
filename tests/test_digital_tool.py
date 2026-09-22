@@ -76,3 +76,26 @@ def test_missing_tool_fails_closed():
     result = layer.invoke(ToolInvocation("not.a.real.tool", {}, "now"), invoker=lambda _: "bad")
     assert not result.success
     assert result.error == "tool is not registered"
+
+
+def test_untrusted_origin_cannot_authorize_a_write_without_approval():
+    from autonomous_agent.prompt_injection_guard import TrustLevel
+    from autonomous_agent.digital_tool import ToolInvocation
+
+    called = False
+
+    def invoker(invocation):
+        nonlocal called
+        called = True
+        return "ok"
+
+    result = UniversalDigitalToolLayer().invoke(
+        ToolInvocation("filesystem.write", {"path": "x", "content": "data"}, "now"),
+        granted=[Capability.FILES_WORKSPACE],
+        explicitly_approved=False,
+        origin_trust=TrustLevel.TOOL_RESULT,
+        invoker=invoker,
+    )
+    assert not result.success
+    assert "untrusted content cannot authorize" in result.error
+    assert called is False
