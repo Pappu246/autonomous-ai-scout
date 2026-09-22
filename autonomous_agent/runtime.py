@@ -6,17 +6,17 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
-from .execution_engine import ExecutionResult, ExecutionState, execute_plan
+from .execution_engine import ExecutionResult, ExecutionState
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
-from .task_plan_models import PlanRisk, TaskAuditRecord, TaskIntent, TaskPlan
+from .task_core import AutonomousTaskCore
+from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY, ToolRegistry
-from .workflow_engine import WorkflowDefinition, WorkflowEngine
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 
-def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple]:
+def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
     prepared = AutonomousTaskCore(registry=registry).prepare(task)
     return prepared.plan, prepared.granted
