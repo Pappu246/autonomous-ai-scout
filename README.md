@@ -116,6 +116,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N24** | Web Research + Knowledge Acquisition | Collects source-backed web evidence with provenance, extraction, and conflict-preserving comparison |
 | **N25** | Gmail / Calendar / Communication | Coordinates read-only communication steps and preserves approval gates for drafts/events/sending |
 | **N26** | Persistent Episodic + Semantic Memory | Persists sanitized episodes/facts and retrieves relevant prior context across process restarts |
+| **N27** | Context Management + Long-Term Memory | Builds bounded working context from live task state and relevant durable memory |
 
 ### N9 → N14 flow
 
@@ -139,8 +140,9 @@ flowchart LR
     N24["N24<br/>Web Knowledge Acquisition"]
     N25["N25<br/>Gmail / Calendar / Communication"]
     N26["N26<br/>Persistent Memory"]
+    N27["N27<br/>Context / LTM"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24 --> N25 --> N26
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24 --> N25 --> N26 --> N27
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -534,11 +536,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N25; N26 is on the phase branch and awaiting its persistent-memory verification gate.**
+**Implemented through N26; N27 is on the phase branch and awaiting its context/LTM verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -556,6 +558,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N24 Web Research + Knowledge Acquisition](N24_WEB_KNOWLEDGE_ACQUISITION.md)
 - [N25 Gmail / Calendar / Communication](N25_COMMUNICATION_WORKFLOWS.md)
 - [N26 Persistent Memory](N26_PERSISTENT_MEMORY.md)
+- [N27 Context + Long-Term Memory](N27_CONTEXT_LONG_TERM_MEMORY.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
