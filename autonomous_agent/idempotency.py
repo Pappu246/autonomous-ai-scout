@@ -22,6 +22,7 @@ class EffectRecord:
     state: EffectState
     result: Any = None
     error: str = ""
+    created: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ class EffectLedger:
                 state = EffectState(str(item["state"]))
             except (KeyError, ValueError) as exc:
                 raise ValueError("effect ledger contains invalid state") from exc
-            return EffectRecord(key, state, item.get("result"), str(item.get("error", "")))
+            return EffectRecord(key, state, item.get("result"), str(item.get("error", "")), False)
 
     def prepare(self, key: str) -> EffectRecord:
         if not key.strip():
@@ -82,10 +83,10 @@ class EffectLedger:
             value = self._load()
             current = value.get(key)
             if current is not None:
-                return EffectRecord(key, EffectState(str(current["state"])), current.get("result"), str(current.get("error", "")))
+                return EffectRecord(key, EffectState(str(current["state"])), current.get("result"), str(current.get("error", "")), False)
             value[key] = {"state": EffectState.PREPARED.value}
             self._save(value)
-            return EffectRecord(key, EffectState.PREPARED)
+            return EffectRecord(key, EffectState.PREPARED, created=True)
 
     def commit(self, key: str, result: Any = None) -> EffectRecord:
         with self._lock:
@@ -118,13 +119,15 @@ class IdempotentEffectRunner:
         *,
         verify: Verifier | None = None,
     ) -> IdempotentResult:
-        record = self.ledger.prepare(key)
-        if record.state is EffectState.COMMITTED:
-            return IdempotentResult(EffectState.COMMITTED, False, record.result)
-        if record.state is EffectState.PREPARED and record.result is None and record is not None and self.ledger.get(key) is not None and record.key == key:
-            current = self.ledger.get(key)
-            if current is not None and current.state is EffectState.PREPARED and current is not record:
+        existing = self.ledger.get(key)
+        if existing is not None:
+            if existing.state is EffectState.COMMITTED:
+                return IdempotentResult(EffectState.COMMITTED, False, existing.result)
+            if existing.state is EffectState.PREPARED:
                 return IdempotentResult(EffectState.PREPARED, False, error="effect is already prepared and requires recovery")
+        record = self.ledger.prepare(key)
+        if not record.created:
+            return IdempotentResult(EffectState.PREPARED, False, error="effect is already prepared and requires recovery")
         try:
             result = operation()
             if verify is not None and not verify(result):
