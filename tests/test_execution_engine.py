@@ -159,7 +159,7 @@ def test_execution_resumes_from_persisted_checkpoint_without_replaying_completed
     )
 
     assert resumed.state is ExecutionState.VERIFIED
-    assert calls == ["test", "test"]
+    assert calls == ["inspect", "test", "test"]
     final_state = json.loads(checkpoint.read_text(encoding="utf-8"))
     assert final_state["state"] == "verified"
     assert final_state["completed_step_ids"] == ["step-1", "step-2"]
