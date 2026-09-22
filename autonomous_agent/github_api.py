@@ -177,17 +177,43 @@ class GitHubApiClient:
         return dict(result)
 
     def status(self, repository: str, pull_request: str) -> str:
+        """Return CI/check state for the exact pull-request head SHA.
+
+        GitHub Actions can publish check-runs without creating legacy commit
+        statuses. Prefer check-runs so a completed workflow is not reported as
+        pending merely because the legacy /status collection is empty.
+        """
         snapshot = self.get(repository, pull_request)
         head = snapshot.get("head")
         if not isinstance(head, Mapping) or not head.get("sha"):
             return "pending"
+        head_sha = quote(str(head["sha"]), safe="")
         result = self._request(
             "GET",
-            f"{_repo_path(repository)}/commits/{quote(str(head['sha']), safe='')}/status",
+            f"{_repo_path(repository)}/commits/{head_sha}/check-runs",
         )
-        state = str(result.get("state", "pending")).lower()
-        if state in {"success", "failure", "error", "pending"}:
-            return "failure" if state == "error" else state
+        check_runs = result.get("check_runs") if isinstance(result, Mapping) else None
+        if not isinstance(check_runs, list) or not check_runs:
+            return "pending"
+
+        conclusions: list[str] = []
+        has_active = False
+        for check in check_runs:
+            if not isinstance(check, Mapping):
+                continue
+            status = str(check.get("status", "")).lower()
+            conclusion = str(check.get("conclusion", "")).lower()
+            if status != "completed":
+                has_active = True
+            elif conclusion:
+                conclusions.append(conclusion)
+
+        if any(value in {"failure", "timed_out", "cancelled", "action_required", "startup_failure"} for value in conclusions):
+            return "failure"
+        if has_active:
+            return "pending"
+        if conclusions and all(value in {"success", "neutral", "skipped"} for value in conclusions):
+            return "success"
         return "pending"
 
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str:
