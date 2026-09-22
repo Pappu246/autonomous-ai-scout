@@ -28,6 +28,7 @@ def run_task(
     audit_path: Path = AUDIT_PATH,
     journal_path: Path = JOURNAL_PATH,
     execution_id: str | None = None,
+    checkpoint_path: Path | None = None,
     registry: ToolRegistry = REGISTRY,
     browser_connector: Any = None,
     browser_request: Mapping[str, Any] | None = None,
@@ -41,6 +42,7 @@ def run_task(
     calendar_request: Mapping[str, Any] | None = None,
 ) -> ExecutionResult:
     execution_id = execution_id or os.urandom(8).hex()
+    checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
     prepared = core.prepare(task)
     if not prepared.plan.executable:
@@ -62,6 +64,7 @@ def run_task(
         root,
         audit_path=audit_path,
         execution_id=execution_id,
+        checkpoint_path=checkpoint_path,
         browser_connector=browser_connector,
         browser_request=browser_request,
         web_connector=web_connector,
