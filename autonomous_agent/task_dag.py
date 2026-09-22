@@ -57,13 +57,20 @@ class TaskDAGPlan:
 
 @dataclass(frozen=True)
 class DAGExecutionResult:
+    """Result of one bounded sequential DAG execution attempt."""
     completed: tuple[str, ...]
     blocked: tuple[str, ...]
     failed_node: str | None
 
     @property
-    success(self) -> bool:
+    def is_success(self) -> bool:
+        """True only when every DAG node completed and none failed."""
         return not self.blocked and self.failed_node is None
+
+    @property
+    def success(self) -> bool:
+        """Backward-compatible alias for is_success."""
+        return self.is_success
 
 
 def _digest(objective: str, nodes: Iterable[DAGNode]) -> str:
