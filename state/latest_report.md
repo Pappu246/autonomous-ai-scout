@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-22T06:54:38.657187+00:00
+Generated: 2026-09-22T12:09:33.699732+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -12,7 +12,7 @@ Meaningful change: YES
 
 ## Project findings
 
-- **HIGH — Pappu246/autonomous-ai-scout: Possible hard-coded secret** — A high-confidence secret-like assignment was detected in tests/test_draft_pr_automation.py. Recommendation: Move credentials to environment/secret storage and rotate exposed credentials.
+- **HIGH — Pappu246/autonomous-ai-scout: Possible hard-coded secret** — A high-confidence secret-like assignment was detected in tests/test_project_intelligence_security.py. Recommendation: Move credentials to environment/secret storage and rotate exposed credentials.
 - **LOW — Pappu246/autonomous-ai-scout: No dependency lockfile detected** — A supported dependency manifest exists but no common lockfile was found. Recommendation: Commit a lockfile when the package manager supports one to improve reproducibility and reviewability.
 
 ## Monetization / opportunity ideas
@@ -34,7 +34,7 @@ Meaningful change: YES
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
-- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 17, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
+- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 18, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
 - Official release change: openrouter — Official release source changed. (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
