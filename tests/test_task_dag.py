@@ -63,6 +63,20 @@ def test_dag_preserves_policy_blocked_nodes():
     assert result.nodes[0].plan.executable is False
 
 
+def test_dag_rejects_unbounded_node_count():
+    specs = tuple(
+        DAGTaskSpec(f"node-{index}", "inspect repository")
+        for index in range(17)
+    )
+    result = LongHorizonPlanner().plan(
+        "too large",
+        specs,
+        granted=[Capability.INSPECT],
+    )
+    assert not result.executable
+    assert "node limit" in result.reason
+
+
 def test_dag_scheduler_blocks_downstream_after_failure():
     planner = LongHorizonPlanner()
     dag = planner.plan(
