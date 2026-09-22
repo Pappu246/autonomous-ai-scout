@@ -12,6 +12,7 @@ from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
 from .task_dag import DAGTaskSpec, LongHorizonPlanner, TaskDAGPlan
 from .task_queue import QueueItem, TaskQueueStore
 from .persistent_memory import MemoryMatch, PersistentMemory
+from .context_manager import ContextManager, ContextPacket
 from .task_orchestrator import StructuredTask, TaskOrchestrator
 from .task_plan_models import TaskPlan
 from .task_planner import default_grants_for_task
@@ -82,6 +83,28 @@ class AutonomousTaskCore:
                 seen.add(capability)
                 values.append(capability)
         return tuple(values)
+
+    @staticmethod
+    def build_context(
+        context: ContextManager,
+        task: str,
+        *,
+        plan: str = "",
+        observations: Iterable[str] = (),
+        memory: PersistentMemory | None = None,
+        project: str | None = None,
+        memory_query: str | None = None,
+        pinned: Iterable[str] = (),
+    ) -> ContextPacket:
+        return context.build(
+            task,
+            plan=plan,
+            observations=observations,
+            memory=memory,
+            project=project,
+            memory_query=memory_query,
+            pinned=pinned,
+        )
 
     @staticmethod
     def remember_episode(
@@ -288,4 +311,4 @@ class AutonomousTaskCore:
         )
 
 
-__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "MemoryMatch", "PersistentMemory", "QueueItem", "TaskDAGPlan", "TaskQueueStore"]
+__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "ContextManager", "ContextPacket", "DAGTaskSpec", "MemoryMatch", "PersistentMemory", "QueueItem", "TaskDAGPlan", "TaskQueueStore"]
