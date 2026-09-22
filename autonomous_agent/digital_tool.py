@@ -8,6 +8,7 @@ from .connector_registry import ConnectorRegistry
 from .tool_registry import REGISTRY, ReadWriteMode, ToolRegistry, ToolSpec
 from .prompt_injection_guard import TrustLevel
 from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
+from .idempotency import EffectLedger, IdempotentEffectRunner
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,8 @@ class UniversalDigitalToolLayer:
         audit_available: bool = True,
         invoker: Invoker | None = None,
         origin_trust: TrustLevel = TrustLevel.USER,
+        effect_ledger: EffectLedger | None = None,
+        idempotency_key: str | None = None,
     ) -> ToolResult:
         spec = self.resolve(invocation.tool_name)
         if spec is None:
@@ -165,6 +168,14 @@ class UniversalDigitalToolLayer:
         if invoker is None:
             return ToolResult(spec.name, False, None, "no execution adapter is registered")
         try:
+            if effect_ledger is not None and idempotency_key:
+                result = IdempotentEffectRunner(effect_ledger).run(
+                    idempotency_key,
+                    lambda: invoker(invocation),
+                )
+                if not result.executed and result.state.value == "prepared":
+                    return ToolResult(spec.name, False, None, result.error)
+                return ToolResult(spec.name, result.state.value == "committed", result.result, result.error)
             return ToolResult(spec.name, True, invoker(invocation))
         except Exception as exc:
             return ToolResult(spec.name, False, None, f"tool invocation failed: {type(exc).__name__}")
