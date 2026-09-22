@@ -8,7 +8,7 @@ from typing import Callable, Iterable, Mapping
 
 from .capability_policy import Capability
 from .execution_engine import ExecutionResult, ExecutionState, execute_plan
-from .execution_audit import append_execution_record
+from .execution_audit import append_execution_record, verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES, SandboxResult
 from .task_plan_models import PlanRisk, TaskAuditRecord, TaskPlan, TaskStep
 from .tool_registry import REGISTRY, ToolRegistry
@@ -40,6 +40,9 @@ class AdaptiveExecutionResult:
     observations: tuple[StepObservation, ...]
     audit_path: str
 
+
+MAX_ADAPTIVE_RETRIES = 2
+MAX_ADAPTIVE_REPLANS = 2
 
 Replanner = Callable[[StepObservation, tuple[TaskStep, ...]], Iterable[TaskStep] | None]
 
@@ -120,8 +123,10 @@ def execute_adaptive_plan(
         return AdaptiveExecutionResult(ExecutionState.BLOCKED, "execution identity is required", 0, 0, (), (), str(audit_path))
     if not plan.executable:
         return AdaptiveExecutionResult(ExecutionState.BLOCKED, "task plan is not executable", 0, 0, (), (), str(audit_path))
-    if max_retries_per_step < 0 or max_replans < 0:
-        return AdaptiveExecutionResult(ExecutionState.BLOCKED, "adaptive budgets cannot be negative", 0, 0, (), (), str(audit_path))
+    if not verify_execution_audit(audit_path):
+        return AdaptiveExecutionResult(ExecutionState.BLOCKED, "execution audit chain is invalid", 0, 0, (), (), str(audit_path))
+    retries = max(0, min(int(max_retries_per_step), MAX_ADAPTIVE_RETRIES))
+    replans = max(0, min(int(max_replans), MAX_ADAPTIVE_REPLANS))
 
     steps = list(plan.steps)
     results: list[SandboxResult] = []
@@ -137,7 +142,7 @@ def execute_adaptive_plan(
         last_observation: StepObservation | None = None
         completed = False
 
-        for attempt in range(max_retries_per_step + 1):
+        for attempt in range(retries + 1):
             child_id = f"{execution_id}:{step.step_id}:attempt-{attempt + 1}"
             safe_id = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in child_id)
             child_audit = audit_path.with_name(f"{audit_path.stem}.{safe_id}.jsonl")
@@ -196,7 +201,7 @@ def execute_adaptive_plan(
                 )
                 return AdaptiveExecutionResult(child.state, child.reason, total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
 
-            if attempt < max_retries_per_step:
+            if attempt < retries:
                 _audit(audit_path, execution_id, "RETRY", step_id=step.step_id, next_attempt=attempt + 2)
 
         if completed:
@@ -204,7 +209,7 @@ def execute_adaptive_plan(
             index += 1
             continue
 
-        if replanner is None or replan_count >= max_replans or last_observation is None:
+        if replanner is None or replan_count >= replans or last_observation is None:
             _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="retry budget exhausted and no adaptive replan available")
             return AdaptiveExecutionResult(ExecutionState.FAILED, f"adaptive recovery exhausted for {step.tool_name}", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
 
@@ -241,4 +246,4 @@ def execute_adaptive_plan(
     )
 
 
-__all__ = ["AdaptiveExecutionResult", "Replanner", "StepObservation", "execute_adaptive_plan"]
+__all__ = ["AdaptiveExecutionResult", "MAX_ADAPTIVE_REPLANS", "MAX_ADAPTIVE_RETRIES", "Replanner", "StepObservation", "execute_adaptive_plan"]
