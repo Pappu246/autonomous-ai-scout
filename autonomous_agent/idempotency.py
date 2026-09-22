@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
@@ -91,7 +92,7 @@ class EffectLedger:
     def commit(self, key: str, result: Any = None) -> EffectRecord:
         with self._lock:
             value = self._load()
-            value[key] = {"state": EffectState.COMMITTED.value, "result": result}
+            value[key] = {"state": EffectState.COMMITTED.value, "result": _safe_result(result)}
             self._save(value)
             return EffectRecord(key, EffectState.COMMITTED, result)
 
@@ -101,6 +102,27 @@ class EffectLedger:
             value[key] = {"state": EffectState.FAILED.value, "error": error[:500]}
             self._save(value)
             return EffectRecord(key, EffectState.FAILED, error=error[:500])
+
+
+_SECRET_RE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\\s*[:=]\\s*[^\\s,;]+")
+
+
+def _safe_result(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        safe = {}
+        for key, item in value.items():
+            if any(marker.lower() in str(key).lower() for marker in ("token", "password", "secret", "api_key", "authorization")):
+                safe[str(key)] = "[REDACTED]"
+            else:
+                safe[str(key)] = _safe_result(item)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [_safe_result(item) for item in value[:32]]
+    if isinstance(value, str):
+        return _SECRET_RE.sub(lambda match: match.group(1) + "=[REDACTED]", value[:4000])
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:4000]
 
 
 Verifier = Callable[[Any], bool]
@@ -147,8 +169,9 @@ class IdempotentEffectRunner:
             return IdempotentResult(EffectState.COMMITTED, False, current.result)
         if current.state is not EffectState.PREPARED:
             return IdempotentResult(current.state, False, error=current.error)
-        self.ledger.commit(key, confirmed_result)
-        return IdempotentResult(EffectState.COMMITTED, False, confirmed_result)
+        safe = _safe_result(confirmed_result)
+        self.ledger.commit(key, safe)
+        return IdempotentResult(EffectState.COMMITTED, False, safe)
 
 
 __all__ = ["EffectLedger", "EffectRecord", "EffectState", "IdempotentEffectRunner", "IdempotentResult"]
