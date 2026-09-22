@@ -64,6 +64,12 @@ Example graph:
 
 ## Capability proof
 
+Runnable capability demo:
+
+```bash
+python examples/n19_task_dag_demo.py
+```
+
 Runnable test:
 
 ```bash
