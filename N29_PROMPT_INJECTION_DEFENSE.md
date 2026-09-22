@@ -31,6 +31,12 @@ tool/action sink
 
 ## Capability proof
 
+Runnable capability demo:
+
+```bash
+python examples/n29_prompt_injection_demo.py
+```
+
 Runnable test:
 
 ```bash
@@ -41,7 +47,7 @@ The tests detect instruction override, secret-exfiltration and control-bypass pa
 
 ## Safety model
 
-N29 uses defense in depth rather than a regex-only claim of complete protection. Structural source/sink separation and existing least-privilege/approval boundaries remain the primary safety controls. This follows current guidance that prompt injection is an evolving problem and that filtering alone is insufficient. citeturn383007search5turn383007search7
+N29 uses defense in depth rather than a regex-only claim of complete protection. Structural source/sink separation and existing least-privilege/approval boundaries remain the primary safety controls. This follows current guidance from [OpenAI](https://openai.com/index/designing-agents-to-resist-prompt-injection/) and [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) that prompt injection is evolving and filtering alone is insufficient.
 
 ## Limitations after N29
 
