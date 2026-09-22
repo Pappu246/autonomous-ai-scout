@@ -95,6 +95,11 @@ class DynamicToolRouter:
     def select_names(self, task: str, intent: TaskIntent | None = None) -> ToolSelection:
         raw = " ".join(task.strip().split())
         resolved = intent or TaskIntent.UNKNOWN
+        if isinstance(resolved, str):
+            try:
+                resolved = TaskIntent(resolved)
+            except ValueError:
+                resolved = TaskIntent.UNKNOWN
         if intent is None:
             from .task_intent import classify_intent
             resolved = classify_intent(raw)
