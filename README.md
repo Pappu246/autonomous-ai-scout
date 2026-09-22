@@ -104,6 +104,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N12** | GitHub Worker | Handles approved branch/commit/draft-PR work and observes CI |
 | **N13** | AI Coding Brain | Builds repository context and generates reviewable patch candidates |
 | **N14** | Provider Router | Selects configured coding providers with policy, retry, and fail-closed rules |
+| **N15** | Unified Autonomous Task Core | Provides one canonical task planning/execution entry point over the existing boundaries |
 
 ### N9 → N14 flow
 
@@ -316,6 +317,7 @@ The scheduled scout and the engineering execution stack share the same conservat
 ```text
 autonomous-ai-scout/
 ├── autonomous_agent/
+│   ├── task_core.py
 │   ├── runtime.py
 │   ├── main.py
 │   ├── provider_router.py
@@ -507,11 +509,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N14.**
+**Implemented through N14; N15 is implemented on the phase branch and is awaiting its verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-The roadmap currently ends at **N14**. No later phase is represented here until it is actually defined and implemented.
+N15 introduces the unified task-core boundary. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
