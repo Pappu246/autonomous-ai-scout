@@ -24,7 +24,8 @@ class CommunicationPlan:
         return any(step.requires_approval for step in self.steps)
 
     @property
-    safe_read_steps(self) -> tuple[str, ...]:
+    @property
+    def safe_read_steps(self) -> tuple[str, ...]:
         return tuple(step.tool_name for step in self.steps if not step.requires_approval)
 
 
