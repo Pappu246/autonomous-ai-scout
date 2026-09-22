@@ -112,6 +112,22 @@ def test_status_maps_github_error_to_failure(monkeypatch):
     assert result == "failure"
 
 
+def test_status_uses_check_runs_when_legacy_status_is_empty(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [
+        {"head": {"sha": "h" * 40}},
+        {"check_runs": [
+            {"name": "CI", "status": "completed", "conclusion": "success"}
+        ]},
+    ]
+
+    result = client(fake).status("owner/repo", "#7")
+
+    assert result == "success"
+    assert fake.calls[1][1].endswith("/commits/" + ("h" * 40) + "/check-runs")
+
+
 def test_missing_token_fails_closed(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     fake = FakeApi()
