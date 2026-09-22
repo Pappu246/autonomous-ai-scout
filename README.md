@@ -113,6 +113,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N21** | Universal Digital Tool Layer | Common discovery, validation, authorization, and invocation contract over registered tools/connectors |
 | **N22** | Browser Interaction | Bounded open/click/extract workflows over the existing controlled browser transport |
 | **N23** | Workspace / OS / Shell | Root-bound read/validation shell with command allowlisting and network fail-closed behavior |
+| **N24** | Web Research + Knowledge Acquisition | Collects source-backed web evidence with provenance, extraction, and conflict-preserving comparison |
 
 ### N9 → N14 flow
 
@@ -133,8 +134,9 @@ flowchart LR
     N21["N21<br/>Universal Digital Tool Layer"]
     N22["N22<br/>Browser Interaction"]
     N23["N23<br/>Workspace / OS / Shell"]
+    N24["N24<br/>Web Knowledge Acquisition"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -528,11 +530,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N22; N23 is on the phase branch and awaiting its workspace-shell verification gate.**
+**Implemented through N23; N24 is on the phase branch and awaiting its knowledge-acquisition verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -547,6 +549,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N21 Universal Digital Tool Layer](N21_UNIVERSAL_DIGITAL_TOOL_LAYER.md)
 - [N22 Browser Interaction](N22_BROWSER_INTERACTION.md)
 - [N23 Workspace / OS / Shell](N23_WORKSPACE_OS_SHELL.md)
+- [N24 Web Research + Knowledge Acquisition](N24_WEB_KNOWLEDGE_ACQUISITION.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
