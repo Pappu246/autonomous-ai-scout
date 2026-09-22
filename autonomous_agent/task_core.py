@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping
 from .capability_policy import Capability
 from .adaptive_execution import AdaptiveExecutionResult, Replanner, execute_adaptive_plan
 from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
+from .task_dag import DAGTaskSpec, LongHorizonPlanner, TaskDAGPlan
 from .task_orchestrator import StructuredTask, TaskOrchestrator
 from .task_plan_models import TaskPlan
 from .task_planner import default_grants_for_task
@@ -79,6 +80,26 @@ class AutonomousTaskCore:
                 seen.add(capability)
                 values.append(capability)
         return tuple(values)
+
+    def prepare_dag(
+        self,
+        objective: str,
+        specs: Iterable[DAGTaskSpec],
+        *,
+        granted: Iterable[Capability | str] = (),
+        explicitly_approved: bool = False,
+        sandbox_available: bool = True,
+        audit_available: bool = True,
+    ) -> TaskDAGPlan:
+        """Build a bounded dependency DAG using the canonical task planner."""
+        return LongHorizonPlanner(self._registry).plan(
+            objective,
+            specs,
+            granted=granted,
+            explicitly_approved=explicitly_approved,
+            sandbox_available=sandbox_available,
+            audit_available=audit_available,
+        )
 
     def prepare(
         self,
@@ -216,4 +237,4 @@ class AutonomousTaskCore:
         )
 
 
-__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask"]
+__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "TaskDAGPlan"]
