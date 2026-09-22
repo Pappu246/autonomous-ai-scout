@@ -5,7 +5,8 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .capability_policy import CapabilityDecision
 from .connector_registry import ConnectorRegistry
-from .tool_registry import REGISTRY, ToolRegistry, ToolSpec
+from .tool_registry import REGISTRY, ReadWriteMode, ToolRegistry, ToolSpec
+from .prompt_injection_guard import TrustLevel
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,7 @@ class UniversalDigitalToolLayer:
         sandbox_available: bool = True,
         audit_available: bool = True,
         invoker: Invoker | None = None,
+        origin_trust: TrustLevel = TrustLevel.USER,
     ) -> ToolResult:
         spec = self.resolve(invocation.tool_name)
         if spec is None:
@@ -146,6 +148,8 @@ class UniversalDigitalToolLayer:
         )
         if not decision.allowed:
             return ToolResult(spec.name, False, None, decision.reason)
+        if origin_trust in {TrustLevel.EXTERNAL, TrustLevel.TOOL_RESULT, TrustLevel.MEMORY} and spec.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
+            return ToolResult(spec.name, False, None, "untrusted content cannot authorize a write action")
         if invoker is None:
             return ToolResult(spec.name, False, None, "no execution adapter is registered")
         try:
