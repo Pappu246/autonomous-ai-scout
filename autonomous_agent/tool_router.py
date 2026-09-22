@@ -43,6 +43,8 @@ class DynamicToolRouter:
     @staticmethod
     def _workspace_tools(task: str) -> tuple[str, ...]:
         text = task.lower()
+        if any(x in text for x in ("run command", "shell command", "terminal command", "py_compile", "compile python")):
+            return ("workspace.shell",)
         if any(x in text for x in ("transform file", "replace in file", "modify file")):
             return ("filesystem.transform",)
         if any(x in text for x in ("write file", "create file", "save file")):
