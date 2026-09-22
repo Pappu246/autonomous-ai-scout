@@ -17,7 +17,7 @@ def test_discovery_can_filter_by_capability():
     layer = UniversalDigitalToolLayer()
     candidates = layer.discover(capability=Capability.FILES_WORKSPACE.value)
     assert {candidate.name for candidate in candidates} == {
-        "filesystem.list", "filesystem.read", "filesystem.transform", "filesystem.write"
+        "filesystem.list", "filesystem.read", "filesystem.transform", "filesystem.write", "workspace.shell"
     }
 
 
