@@ -52,14 +52,7 @@ class TaskDAGPlan:
 
     @property
     def ready_frontier(self) -> tuple[str, ...]:
-        completed: set[str] = set()
-        frontier: list[str] = []
-        for node_id in self.topological_order():
-            node = next(node for node in self.nodes if node.node_id == node_id)
-            if all(dep in completed for dep in node.depends_on):
-                frontier.append(node_id)
-                completed.add(node_id)
-        return tuple(frontier)
+        return tuple(node.node_id for node in self.nodes if not node.depends_on)
 
 
 @dataclass(frozen=True)
