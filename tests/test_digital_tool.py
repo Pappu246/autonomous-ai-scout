@@ -99,3 +99,29 @@ def test_untrusted_origin_cannot_authorize_a_write_without_approval():
     assert not result.success
     assert "untrusted content cannot authorize" in result.error
     assert called is False
+
+
+def test_write_tool_can_use_idempotency_key_to_prevent_duplicate_invocation(tmp_path):
+    from autonomous_agent.digital_tool import ToolInvocation
+    from autonomous_agent.idempotency import EffectLedger
+    calls = []
+    layer = UniversalDigitalToolLayer()
+    invocation = ToolInvocation("filesystem.write", {"path": "x", "content": "data"}, "now")
+    first = layer.invoke(
+        invocation,
+        granted=[Capability.FILES_WORKSPACE],
+        explicitly_approved=True,
+        effect_ledger=EffectLedger(tmp_path / "effects.json"),
+        idempotency_key="write-1",
+        invoker=lambda _: calls.append("run") or {"ok": True},
+    )
+    second = layer.invoke(
+        invocation,
+        granted=[Capability.FILES_WORKSPACE],
+        explicitly_approved=True,
+        effect_ledger=EffectLedger(tmp_path / "effects.json"),
+        idempotency_key="write-1",
+        invoker=lambda _: calls.append("run") or {"ok": True},
+    )
+    assert first.success and second.success
+    assert calls == ["run"]
