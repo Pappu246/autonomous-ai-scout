@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any,Iterable,Mapping
 from .capability_policy import Capability
 from .cross_project_memory import CrossProjectMemory
+from .execution_checkpoint import ExecutionCheckpointStore
 from .execution_audit import append_execution_record,verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES,MAX_TIMEOUT_SECONDS,SandboxResult,run_safe_operation
 from .task_plan_models import TaskPlan
@@ -46,15 +47,37 @@ def _validate_calendar_tool(tool):
     return tool.capability==Capability.CALENDAR.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="user_auth" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"}
 def _validate_browser_tool(tool):
     return tool.capability==Capability.BROWSER.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"browser.open","browser.click","browser.extract"}
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None)->ExecutionResult:
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
     if not sandbox_available:return ExecutionResult(ExecutionState.BLOCKED,"sandbox is unavailable",0,(),str(audit_path))
     if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
-    if _has_unfinished_execution(audit_path,execution_id):return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"execution was interrupted; fresh authorization is required",0,(),str(audit_path))
-    retries=max(0,min(int(max_retries),MAX_RETRIES));timeout=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));output=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));_audit(audit_path,execution_id,ExecutionState.RUNNING,task_digest=hashlib.sha256(plan.task.encode()).hexdigest(),plan_digest=plan.audit.plan_digest);_remember(memory,project,task=plan.task,execution_id=execution_id,outcome="started")
-    results=[];total_attempts=0
+    checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
+    task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
+    plan_digest=plan.audit.plan_digest
+    try:checkpoint=checkpoint_store.load()
+    except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
+    if checkpoint is not None:
+        if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest:
+            return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
+        if checkpoint.state=="verified":
+            return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+        completed_step_ids=set(checkpoint.completed_step_ids)
+        total_attempts=checkpoint.total_attempts
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_resumed",completed_steps=len(completed_step_ids))
+    else:
+        if _has_unfinished_execution(audit_path,execution_id):return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"execution was interrupted; durable checkpoint is unavailable",0,(),str(audit_path))
+        completed_step_ids=set()
+        total_attempts=0
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,task_digest=task_digest,plan_digest=plan_digest,event="execution_started")
+    retries=max(0,min(int(max_retries),MAX_RETRIES));timeout=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));output=max(1,min(int(output_limit),MAX_OUTPUT_BYTES))
+    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+    _remember(memory,project,task=plan.task,execution_id=execution_id,outcome="resumed" if checkpoint is not None else "started")
+    results=[]
     for step in plan.steps:
+        if step.step_id in completed_step_ids:
+            _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_step_skipped",tool=step.tool_name,step_id=step.step_id)
+            continue
         tool=registry.get(step.tool_name)
         if tool is None:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="unknown tool",tool=step.tool_name);return ExecutionResult(ExecutionState.BLOCKED,f"unknown tool is blocked: {step.tool_name}",total_attempts,tuple(results),str(audit_path))
         decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=True)
@@ -80,7 +103,16 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if capability is Capability.BROWSER and isinstance(request,dict):request["operation"]={"browser.open":"open","browser.click":"click","browser.extract":"extract"}[tool.name]
             result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None);results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status)
             if result.success and result.verification_status=="verified":break
-        else:_audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted");return ExecutionResult(ExecutionState.FAILED,f"tool execution failed after bounded retries: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        else:
+            _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted")
+            checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+            return ExecutionResult(ExecutionState.FAILED,f"tool execution failed after bounded retries: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        completed_step_ids.add(step.step_id)
+        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_saved",tool=tool.name,step_id=step.step_id,attempts=total_attempts)
         _remember(memory,project,tool=tool.name,execution_id=execution_id,outcome="verified",attempts=total_attempts)
-    if not results or any(not r.success or r.verification_status!="verified" for r in results):return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
-    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts);_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts);return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
+    if not completed_step_ids or len(completed_step_ids)<len(plan.steps):
+        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+        return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
+    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.VERIFIED.value,completed_step_ids=tuple(s.step_id for s in plan.steps),total_attempts=total_attempts)
+    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts,event="checkpoint_verified");_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts);return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
