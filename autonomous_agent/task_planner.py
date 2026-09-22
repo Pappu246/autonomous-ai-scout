@@ -7,29 +7,31 @@ from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
-_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"calendar":(),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":("github.inspect",)}
-def _digest(task,intent,tool_names):return hashlib.sha256(json.dumps({"task":task,"intent":intent,"tools":tool_names},sort_keys=True,separators=(",",":")).encode()).hexdigest()
-def _calendar_tools(task):
-    text=task.lower()
-    if any(x in text for x in ("cancel","delete event")):return ("calendar.event.cancel",)
-    if any(x in text for x in ("update","reschedule","move meeting","modify event")):return ("calendar.event.update",)
-    if any(x in text for x in ("create","book","add event","schedule a meeting","schedule meeting")):return ("calendar.event.create",)
-    if any(x in text for x in ("free time","available time","availability")):return ("calendar.find_free_time",)
-    if any(x in text for x in ("read event","event details","get event")):return ("calendar.read",)
-    return ("calendar.list",)
-def _required_tools(task,intent):
-    if intent=="calendar":return _calendar_tools(task)
-    if intent=="research" and any(x in task.lower().split() for x in ("browse","browser")):return ("browser.open",)
-    return _INTENT_TO_TOOLS.get(intent,())
+from .tool_router import DynamicToolRouter
+
+
+def _digest(task, intent, tool_names):
+    return hashlib.sha256(
+        json.dumps(
+            {"task": task, "intent": intent, "tools": tuple(tool_names)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+def _selection(registry,task,intent):
+    return DynamicToolRouter(registry).select_names(task,intent)
+
 def _select_tools(registry,intent,task=""):
-    names=_required_tools(task,intent)
-    if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
-    return tuple(tool for name in names if (tool:=registry.get(name)) is not None)
+    selection=_selection(registry,task,intent)
+    return tuple(tool for name in selection.tool_names if (tool:=registry.get(name)) is not None)
+
+def _required_tools(task,intent,registry=REGISTRY):
+    return _selection(registry,task,intent).candidate_names
 def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[str, ...]:
     """Return the canonical planner's selected tool names without authorizing execution."""
     raw = " ".join(task.strip().split())
     intent = classify_intent(raw)
-    return tuple(tool.name for tool in _select_tools(registry, intent.value, raw))
+    return tuple(tool.name for tool in _select_tools(registry, intent, raw))
 
 
 def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
@@ -38,7 +40,7 @@ def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTR
     intent = classify_intent(raw)
     values: list[Capability] = []
     seen: set[Capability] = set()
-    for tool in _select_tools(registry, intent.value, raw):
+    for tool in _select_tools(registry, intent, raw):
         if not tool.safe_autonomous:
             continue
         capability = Capability(tool.capability)
@@ -49,8 +51,8 @@ def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTR
 
 
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
-    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent.value);selected=_select_tools(registry,intent.value,raw)
-    if intent.value == "automate":reason,executable="No registered executable tool mapping exists; plan fails closed.",False
+    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent,registry);selection=_selection(registry,raw,intent);selected=_select_tools(registry,intent,raw)
+    if not required:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
     descriptions=decompose_task(raw,intent);steps=[]

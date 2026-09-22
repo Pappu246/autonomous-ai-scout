@@ -18,8 +18,12 @@ def test_research_plan_uses_bounded_web_capability():
     plan=plan_task("research this topic",granted=[Capability.WEB_RESEARCH]); assert plan.executable; assert [s.tool_name for s in plan.steps]==["web.search","web.read","web.extract","web.compare"]
 def test_change_plan_cannot_bypass_permanent_source_write_deny():
     plan=plan_task("fix the bug",granted=[Capability.INSPECT,Capability.TEST,Capability.SOURCE_WRITE],explicitly_approved=True); assert not plan.executable and "permanently denied" in plan.reason
-def test_automation_without_registered_browser_tool_fails_closed():
-    plan=plan_task("automate browser workflow"); assert not plan.executable and plan.steps==()
+def test_automation_selects_registered_browser_tool():
+    plan=plan_task("automate browser workflow", granted=[Capability.BROWSER])
+    assert plan.executable and [s.tool_name for s in plan.steps]==["browser.open"]
+
+def test_automation_without_matching_registered_tool_fails_closed():
+    plan=plan_task("automate the deployment"); assert not plan.executable and plan.steps==()
 def test_custom_registry_is_the_only_tool_source():
     base=get_tool("tests.run"); registry=ToolRegistry((base,)); plan=plan_task("run tests",granted=[Capability.TEST],registry=registry); assert not plan.executable and "github.inspect" in plan.reason
 def test_plan_is_deterministically_auditable():
