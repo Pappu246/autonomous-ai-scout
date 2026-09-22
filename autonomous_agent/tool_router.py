@@ -10,8 +10,13 @@ from .tool_registry import REGISTRY, ToolRegistry
 class ToolSelection:
     task: str
     intent: TaskIntent
+    candidate_names: tuple[str, ...]
     tool_names: tuple[str, ...]
     reason: str
+
+    @property
+    def missing_tools(self) -> tuple[str, ...]:
+        return tuple(name for name in self.candidate_names if name not in self.tool_names)
 
 
 class DynamicToolRouter:
@@ -123,7 +128,7 @@ class DynamicToolRouter:
             reason = f"Selected the narrowest registered tool set for {resolved.value} from the task request."
         else:
             reason = "No executable tool mapping is safe to infer from the request."
-        return ToolSelection(raw, resolved, available, reason)
+        return ToolSelection(raw, resolved, tuple(names), available, reason)
 
     def select(self, task: str, intent: TaskIntent | None = None) -> tuple[str, ...]:
         return self.select_names(task, intent).tool_names
