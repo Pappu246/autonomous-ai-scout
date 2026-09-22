@@ -143,7 +143,7 @@ def execute_adaptive_plan(
         completed = False
 
         for attempt in range(retries + 1):
-            child_id = f"{execution_id}:{step.step_id}:attempt-{attempt + 1}"
+            child_id = f"{execution_id}:replan-{replan_count}:{step.step_id}:{step.tool_name}:attempt-{attempt + 1}"
             safe_id = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in child_id)
             child_audit = audit_path.with_name(f"{audit_path.stem}.{safe_id}.jsonl")
             child_checkpoint = child_audit.with_suffix(".checkpoint.json")
