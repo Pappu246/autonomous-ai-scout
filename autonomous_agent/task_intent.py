@@ -10,7 +10,7 @@ def classify_intent(task:str)->TaskIntent:
     if any(term in text for term in ("research","search web","look up","find information","investigate","browse","browser","web page")):return TaskIntent.RESEARCH
     if any(term in text for term in ("file","files","workspace","directory","folder","read file","write file","transform file")):return TaskIntent.WORKSPACE
     if any(term in text for term in ("fix","change","edit","modify","update code","repair")):return TaskIntent.CHANGE
-    if any(term in text for term in ("improve","implement","add feature","build","refactor")):return TaskIntent.IMPROVE
     if any(term in text for term in ("test","pytest","run tests","validate")):return TaskIntent.TEST
+    if any(term in text for term in ("improve","implement","add feature","build","refactor")):return TaskIntent.IMPROVE
     if any(term in text for term in ("inspect","analyze","analyse","audit","review")):return TaskIntent.INSPECT
     return TaskIntent.UNKNOWN
