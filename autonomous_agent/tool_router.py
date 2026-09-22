@@ -47,9 +47,11 @@ class DynamicToolRouter:
             return ("filesystem.transform",)
         if any(x in text for x in ("write file", "create file", "save file")):
             return ("filesystem.write",)
+        if any(x in text for x in ("read file", "read the file", "open file")):
+            return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
             return ("filesystem.list",)
-        return ("filesystem.read",)
+        return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
 
     @staticmethod
     def _email_tools(task: str) -> tuple[str, ...]:
@@ -62,7 +64,7 @@ class DynamicToolRouter:
             return ("email.thread",)
         if any(x in text for x in ("read email", "read message", "open email")):
             return ("email.read",)
-        return ("email.search",)
+        return ("email.search", "email.read", "email.thread")
 
     @staticmethod
     def _browser_tools(task: str) -> tuple[str, ...]:
@@ -83,14 +85,7 @@ class DynamicToolRouter:
             return DynamicToolRouter._browser_tools(task)
         if any(x in text for x in ("http://", "https://", "read this page", "open this page")):
             return ("web.read",)
-        names: list[str] = ["web.search"]
-        if any(x in text for x in ("compare", "comparison", "versus", " vs ")):
-            names.append("web.compare")
-        if any(x in text for x in ("extract", "key facts", "specific fields")):
-            names.append("web.extract")
-        if not any(x in text for x in ("compare", "comparison", "versus", " vs ", "extract", "key facts", "specific fields")):
-            names.extend(("web.read", "web.extract", "web.compare"))
-        return tuple(dict.fromkeys(names))
+        return ("web.search", "web.read", "web.extract", "web.compare")
 
     def select_names(self, task: str, intent: TaskIntent | None = None) -> ToolSelection:
         raw = " ".join(task.strip().split())
