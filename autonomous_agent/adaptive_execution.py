@@ -26,7 +26,7 @@ class StepObservation:
     output_truncated: bool
 
     @property
-    outcome(self) -> str:
+    def outcome(self) -> str:
         return "verified" if self.success and self.verification_status == "verified" else "failed"
 
 
