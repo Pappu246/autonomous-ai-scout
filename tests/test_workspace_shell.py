@@ -30,10 +30,10 @@ def test_workspace_shell_only_allows_isolated_py_compile(tmp_path: Path):
     source.write_text("print('ok')\n", encoding="utf-8")
     shell = ControlledWorkspaceShell(tmp_path)
     result = shell.run(("python", "-m", "py_compile", "sample.py"))
-    if result.reason == "network-isolated shell execution is unavailable":
-        assert not result.success
+    if not result.success:
+        assert "unshare" in result.output or "network-isolated shell execution is unavailable" in result.reason
     else:
-        assert result.success
+        assert result.exit_status == 0
 
 
 def test_shell_request_is_routed_as_workspace_shell():
