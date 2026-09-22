@@ -73,6 +73,12 @@ The concrete N16 capability is:
 
 > Start a multi-step task, persist completion of step 1, terminate execution before step 2 finishes, restart with the same execution ID, and continue from step 2 without replaying step 1.
 
+Runnable capability demo:
+
+```bash
+python examples/n16_checkpoint_demo.py
+```
+
 Expected trace:
 
 ```text
