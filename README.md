@@ -107,6 +107,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N15** | Unified Autonomous Task Core | Provides one canonical task planning/execution entry point over the existing boundaries |
 | **N16** | Durable Checkpoint & Resume | Persists non-secret execution progress and resumes after interruption without replaying verified completed steps |
 | **N17** | Dynamic Tool Selection Router | Selects the narrowest registered tool set from the task request without widening authorization |
+| **N18** | Observe → Verify → Retry → Adapt | Bounded recovery loop that observes tool outcomes, retries safely, and replans failed steps without bypassing policy |
 
 ### N9 → N14 flow
 
@@ -120,8 +121,10 @@ flowchart LR
     N14["N14<br/>Provider Router"]
     N15["N15<br/>Unified Task Core"]
     N16["N16<br/>Checkpoint / Resume"]
+    N17["N17<br/>Dynamic Tool Router"]
+    N18["N18<br/>Observe / Verify / Adapt"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -515,11 +518,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N16; N17 is on the phase branch and awaiting its dynamic-selection verification gate.**
+**Implemented through N17; N18 is on the phase branch and awaiting its observe/retry/replan verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -528,6 +531,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N14 Provider Router](N14_PROVIDER_ROUTER.md)
 - [N16 Durable Checkpoint & Resume](N16_DURABLE_CHECKPOINT_RESUME.md)
 - [N17 Dynamic Tool Router](N17_DYNAMIC_TOOL_ROUTER.md)
+- [N18 Observe / Verify / Retry / Adapt](N18_OBSERVE_VERIFY_RETRY_ADAPT.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
