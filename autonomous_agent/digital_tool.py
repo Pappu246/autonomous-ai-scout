@@ -139,6 +139,8 @@ class UniversalDigitalToolLayer:
         invalid = self._validate_arguments(spec, invocation.arguments)
         if invalid:
             return ToolResult(spec.name, False, None, invalid)
+        if origin_trust in {TrustLevel.EXTERNAL, TrustLevel.TOOL_RESULT, TrustLevel.MEMORY} and spec.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
+            return ToolResult(spec.name, False, None, "untrusted content cannot authorize a write action")
         decision = self.authorize(
             spec.name,
             granted,
@@ -148,8 +150,6 @@ class UniversalDigitalToolLayer:
         )
         if not decision.allowed:
             return ToolResult(spec.name, False, None, decision.reason)
-        if origin_trust in {TrustLevel.EXTERNAL, TrustLevel.TOOL_RESULT, TrustLevel.MEMORY} and spec.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
-            return ToolResult(spec.name, False, None, "untrusted content cannot authorize a write action")
         if invoker is None:
             return ToolResult(spec.name, False, None, "no execution adapter is registered")
         try:
