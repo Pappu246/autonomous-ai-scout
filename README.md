@@ -119,6 +119,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N27** | Context Management + Long-Term Memory | Builds bounded working context from live task state and relevant durable memory |
 | **N28** | Auth / Credential / Permission Broker | Uses non-secret credential references, explicit scopes, and short-lived access without persisting raw secrets |
 | **N29** | Security + Prompt-Injection Defense | Separates untrusted data from authoritative instructions and blocks untrusted content from silently authorizing writes |
+| **N30** | Consequence-Aware Approval | Derives approval mode from risk, side effects, high-impact capabilities, audit requirements, and origin trust |
 
 ### N9 → N14 flow
 
@@ -145,8 +146,9 @@ flowchart LR
     N27["N27<br/>Context / LTM"]
     N28["N28<br/>Auth / Credential / Permission"]
     N29["N29<br/>Prompt Injection Defense"]
+    N30["N30<br/>Consequence-Aware Approval"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24 --> N25 --> N26 --> N27 --> N28 --> N29
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24 --> N25 --> N26 --> N27 --> N28 --> N29 --> N30
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -540,11 +542,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N28; N29 is on the phase branch and awaiting its prompt-injection/security verification gate.**
+**Implemented through N29; N30 is on the phase branch and awaiting its consequence-aware approval verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. N28 adds scoped credential/permission brokering without persisting raw credential material. N29 adds structural prompt-injection trust boundaries and write-sink protection for untrusted content. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. N28 adds scoped credential/permission brokering without persisting raw credential material. N29 adds structural prompt-injection trust boundaries and write-sink protection for untrusted content. N30 adds consequence-aware approval decisions before the existing registry authorization boundary. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -565,6 +567,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N27 Context + Long-Term Memory](N27_CONTEXT_LONG_TERM_MEMORY.md)
 - [N28 Auth / Credential / Permission Broker](N28_AUTH_CREDENTIAL_PERMISSION_BROKER.md)
 - [N29 Prompt Injection Defense](N29_PROMPT_INJECTION_DEFENSE.md)
+- [N30 Consequence-Aware Approval](N30_CONSEQUENCE_AWARE_APPROVAL.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
