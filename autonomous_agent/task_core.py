@@ -11,6 +11,7 @@ from .adaptive_execution import AdaptiveExecutionResult, Replanner, execute_adap
 from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
 from .task_dag import DAGTaskSpec, LongHorizonPlanner, TaskDAGPlan
 from .task_queue import QueueItem, TaskQueueStore
+from .persistent_memory import MemoryMatch, PersistentMemory
 from .task_orchestrator import StructuredTask, TaskOrchestrator
 from .task_plan_models import TaskPlan
 from .task_planner import default_grants_for_task
@@ -81,6 +82,35 @@ class AutonomousTaskCore:
                 seen.add(capability)
                 values.append(capability)
         return tuple(values)
+
+    @staticmethod
+    def remember_episode(
+        memory: PersistentMemory,
+        project: str,
+        task: str,
+        *,
+        outcome: str,
+        summary: str = "",
+        metadata: Mapping[str, Any] | None = None,
+    ) -> bool:
+        return memory.record_episode(
+            project,
+            task,
+            outcome=outcome,
+            summary=summary,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def recall_memory(
+        memory: PersistentMemory,
+        project: str,
+        query: str,
+        *,
+        kind: str | None = None,
+        limit: int = 5,
+    ) -> tuple[MemoryMatch, ...]:
+        return memory.recall(project, query, kind=kind, limit=limit)
 
     def submit_background(
         self,
@@ -258,4 +288,4 @@ class AutonomousTaskCore:
         )
 
 
-__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "QueueItem", "TaskDAGPlan", "TaskQueueStore"]
+__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask", "DAGTaskSpec", "MemoryMatch", "PersistentMemory", "QueueItem", "TaskDAGPlan", "TaskQueueStore"]
