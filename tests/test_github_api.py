@@ -100,12 +100,14 @@ def test_open_draft_pr_sets_draft(monkeypatch):
     assert payload["base"] == "main"
 
 
-def test_status_maps_github_error_to_failure(monkeypatch):
+def test_status_maps_failed_check_run_to_failure(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "secret")
     fake = FakeApi()
     fake.responses = [
         {"head": {"sha": "h" * 40}},
-        {"state": "error"},
+        {"check_runs": [
+            {"name": "CI", "status": "completed", "conclusion": "failure"}
+        ]},
     ]
 
     result = client(fake).status("owner/repo", "#7")
