@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from .persistent_memory import MemoryMatch, PersistentMemory
+from .prompt_injection_guard import PromptInjectionGuard, TrustLevel
 
 MAX_CONTEXT_CHARS = 24_000
 MAX_CONTEXT_ITEMS = 32
@@ -21,6 +22,7 @@ class ContextItem:
     priority: int
     source: str
     fingerprint: str
+    trust: TrustLevel
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ def _fingerprint(item: ContextItem) -> str:
         "kind": item.kind,
         "priority": item.priority,
         "source": item.source,
+        "trust": item.trust.value,
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -70,30 +73,34 @@ class ContextManager:
         project: str | None = None,
         memory_query: str | None = None,
         pinned: Iterable[str] = (),
+        injection_guard: PromptInjectionGuard | None = None,
     ) -> ContextPacket:
         normalized_task = _clean(task)
+        guard = injection_guard or PromptInjectionGuard()
         raw: list[ContextItem] = [
-            ContextItem("task", normalized_task, 1000, "live", ""),
+            ContextItem("task", normalized_task, 1000, "live", "", TrustLevel.USER),
         ]
         if plan.strip():
-            raw.append(ContextItem("plan", _clean(plan), 900, "live", ""))
+            raw.append(ContextItem("plan", _clean(plan), 900, "live", "", TrustLevel.USER))
         for observation in observations:
             clean = _clean(observation)
             if clean:
-                raw.append(ContextItem("observation", clean, 700, "live", ""))
+                guarded = guard.inspect(clean, source="tool-result", trust=TrustLevel.TOOL_RESULT)
+                raw.append(ContextItem("observation", guarded.wrapped, 700, "tool-result", "", TrustLevel.TOOL_RESULT))
         for value in pinned:
             clean = _clean(value)
             if clean:
-                raw.append(ContextItem("pinned", clean, 950, "live", ""))
+                raw.append(ContextItem("pinned", clean, 950, "live", "", TrustLevel.USER))
         if memory is not None and project and memory_query:
             for match in memory.recall(project, memory_query, limit=8):
                 summary = self._memory_summary(match)
                 if summary:
-                    raw.append(ContextItem("memory", summary, int(100 + match.score * 500), match.kind, match.fingerprint))
+                    guarded = guard.inspect(summary, source=match.kind, trust=TrustLevel.MEMORY)
+                    raw.append(ContextItem("memory", guarded.wrapped, int(100 + match.score * 500), match.kind, match.fingerprint, TrustLevel.MEMORY))
 
         dedup: dict[tuple[str, str], ContextItem] = {}
         for item in raw:
-            normalized = ContextItem(item.kind, _clean(item.content), item.priority, item.source, item.fingerprint)
+            normalized = ContextItem(item.kind, _clean(item.content), item.priority, item.source, item.fingerprint, item.trust)
             dedup.setdefault((normalized.kind, normalized.content), normalized)
         ordered = sorted(dedup.values(), key=lambda item: (-item.priority, item.kind, item.fingerprint))
 
@@ -107,7 +114,7 @@ class ContextManager:
             if projected > self.max_chars:
                 continue
             if not item.fingerprint:
-                item = ContextItem(item.kind, item.content, item.priority, item.source, _fingerprint(item))
+                item = ContextItem(item.kind, item.content, item.priority, item.source, _fingerprint(item), item.trust)
             selected.append(item)
             chars = projected
         text = "\n".join(f"[{item.kind}] {item.content}" for item in selected)
