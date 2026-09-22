@@ -365,3 +365,62 @@ def test_coding_run_persists_ci_observation(tmp_path: Path):
     assert updated.state is CodingRunState.EXECUTED
     assert updated.execution.ci_status == "in_progress"
     assert updated.execution.pull_request.endswith("/9")
+
+def test_observe_twice_is_idempotent_for_executed_run(tmp_path: Path, monkeypatch, capsys):
+    store, record, queue, lifecycle = build_record(tmp_path)
+    approvals, audit = approve_record(tmp_path, store, queue, lifecycle)
+    claims = tmp_path / "claims"
+
+    store.begin_execution(record.run_id)
+    initial = store.mark_executed(
+        record.run_id,
+        worker_state="draft_pr_created",
+        reason="draft PR created",
+        pull_request="https://github.com/owner/repo/pull/9",
+        ci_status="queued",
+    )
+    lifecycle_before = lifecycle.read_text(encoding="utf-8")
+
+    class FakeWorker:
+        def __init__(self):
+            self.calls = []
+
+        def observe(self, repository: str, pull_request: str) -> WorkerResult:
+            self.calls.append((repository, pull_request))
+            return WorkerResult("ci_running", "CI is still running", pull_request=pull_request, ci_status="in_progress")
+
+    fake = FakeWorker()
+    monkeypatch.setattr(approval_cli, "build_github_worker_from_env", lambda **kwargs: fake)
+
+    common = [
+        "--queue", str(queue),
+        "--audit", str(audit),
+        "--approvals", str(approvals),
+        "--runs", str(store.directory),
+        "--lifecycle", str(lifecycle),
+        "--claims", str(claims),
+    ]
+
+    assert approval_cli.main([*common, "observe", record.action_id]) == 0
+    out_1 = capsys.readouterr().out
+    first = store.find_by_action(record.action_id)
+
+    assert approval_cli.main([*common, "observe", record.action_id]) == 0
+    out_2 = capsys.readouterr().out
+    second = store.find_by_action(record.action_id)
+
+    assert fake.calls == [
+        (record.repository, "https://github.com/owner/repo/pull/9"),
+        (record.repository, "https://github.com/owner/repo/pull/9"),
+    ]
+    assert out_1 == out_2
+    assert first.state is CodingRunState.EXECUTED
+    assert second.state is CodingRunState.EXECUTED
+    assert second.state.value != "VERIFIED"
+    assert first.execution.pull_request == second.execution.pull_request == initial.execution.pull_request
+    assert first.execution == second.execution
+    assert first.run_id == second.run_id == record.run_id
+    assert first.action_id == second.action_id == record.action_id
+    assert len(list(store.directory.glob("*.executing"))) == 1
+    assert not list(claims.glob("*.claimed"))
+    assert lifecycle.read_text(encoding="utf-8") == lifecycle_before
