@@ -98,7 +98,16 @@ class ControlledBrowser:
                     href = str(item.get("href", ""))[:MAX_URL_LENGTH]
                     label = str(item.get("label", ""))[:512]
                     links.append({"href": href, "label": label})
-        return BrowserResult(action, url, title, text, tuple(links), int(status) if isinstance(status, int) else None)
+        verification = str(raw.get("verification_status", "verified")).strip().lower() or "failed"
+        return BrowserResult(
+            action,
+            url,
+            title,
+            text,
+            tuple(links),
+            int(status) if isinstance(status, int) else None,
+            verification,
+        )
 
 
 def browser_transport_from_mapping(responses: Mapping[str, Mapping[str, Any]]) -> Callable[[str, Mapping[str, Any]], Mapping[str, Any]]:
