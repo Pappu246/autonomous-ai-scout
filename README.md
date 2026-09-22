@@ -92,7 +92,7 @@ The agent does **not** jump directly from a model response to a merge or deploym
 
 ---
 
-## From N9 to N14
+## From N9 to N16
 
 The current engineering stack is the result of six bounded layers added on top of the earlier scout and execution system.
 
@@ -105,6 +105,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N13** | AI Coding Brain | Builds repository context and generates reviewable patch candidates |
 | **N14** | Provider Router | Selects configured coding providers with policy, retry, and fail-closed rules |
 | **N15** | Unified Autonomous Task Core | Provides one canonical task planning/execution entry point over the existing boundaries |
+| **N16** | Durable Checkpoint & Resume | Persists non-secret execution progress and resumes after interruption without replaying verified completed steps |
 
 ### N9 → N14 flow
 
@@ -116,8 +117,10 @@ flowchart LR
     N12["N12<br/>GitHub Worker"]
     N13["N13<br/>AI Coding Brain"]
     N14["N14<br/>Provider Router"]
+    N15["N15<br/>Unified Task Core"]
+    N16["N16<br/>Checkpoint / Resume"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -318,6 +321,7 @@ The scheduled scout and the engineering execution stack share the same conservat
 autonomous-ai-scout/
 ├── autonomous_agent/
 │   ├── task_core.py
+│   ├── execution_checkpoint.py
 │   ├── runtime.py
 │   ├── main.py
 │   ├── provider_router.py
@@ -509,17 +513,18 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N14; N15 is implemented on the phase branch and is awaiting its verification gate.**
+**Implemented through N16; N16 is now being verified against its interruption/resume acceptance gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduces the unified task-core boundary. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
 ## Documentation
 
 - [N14 Provider Router](N14_PROVIDER_ROUTER.md)
+- [N16 Durable Checkpoint & Resume](N16_DURABLE_CHECKPOINT_RESUME.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
