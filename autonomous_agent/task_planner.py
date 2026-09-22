@@ -21,7 +21,7 @@ def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[
     """Return the canonical planner's selected tool names without authorizing execution."""
     raw = " ".join(task.strip().split())
     intent = classify_intent(raw)
-    return tuple(tool.name for tool in _select_tools(registry, intent.value, raw))
+    return tuple(tool.name for tool in _select_tools(registry, intent, raw))
 
 
 def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
@@ -30,7 +30,7 @@ def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTR
     intent = classify_intent(raw)
     values: list[Capability] = []
     seen: set[Capability] = set()
-    for tool in _select_tools(registry, intent.value, raw):
+    for tool in _select_tools(registry, intent, raw):
         if not tool.safe_autonomous:
             continue
         capability = Capability(tool.capability)
@@ -41,8 +41,8 @@ def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTR
 
 
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
-    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent.value);selected=_select_tools(registry,intent.value,raw)
-    if intent.value == "automate":reason,executable="No registered executable tool mapping exists; plan fails closed.",False
+    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent,registry);selection=_selection(registry,raw,intent);selected=_select_tools(registry,intent,raw)
+    if not required:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
     descriptions=decompose_task(raw,intent);steps=[]
