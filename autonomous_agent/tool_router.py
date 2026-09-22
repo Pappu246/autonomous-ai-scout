@@ -56,7 +56,7 @@ class DynamicToolRouter:
         text = task.lower()
         if any(x in text for x in ("send email", "send a mail", "reply email")):
             return ("email.send",)
-        if any(x in text for x in ("draft email", "draft a mail", "compose email", "compose a mail")):
+        if any(x in text for x in ("draft email", "draft an email", "draft a mail", "draft the email", "compose email", "compose an email", "compose a mail", "compose the email")):
             return ("email.draft",)
         if "thread" in text:
             return ("email.thread",)
