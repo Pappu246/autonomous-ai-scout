@@ -28,7 +28,7 @@ class ApprovalDecision:
     reasons: tuple[str, ...]
 
     @property
-    allowed_without_approval(self) -> bool:
+    def allowed_without_approval(self) -> bool:
         return self.mode is ApprovalMode.AUTONOMOUS
 
 
