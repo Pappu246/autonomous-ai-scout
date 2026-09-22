@@ -25,6 +25,29 @@ def _select_tools(registry,intent,task=""):
     names=_required_tools(task,intent)
     if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
     return tuple(tool for name in names if (tool:=registry.get(name)) is not None)
+def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[str, ...]:
+    """Return the canonical planner's selected tool names without authorizing execution."""
+    raw = " ".join(task.strip().split())
+    intent = classify_intent(raw)
+    return tuple(tool.name for tool in _select_tools(registry, intent.value, raw))
+
+
+def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
+    """Grant only capabilities exposed by tools explicitly marked safe_autonomous."""
+    raw = task.task if hasattr(task, "task") and isinstance(getattr(task, "task"), str) else str(task)
+    intent = classify_intent(raw)
+    values: list[Capability] = []
+    seen: set[Capability] = set()
+    for tool in _select_tools(registry, intent.value, raw):
+        if not tool.safe_autonomous:
+            continue
+        capability = Capability(tool.capability)
+        if capability not in seen:
+            seen.add(capability)
+            values.append(capability)
+    return tuple(values)
+
+
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
     raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent.value);selected=_select_tools(registry,intent.value,raw)
     if intent.value in {"automate","unknown"}:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
