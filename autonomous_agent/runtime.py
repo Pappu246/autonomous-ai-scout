@@ -6,49 +6,77 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
-from .execution_engine import ExecutionResult, ExecutionState, execute_plan
+from .execution_engine import ExecutionResult, ExecutionState
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
-from .task_plan_models import PlanRisk, TaskAuditRecord, TaskIntent, TaskPlan
+from .task_core import AutonomousTaskCore
+from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY, ToolRegistry
-from .workflow_engine import WorkflowDefinition, WorkflowEngine
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
-    text = " ".join(task.strip().split())
-    lowered = text.lower()
-    if not text:
-        digest = TaskAuditRecord("", TaskIntent.UNKNOWN, (), False, "")
-        return TaskPlan("", TaskIntent.UNKNOWN, (), PlanRisk.LOW, False, "No task supplied.", digest), ()
-    tools: list[str]
-    grants: tuple[Capability, ...]
-    if any(word in lowered for word in ("test", "tests", "pytest")):
-        tools = ["github.inspect", "tests.run"]; grants = (Capability.INSPECT, Capability.TEST)
-    elif any(word in lowered for word in ("inspect", "analyze", "analyse", "audit")):
-        tools = ["github.inspect"]; grants = (Capability.INSPECT,)
-    elif any(word in lowered for word in ("research", "browse", "web")):
-        tools = ["web.search", "web.read"]; grants = (Capability.WEB_RESEARCH,)
-    elif any(word in lowered for word in ("email", "mail")):
-        tools = ["email.search", "email.read"]; grants = (Capability.EMAIL,)
-    elif any(word in lowered for word in ("calendar", "schedule")):
-        tools = ["calendar.list", "calendar.find_free_time"]; grants = (Capability.CALENDAR,)
-    else:
-        tools = ["github.inspect"]; grants = (Capability.INSPECT,)
-    workflow = WorkflowDefinition(name="runtime-request", task=text, tool_names=tuple(tools))
-    return WorkflowEngine(registry).plan(workflow, granted=grants), grants
+    """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
+    prepared = AutonomousTaskCore(registry=registry).prepare(task)
+    return prepared.plan, prepared.granted
 
-def run_task(task: str, *, root: Path = ROOT, audit_path: Path = AUDIT_PATH, journal_path: Path = JOURNAL_PATH, execution_id: str | None = None, registry: ToolRegistry = REGISTRY, browser_connector: Any = None, browser_request: Mapping[str, Any] | None = None, web_connector: Any = None, web_request: Mapping[str, Any] | None = None, workspace_connector: Any = None, workspace_request: Mapping[str, Any] | None = None, gmail_connector: Any = None, gmail_request: Mapping[str, Any] | None = None, calendar_connector: Any = None, calendar_request: Mapping[str, Any] | None = None) -> ExecutionResult:
+def run_task(
+    task: str,
+    *,
+    root: Path = ROOT,
+    audit_path: Path = AUDIT_PATH,
+    journal_path: Path = JOURNAL_PATH,
+    execution_id: str | None = None,
+    registry: ToolRegistry = REGISTRY,
+    browser_connector: Any = None,
+    browser_request: Mapping[str, Any] | None = None,
+    web_connector: Any = None,
+    web_request: Mapping[str, Any] | None = None,
+    workspace_connector: Any = None,
+    workspace_request: Mapping[str, Any] | None = None,
+    gmail_connector: Any = None,
+    gmail_request: Mapping[str, Any] | None = None,
+    calendar_connector: Any = None,
+    calendar_request: Mapping[str, Any] | None = None,
+) -> ExecutionResult:
     execution_id = execution_id or os.urandom(8).hex()
-    plan, grants = _plan_for_request(task, registry)
-    if not plan.executable:
-        result = ExecutionResult(ExecutionState.BLOCKED, plan.reason, 0, (), str(audit_path))
-        append_run_record(journal_path, make_run_record(execution_id=execution_id, task=task, result=result))
+    core = AutonomousTaskCore(registry=registry)
+    prepared = core.prepare(task)
+    if not prepared.plan.executable:
+        result = ExecutionResult(
+            ExecutionState.BLOCKED,
+            prepared.plan.reason,
+            0,
+            (),
+            str(audit_path),
+        )
+        append_run_record(
+            journal_path,
+            make_run_record(execution_id=execution_id, task=task, result=result),
+        )
         return result
-    audit_path.parent.mkdir(parents=True, exist_ok=True)
-    result = execute_plan(plan, root, granted=grants, audit_path=audit_path, execution_id=execution_id, registry=registry, browser_connector=browser_connector, browser_request=browser_request, web_connector=web_connector, web_request=web_request, workspace_connector=workspace_connector, workspace_request=workspace_request, gmail_connector=gmail_connector, gmail_request=gmail_request, calendar_connector=calendar_connector, calendar_request=calendar_request)
-    append_run_record(journal_path, make_run_record(execution_id=execution_id, task=task, result=result))
+
+    result = core.execute(
+        prepared,
+        root,
+        audit_path=audit_path,
+        execution_id=execution_id,
+        browser_connector=browser_connector,
+        browser_request=browser_request,
+        web_connector=web_connector,
+        web_request=web_request,
+        workspace_connector=workspace_connector,
+        workspace_request=workspace_request,
+        gmail_connector=gmail_connector,
+        gmail_request=gmail_request,
+        calendar_connector=calendar_connector,
+        calendar_request=calendar_request,
+    )
+    append_run_record(
+        journal_path,
+        make_run_record(execution_id=execution_id, task=task, result=result),
+    )
     return result
 
 def main(argv: Iterable[str] | None = None) -> int:

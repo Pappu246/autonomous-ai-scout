@@ -7,7 +7,7 @@ from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
-_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"calendar":(),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":()}
+_INTENT_TO_TOOLS={"research":("web.search","web.read","web.extract","web.compare"),"workspace":("filesystem.list","filesystem.read","filesystem.write","filesystem.transform"),"email":("email.search","email.read","email.thread"),"calendar":(),"inspect":("github.inspect",),"test":("github.inspect","tests.run"),"improve":("github.inspect","tests.run","github.change"),"change":("github.inspect","tests.run","github.change"),"automate":(),"unknown":("github.inspect",)}
 def _digest(task,intent,tool_names):return hashlib.sha256(json.dumps({"task":task,"intent":intent,"tools":tool_names},sort_keys=True,separators=(",",":")).encode()).hexdigest()
 def _calendar_tools(task):
     text=task.lower()
@@ -25,9 +25,32 @@ def _select_tools(registry,intent,task=""):
     names=_required_tools(task,intent)
     if intent=="email" and any(x in task.lower() for x in ("draft","compose")):names=("email.draft",)
     return tuple(tool for name in names if (tool:=registry.get(name)) is not None)
+def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[str, ...]:
+    """Return the canonical planner's selected tool names without authorizing execution."""
+    raw = " ".join(task.strip().split())
+    intent = classify_intent(raw)
+    return tuple(tool.name for tool in _select_tools(registry, intent.value, raw))
+
+
+def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
+    """Grant only capabilities exposed by tools explicitly marked safe_autonomous."""
+    raw = task.task if hasattr(task, "task") and isinstance(getattr(task, "task"), str) else str(task)
+    intent = classify_intent(raw)
+    values: list[Capability] = []
+    seen: set[Capability] = set()
+    for tool in _select_tools(registry, intent.value, raw):
+        if not tool.safe_autonomous:
+            continue
+        capability = Capability(tool.capability)
+        if capability not in seen:
+            seen.add(capability)
+            values.append(capability)
+    return tuple(values)
+
+
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
     raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent.value);selected=_select_tools(registry,intent.value,raw)
-    if intent.value in {"automate","unknown"}:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
+    if intent.value == "automate":reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
     descriptions=decompose_task(raw,intent);steps=[]
