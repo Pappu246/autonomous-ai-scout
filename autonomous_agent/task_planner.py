@@ -8,6 +8,16 @@ from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
 from .tool_router import DynamicToolRouter
+
+
+def _digest(task, intent, tool_names):
+    return hashlib.sha256(
+        json.dumps(
+            {"task": task, "intent": intent, "tools": tuple(tool_names)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 def _selection(registry,task,intent):
     return DynamicToolRouter(registry).select_names(task,intent)
 
