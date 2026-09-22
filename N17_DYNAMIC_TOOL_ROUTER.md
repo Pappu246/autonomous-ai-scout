@@ -60,6 +60,14 @@ N17 adds focused coverage for web reads, email drafting, workspace listing, safe
 
 After N17, the same task entry point can choose different registered tools from the wording of the request instead of always expanding to one static list for an intent. The selected tool set is deterministic and auditable.
 
+Runnable capability demo:
+
+```bash
+python examples/n17_tool_router_demo.py
+```
+
+The demo prints the request, inferred intent, selected registered tools, and routing rationale for multiple domains, including a fail-closed unsafe automation request.
+
 Runnable test command:
 
 ```bash
