@@ -43,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     observe = sub.add_parser("observe", help="observe an existing draft PR and persist its CI status")
     observe.add_argument("action_id")
 
+    sub.add_parser("status", help="display global system summary")
+
     args = parser.parse_args(argv)
     queue = Path(args.queue)
     audit = Path(args.audit)
@@ -111,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"pull_request={result.pull_request}")
         if result.ci_status:
             print(f"ci_status={result.ci_status}")
+        return 0
+
+    if args.command == "status":
+        print(f"pending={len(list(pending_actions(queue)))}")
+        print(f"runs={len(runs.list_all())}")
         return 0
 
     try:
