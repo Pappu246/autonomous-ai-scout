@@ -110,6 +110,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N18** | Observe → Verify → Retry → Adapt | Bounded recovery loop that observes tool outcomes, retries safely, and replans failed steps without bypassing policy |
 | **N19** | Long-Horizon Task DAG | Builds bounded dependency graphs over canonical task plans and executes them in deterministic topological order |
 | **N20** | Background Worker + Queue | Persists validated tasks, supports delayed scheduling, and runs them independently with restart recovery |
+| **N21** | Universal Digital Tool Layer | Common discovery, validation, authorization, and invocation contract over registered tools/connectors |
 
 ### N9 → N14 flow
 
@@ -127,8 +128,9 @@ flowchart LR
     N18["N18<br/>Observe / Verify / Adapt"]
     N19["N19<br/>Long-Horizon Task DAG"]
     N20["N20<br/>Background Worker / Queue"]
+    N21["N21<br/>Universal Digital Tool Layer"]
 
-    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20
+    N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21
 ```
 
 The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
@@ -522,11 +524,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N19; N20 is on the phase branch and awaiting its background-worker verification gate.**
+**Implemented through N20; N21 is on the phase branch and awaiting its universal-tool-layer verification gate.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -538,6 +540,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N18 Observe / Verify / Retry / Adapt](N18_OBSERVE_VERIFY_RETRY_ADAPT.md)
 - [N19 Long-Horizon Task DAG](N19_TASK_DAG.md)
 - [N20 Background Worker + Queue](N20_BACKGROUND_WORKER_QUEUE.md)
+- [N21 Universal Digital Tool Layer](N21_UNIVERSAL_DIGITAL_TOOL_LAYER.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
