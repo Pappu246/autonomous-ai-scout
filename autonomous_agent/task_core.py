@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
+from .adaptive_execution import AdaptiveExecutionResult, Replanner, execute_adaptive_plan
 from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
 from .task_orchestrator import StructuredTask, TaskOrchestrator
 from .task_plan_models import TaskPlan
@@ -108,6 +109,58 @@ class AutonomousTaskCore:
             granted=selected_grants,
         )
 
+    def execute_adaptive(
+        self,
+        prepared: CanonicalTask,
+        root: Path,
+        *,
+        audit_path: Path,
+        execution_id: str,
+        explicitly_approved: bool = False,
+        sandbox_available: bool = True,
+        max_retries_per_step: int = 1,
+        max_replans: int = 1,
+        timeout_seconds: int = 30,
+        output_limit: int = MAX_OUTPUT_BYTES,
+        web_connector: Any = None,
+        web_request: Mapping[str, Any] | None = None,
+        workspace_connector: Any = None,
+        workspace_request: Mapping[str, Any] | None = None,
+        gmail_connector: Any = None,
+        gmail_request: Mapping[str, Any] | None = None,
+        calendar_connector: Any = None,
+        calendar_request: Mapping[str, Any] | None = None,
+        browser_connector: Any = None,
+        browser_request: Mapping[str, Any] | None = None,
+        replanner: Replanner | None = None,
+    ) -> AdaptiveExecutionResult:
+        """Execute with bounded observation, retry, and adaptive replanning."""
+        return execute_adaptive_plan(
+            prepared.plan,
+            root,
+            granted=prepared.granted,
+            explicitly_approved=explicitly_approved,
+            sandbox_available=sandbox_available,
+            audit_path=audit_path,
+            execution_id=execution_id,
+            registry=self._registry,
+            max_retries_per_step=max_retries_per_step,
+            max_replans=max_replans,
+            timeout_seconds=timeout_seconds,
+            output_limit=output_limit,
+            web_connector=web_connector,
+            web_request=web_request,
+            workspace_connector=workspace_connector,
+            workspace_request=workspace_request,
+            gmail_connector=gmail_connector,
+            gmail_request=gmail_request,
+            calendar_connector=calendar_connector,
+            calendar_request=calendar_request,
+            browser_connector=browser_connector,
+            browser_request=browser_request,
+            replanner=replanner,
+        )
+
     def execute(
         self,
         prepared: CanonicalTask,
@@ -163,4 +216,4 @@ class AutonomousTaskCore:
         )
 
 
-__all__ = ["AutonomousTaskCore", "CanonicalTask"]
+__all__ = ["AdaptiveExecutionResult", "AutonomousTaskCore", "CanonicalTask"]
