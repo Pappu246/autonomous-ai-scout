@@ -7,6 +7,7 @@ from .capability_policy import CapabilityDecision
 from .connector_registry import ConnectorRegistry
 from .tool_registry import REGISTRY, ReadWriteMode, ToolRegistry, ToolSpec
 from .prompt_injection_guard import TrustLevel
+from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
 
 
 @dataclass(frozen=True)
@@ -46,9 +47,11 @@ class UniversalDigitalToolLayer:
         *,
         registry: ToolRegistry = REGISTRY,
         connectors: Iterable[ConnectorRegistry] = (),
+        approval_policy: ConsequenceAwareApprovalPolicy | None = None,
     ) -> None:
         self.registry = registry
         self.connectors = tuple(connectors)
+        self.approval_policy = approval_policy or ConsequenceAwareApprovalPolicy()
 
     def discover(
         self,
@@ -141,6 +144,15 @@ class UniversalDigitalToolLayer:
             return ToolResult(spec.name, False, None, invalid)
         if origin_trust in {TrustLevel.EXTERNAL, TrustLevel.TOOL_RESULT, TrustLevel.MEMORY} and spec.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
             return ToolResult(spec.name, False, None, "untrusted content cannot authorize a write action")
+        consequence = self.approval_policy.evaluate(
+            spec,
+            origin_trust=origin_trust,
+            explicitly_approved=explicitly_approved,
+        )
+        if consequence.mode is ApprovalMode.REQUIRE_APPROVAL and not explicitly_approved:
+            return ToolResult(spec.name, False, None, "consequence-aware policy requires explicit approval")
+        if consequence.mode is ApprovalMode.DENY:
+            return ToolResult(spec.name, False, None, "consequence-aware policy denies this action")
         decision = self.authorize(
             spec.name,
             granted,
