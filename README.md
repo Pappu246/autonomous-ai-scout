@@ -378,6 +378,39 @@ The exact module set can evolve; the important split is between **agent orchestr
 
 ---
 
+## Local Web Console
+
+The runtime now has a browser-based control surface so the agent is not operated only through PowerShell.
+
+Start the local console from the repository root:
+
+```bash
+autonomous-scout-server --open
+```
+
+Or without opening the browser automatically:
+
+```bash
+python -m autonomous_agent.server --port 8000
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/
+```
+
+The console provides:
+
+- task submission in natural language;
+- bounded background execution with live status polling;
+- recent execution history from the durable run journal;
+- pending approval visibility;
+- runtime health and local workspace identity;
+- execution state, reason, attempts and verified tool results.
+
+The browser console is a user-facing control surface over the existing runtime. It does not bypass the planner, capability policy, sandbox, approval boundary, checkpointing, or audit trail.
+
 ## Validation
 
 CI runs the project's Python test suite on pushes and pull requests.
