@@ -63,6 +63,8 @@ def review_patch(unified_diff: str) -> PatchReview:
         return PatchReview(False, "patch exceeds maximum size", digest, (), 0, 0)
 
     files = extract_changed_files(unified_diff)
+    if not files:
+        return PatchReview(False, "patch does not contain a reviewable changed-file manifest", digest, files, 0, 0)
     if len(files) > MAX_FILES:
         return PatchReview(False, "patch touches too many files", digest, files, 0, 0)
     if any(_is_forbidden_path(path) for path in files):
