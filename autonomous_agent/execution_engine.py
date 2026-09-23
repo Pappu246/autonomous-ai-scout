@@ -45,14 +45,20 @@ def _remember(memory,project,*,task=None,tool=None,execution_id="",outcome="",at
 def _has_unfinished_execution(path,execution_id):
     if not path.exists():return False
     terminal={ExecutionState.VERIFIED.value,ExecutionState.FAILED.value,ExecutionState.BLOCKED.value};last=None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():continue
-        item=json.loads(line)
-        if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
+    try:
+        lines=path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            if not line.strip():continue
+            item=json.loads(line)
+            if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
+    except (OSError,UnicodeError,json.JSONDecodeError):
+        raise ValueError("execution audit contains an invalid record")
     return last==ExecutionState.RUNNING.value or (last is not None and last not in terminal)
 def recover_execution(execution_id,audit_path):
     if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
-    if _has_unfinished_execution(audit_path,execution_id):return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
+    try:unfinished=_has_unfinished_execution(audit_path,execution_id)
+    except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
+    if unfinished:return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
     return ExecutionResult(ExecutionState.VERIFIED,"no unfinished execution requires recovery",0,(),str(audit_path))
 def _validate_web_tool(tool):
     expected="required" if tool.name in {"web.search","web.read"} else "none";return tool.capability==Capability.WEB_RESEARCH.value and tool.network_requirement.value==expected and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"web.search","web.read","web.extract","web.compare"}
