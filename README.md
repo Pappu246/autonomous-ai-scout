@@ -406,6 +406,7 @@ Runtime examples:
 ```bash
 python -m autonomous_agent.runtime "inspect repository"
 python -m autonomous_agent.runtime --history
+python examples/n31_n42_validation_demo.py
 python -m autonomous_agent.main
 ```
 
