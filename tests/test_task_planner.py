@@ -12,6 +12,13 @@ def test_intent_classification_is_conservative():
 
 def test_test_plan_uses_only_registry_tools_and_can_be_authorized():
     plan=plan_task("run tests",granted=[Capability.INSPECT,Capability.TEST]); assert plan.intent is TaskIntent.TEST and plan.executable; assert [s.tool_name for s in plan.steps]==["github.inspect","tests.run"]; assert plan.risk is PlanRisk.LOW and all(s.authorization=="authorized" for s in plan.steps)
+def test_write_plan_reports_explicit_approval_requirement():
+    plan = plan_task("transform file config.py")
+    assert not plan.executable
+    assert "Explicit approval required" in plan.reason
+    assert "filesystem.transform" in plan.reason
+
+
 def test_plan_fails_closed_without_capability_grant():
     plan=plan_task("run tests"); assert not plan.executable and "Authorization blocked" in plan.reason
 def test_research_plan_uses_bounded_web_capability():
