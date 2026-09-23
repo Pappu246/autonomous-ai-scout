@@ -59,8 +59,19 @@ class DynamicToolRouter:
 
         clauses = re.split(r"[.;!?\n]+", text)
         negative_markers = ("do not", "don't", "never", "without")
+        shell_phrases = (
+            "run command",
+            "shell command",
+            "terminal command",
+            "workspace shell",
+            "py_compile",
+            "compile python",
+        )
         positive_shell = any(
-            any(phrase in clause for phrase in ("run command", "shell command", "terminal command", "py_compile", "compile python"))
+            (
+                any(phrase in clause for phrase in shell_phrases)
+                or bool(re.search(r"\b(?:run|execute)\s+(?:exactly\s+)?(?:this|the)\s+(?:safe\s+)?command\b", clause))
+            )
             and not any(marker in clause for marker in negative_markers)
             for clause in clauses
         )
