@@ -4,7 +4,7 @@ from pathlib import Path
 
 from autonomous_agent.capability_policy import Capability
 from autonomous_agent.execution_audit import append_execution_record, verify_execution_audit
-from autonomous_agent.execution_engine import ExecutionState, execute_plan, recover_execution
+from autonomous_agent.execution_engine import ExecutionState, execute_plan, _authorization_digest, recover_execution
 from autonomous_agent.sandbox import SandboxResult
 from autonomous_agent.task_plan_models import TaskPlan
 from autonomous_agent.task_planner import plan_task
