@@ -33,6 +33,9 @@ def test_n46_admission_accepts_matching_evidence():
         request,
         actual_task_digest=task_digest,
         actual_authorization_digest=auth_digest,
+        actual_execution_id="n46-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
         readiness=readiness,
         production_audit=audit,
     )
@@ -48,6 +51,9 @@ def test_n46_admission_fails_on_readiness_failure():
         request,
         actual_task_digest="0" * 64,
         actual_authorization_digest="1" * 64,
+        actual_execution_id="n46-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
         readiness=readiness,
         production_audit=audit,
     )
@@ -62,6 +68,9 @@ def test_n46_admission_fails_on_audit_failure():
         request,
         actual_task_digest="0" * 64,
         actual_authorization_digest="1" * 64,
+        actual_execution_id="n46-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
         readiness=readiness,
         production_audit=audit,
     )
@@ -75,6 +84,9 @@ def test_n46_admission_binds_task_and_authorization_digests():
         request,
         actual_task_digest="2" * 64,
         actual_authorization_digest="1" * 64,
+        actual_execution_id="n46-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
         readiness=readiness,
         production_audit=audit,
     )
@@ -88,6 +100,9 @@ def test_n46_admission_requires_approval_for_side_effects():
         request,
         actual_task_digest="0" * 64,
         actual_authorization_digest="1" * 64,
+        actual_execution_id="n46-exec",
+        actual_side_effects=True,
+        actual_explicitly_approved=False,
         readiness=readiness,
         production_audit=audit,
     )
