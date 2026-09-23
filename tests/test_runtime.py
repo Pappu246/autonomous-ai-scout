@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from autonomous_agent.execution_engine import ExecutionResult, ExecutionState
@@ -28,6 +29,8 @@ def test_runtime_fails_closed_for_unknown_request_only_after_safe_inspection():
     plan, grants = _plan_for_request("do something unspecified")
     assert plan.executable is True
     assert grants == (Capability.INSPECT,)
+
+
 def test_runtime_derives_bounded_workspace_shell_request():
     from autonomous_agent.runtime import _workspace_request_for_task
     from autonomous_agent.task_core import AutonomousTaskCore
@@ -48,7 +51,11 @@ def test_runtime_executes_workspace_shell_end_to_end(tmp_path: Path):
     )
     assert result.state is ExecutionState.VERIFIED
     assert result.results[-1].operation == "workspace_shell"
-    assert str(tmp_path.resolve()) in result.results[-1].output
+    payload = json.loads(result.results[-1].output)
+    assert payload["argv"] == ["pwd"]
+    assert payload["exit_status"] == 0
+    assert payload["output"] == str(tmp_path.resolve())
+    assert payload["success"] is True
 
 
 def test_runtime_executes_filesystem_read_end_to_end(tmp_path: Path):
