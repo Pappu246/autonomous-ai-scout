@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Iterable, Mapping, Protocol
 
 from .capability_policy import Capability, CapabilityDecision
+from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
 from .task_plan_models import TaskPlan
 from .task_planner import plan_task
 from .tool_registry import ToolRegistry, REGISTRY
@@ -180,11 +181,18 @@ class TaskOrchestrator:
                 steps.append(OrchestrationStep(planned.step_id, planned.tool_name, OrchestrationState.BLOCKED, StepRequirements(planned.tool_name, "", "", "", "", "", "", ""), "tool is not registered"))
                 continue
             requirements = self._tool_requirements(tool)
+            consequence = ConsequenceAwareApprovalPolicy().evaluate(
+                tool,
+                explicitly_approved=explicitly_approved,
+            )
             decision: CapabilityDecision = self._registry.authorize(planned.tool_name, granted, explicitly_approved=explicitly_approved, sandbox_available=sandbox_available, audit_available=audit_available)
             if not self._discover(planned.tool_name):
                 decision = CapabilityDecision(False, "no enabled connector exposes the registered tool", planned.tool_name)
-            if requirements.approval != "none" and not explicitly_approved:
+            if consequence.mode is ApprovalMode.REQUIRE_APPROVAL and not explicitly_approved:
                 approval_required = True
+                decision = CapabilityDecision(False, "consequence-aware policy requires explicit approval", planned.tool_name)
+            elif consequence.mode is ApprovalMode.DENY:
+                decision = CapabilityDecision(False, "consequence-aware policy denies action", planned.tool_name)
             status = OrchestrationState.AUTHORIZED if decision.allowed else (OrchestrationState.REQUIRES_APPROVAL if "approval" in decision.reason.lower() else OrchestrationState.BLOCKED)
             steps.append(OrchestrationStep(planned.step_id, planned.tool_name, status, requirements, decision.reason))
 
@@ -195,6 +203,19 @@ class TaskOrchestrator:
         if self._lifecycle is not None:
             self._lifecycle.transition(task_digest, state)
         return report
+
+    @staticmethod
+    def _result_verified(result: object) -> bool:
+        if result is None:
+            return False
+        if isinstance(result, Mapping):
+            return result.get("verified") is True or (
+                result.get("success") is True and str(result.get("verification_status", "")).lower() == "verified"
+            )
+        return bool(getattr(result, "verified", False)) or (
+            bool(getattr(result, "success", False))
+            and str(getattr(result, "verification_status", "")).lower() == "verified"
+        )
 
     def execute(self, report: OrchestrationReport, executor: ExistingExecutor | None = None) -> OrchestrationReport:
         if report.state is not OrchestrationState.AUTHORIZED:
@@ -210,9 +231,9 @@ class TaskOrchestrator:
                 return self._with_state(report, OrchestrationState.INTERRUPTED, "execution interrupted; no automatic replay")
             except Exception as exc:
                 return self._with_state(report, OrchestrationState.FAILED, f"existing executor failed: {type(exc).__name__}")
-            if result is None:
-                return self._with_state(report, OrchestrationState.VERIFICATION_FAILED, "executor returned no verifiable result")
-        verification = VerificationResult(True, "verified", "existing executor returned results for every authorized step")
+            if not self._result_verified(result):
+                return self._with_state(report, OrchestrationState.VERIFICATION_FAILED, "executor result was not independently verified")
+        verification = VerificationResult(True, "verified", "existing executor returned independently verified results for every authorized step")
         completed = OrchestrationReport(report.task_digest, report.plan_digest, report.objective, report.intent, report.project, OrchestrationState.SUCCEEDED, report.steps, report.approval_required, report.selected_tools, report.blocked_steps, verification)
         self._record_audit(completed, "completed")
         if self._memory is not None:
