@@ -186,7 +186,11 @@ class AutonomousTaskCore:
     ) -> CanonicalTask:
         """Normalize one task and produce its only canonical plan."""
         selected_grants = (
-            default_grants_for_task(task, self._registry)
+            default_grants_for_task(
+                task,
+                self._registry,
+                explicitly_approved=explicitly_approved,
+            )
             if granted is None
             else self._normalize_grants(granted)
         )
