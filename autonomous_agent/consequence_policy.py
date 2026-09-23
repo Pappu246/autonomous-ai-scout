@@ -56,6 +56,9 @@ class ConsequenceAwareApprovalPolicy:
         if origin_trust in {TrustLevel.EXTERNAL, TrustLevel.TOOL_RESULT, TrustLevel.MEMORY}:
             if tool.read_write_mode is not ReadWriteMode.READ_ONLY:
                 reasons.append("untrusted origin for side effect")
+        if not tool.safe_autonomous and not explicitly_approved:
+            reasons.append("tool is not marked safe for autonomous execution")
+            return ApprovalDecision(ApprovalMode.REQUIRE_APPROVAL, Consequence.MEDIUM if tool.risk_level is RiskLevel.MEDIUM else Consequence.LOW, tuple(reasons))
         if tool.risk_level is RiskLevel.CRITICAL or tool.capability in {"destructive", "billing", "payment", "secrets"}:
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.CRITICAL, tuple(reasons))
         if tool.risk_level is RiskLevel.HIGH or tool.read_write_mode in {ReadWriteMode.CONTROLLED_WRITE, ReadWriteMode.HIGH_RISK_WRITE}:
