@@ -76,3 +76,13 @@ def test_credential_lease_expiry_is_enforced():
     )
     with pytest.raises(PermissionError, match="expired"):
         broker.use_lease(expired, lambda _: "should-not-run")
+
+
+def test_expired_leases_are_purged_from_broker_memory():
+    reference = CredentialRef("github", "demo-user", "primary", ("repo:read",))
+    broker = CredentialBroker(lambda _: "SUPERSECRET")
+    from dataclasses import replace
+    lease = broker.acquire(reference, granted_scopes=["repo:read"])
+    broker._leases[lease.secret_handle] = ("SUPERSECRET", datetime.now(timezone.utc) - timedelta(seconds=1))
+    assert broker.purge_expired() == 1
+    assert lease.secret_handle not in broker._leases
