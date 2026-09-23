@@ -72,7 +72,7 @@ class RestRequest:
 
 
 def _redact_text(value: str) -> str:
-    return SECRET_RE.sub(r"\\1[REDACTED]", value)
+    return SECRET_RE.sub(r"\1[REDACTED]", value)
 
 
 def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
