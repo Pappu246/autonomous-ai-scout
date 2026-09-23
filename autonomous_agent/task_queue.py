@@ -190,6 +190,8 @@ class TaskQueueStore:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
+                    if item.state is not QueueState.RUNNING:
+                        raise ValueError("only a running task can be completed")
                     state = QueueState.SUCCEEDED if success else QueueState.FAILED
                     updated = QueueItem(item.task_id, item.task, item.execution_id, state, item.created_at, _now(), item.available_at, item.attempts, error[:500])
                     items[index] = updated
