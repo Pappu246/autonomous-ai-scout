@@ -542,7 +542,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N30; the phase branch is undergoing final N9-N30 hardening and verification.**
+**Implemented through N31; the phase branch is undergoing N31 integration and verification.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
