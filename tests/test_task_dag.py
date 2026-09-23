@@ -99,10 +99,10 @@ def test_dag_scheduler_blocks_downstream_after_failure():
     result = execute_dag(dag, runner)
 
     assert result.success is False
-    assert result.completed == ()
+    assert result.completed == ("research",)
     assert result.failed_node == "inspect"
     assert "test" in result.blocked
-    assert calls == ["inspect"]
+    assert calls == ["inspect", "research"]
 
 
 def test_dag_scheduler_executes_ready_nodes_in_dependency_order(tmp_path: Path):
