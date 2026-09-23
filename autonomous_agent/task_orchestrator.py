@@ -209,9 +209,13 @@ class TaskOrchestrator:
         if result is None:
             return False
         if isinstance(result, Mapping):
-            return result.get("verified") is True or (
-                result.get("success") is True and str(result.get("verification_status", "")).lower() == "verified"
-            )
+            if result.get("verified") is True:
+                return True
+            return result.get("success") is True and str(result.get("verification_status", "")).lower() == "verified"
+        state = getattr(result, "state", None)
+        state_value = getattr(state, "value", state)
+        if str(state_value).lower() == "verified":
+            return True
         return bool(getattr(result, "verified", False)) or (
             bool(getattr(result, "success", False))
             and str(getattr(result, "verification_status", "")).lower() == "verified"
