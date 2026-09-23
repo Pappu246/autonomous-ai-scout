@@ -81,6 +81,12 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
         if checkpoint.state=="verified":
             return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+        if checkpoint.state=="failed":
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"failed execution checkpoint requires explicit recovery; automatic replay is disabled",checkpoint.total_attempts,(),str(audit_path))
+        if checkpoint.state=="blocked":
+            return ExecutionResult(ExecutionState.BLOCKED,"blocked execution checkpoint cannot be resumed",checkpoint.total_attempts,(),str(audit_path))
+        if checkpoint.state!="running":
+            return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint has an invalid resumable state",checkpoint.total_attempts,(),str(audit_path))
         completed_step_ids=set(checkpoint.completed_step_ids) | _verified_steps_from_audit(audit_path,execution_id)
         total_attempts=checkpoint.total_attempts
         _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_resumed",completed_steps=len(completed_step_ids))
