@@ -69,6 +69,31 @@ class TaskQueueStore:
         self.path = Path(path)
         self._lock = Lock()
 
+    @staticmethod
+    def _validate_timestamp(value: str, label: str) -> None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"{label} is invalid") from exc
+        if parsed.tzinfo is None:
+            raise ValueError(f"{label} must include a timezone")
+
+    @staticmethod
+    def _validate_item(item: QueueItem) -> None:
+        if not item.task_id.strip() or len(item.task_id) > 128:
+            raise ValueError("task_id is invalid")
+        if not item.execution_id.strip() or len(item.execution_id) > 128:
+            raise ValueError("execution_id is invalid")
+        if not item.task or len(item.task) > 4000:
+            raise ValueError("queued task exceeds the size limit")
+        if not 0 <= item.attempts <= 1000:
+            raise ValueError("queue attempt count is invalid")
+        if len(item.last_error) > 500:
+            raise ValueError("queue error is too large")
+        TaskQueueStore._validate_timestamp(item.created_at, "created_at")
+        TaskQueueStore._validate_timestamp(item.updated_at, "updated_at")
+        TaskQueueStore._validate_timestamp(item.available_at, "available_at")
+
     def _load_unlocked(self) -> list[QueueItem]:
         if not self.path.exists():
             return []
