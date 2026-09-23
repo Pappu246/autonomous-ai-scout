@@ -34,7 +34,7 @@ def test_rest_connector_default_dns_validation_blocks_loopback():
     transport = FakeREST()
     connector = RestConnector({"127.0.0.1"}, transport=transport)
     with pytest.raises(RestConnectorError, match="publicly routable"):
-        connector.request(RestRequest("GET", "https://127.0.0.1", {}, resolve_dns=True) if False else RestRequest("GET", "https://127.0.0.1", {}))
+        connector.request(RestRequest("GET", "https://127.0.0.1", {}))
 
 
 def test_rest_read_is_bounded_and_write_is_approval_gated():
