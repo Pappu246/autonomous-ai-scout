@@ -230,3 +230,18 @@ def test_provider_env_parser_does_not_store_secret(monkeypatch):
     assert len(providers) == 1
     assert providers[0].config.api_key_env == "GROQ_API_KEY"
     assert "super-secret" not in repr(providers[0])
+
+
+def test_unknown_cost_class_is_skipped_even_when_key_is_configured(monkeypatch):
+    monkeypatch.setenv("UNKNOWN_KEY", "secret")
+
+    class Unknown:
+        def generate_patch(self, **kwargs):
+            raise AssertionError("unknown-cost provider must never be selected")
+
+    router = CodingProviderRouter(
+        [_spec("unknown", "UNKNOWN_KEY", cost="mystery")],
+        model_factory=lambda _: Unknown(),
+    )
+    assert router.generate_patch(proposal=_proposal(), context=_context()) is None
+    assert router.last_attempts[0].status == "skipped"
