@@ -206,6 +206,7 @@ def execute_approved_change(
             request.head_branch,
             file_contents,
             f"chore: prepare approved change {action.id}",
+            expected_parent_sha=request.expected_head_sha,
         )
         pr = backend.open_draft_pr(
             request.repository,
