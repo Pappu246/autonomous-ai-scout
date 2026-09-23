@@ -35,7 +35,7 @@ def _safe_metadata(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, Mapping):
         items = list(value.items())[:32]
         return {
-            _safe_text(key, 256): _safe_metadata(item, depth=depth + 1)
+            _safe_text(key)[:256]: _safe_metadata(item, depth=depth + 1)
             for key, item in items
         }
     if isinstance(value, (list, tuple, set, frozenset)):
