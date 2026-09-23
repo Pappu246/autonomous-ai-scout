@@ -135,8 +135,10 @@ def test_dag_failure_only_blocks_failed_node_and_descendants():
         ),
         granted=[Capability.INSPECT, Capability.TEST, Capability.WEB_RESEARCH],
     )
-    result = execute_dag(dag, lambda node: node.node_id != "inspect")
+    calls: list[str] = []
+    result = execute_dag(dag, lambda node: calls.append(node.node_id) or node.node_id != "inspect")
     assert result.failed_node == "inspect"
     assert set(result.blocked) == {"test"}
     assert "research" not in result.blocked
     assert "report" not in result.blocked
+    assert calls == ["inspect", "research", "report"]
