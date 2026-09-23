@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any,Iterable,Mapping
 from .capability_policy import Capability
+from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
 from .cross_project_memory import CrossProjectMemory
 from .execution_checkpoint import ExecutionCheckpointStore
 from .execution_audit import append_execution_record,verify_execution_audit
@@ -15,10 +16,25 @@ from .tool_registry import REGISTRY,ToolRegistry
 class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
 class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
-_CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser"}
+_CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser"}
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
 def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
+def _authorization_digest(granted, explicitly_approved):
+    values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
+    return hashlib.sha256(json.dumps({"granted":values,"explicitly_approved":bool(explicitly_approved)},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+
+def _verified_steps_from_audit(path,execution_id):
+    completed=set()
+    if not path.exists():return completed
+    try:lines=path.read_text(encoding="utf-8").splitlines()
+    except OSError:return completed
+    for line in lines:
+        try:item=json.loads(line)
+        except (TypeError,ValueError):continue
+        if isinstance(item,dict) and item.get("execution_id")==execution_id and item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id"):completed.add(str(item["step_id"]))
+    return completed
+
 def _remember(memory,project,*,task=None,tool=None,execution_id="",outcome="",attempts=0):
     if memory is None:return
     try:
@@ -41,6 +57,8 @@ def _validate_web_tool(tool):
     expected="required" if tool.name in {"web.search","web.read"} else "none";return tool.capability==Capability.WEB_RESEARCH.value and tool.network_requirement.value==expected and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"web.search","web.read","web.extract","web.compare"}
 def _validate_files_tool(tool):
     return tool.capability in {Capability.READ_FILE.value,Capability.FILES_WORKSPACE.value} and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"filesystem.read","filesystem.list","filesystem.write","filesystem.transform"}
+def _validate_workspace_shell_tool(tool):
+    return tool.capability==Capability.WORKSPACE_SHELL.value and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name=="workspace.shell"
 def _validate_email_tool(tool):
     return tool.capability==Capability.EMAIL.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="user_auth" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"email.search","email.read","email.thread","email.draft","email.send"}
 def _validate_calendar_tool(tool):
@@ -55,14 +73,15 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
+    authorization_digest=_authorization_digest(granted, explicitly_approved)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if checkpoint is not None:
-        if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest:
+        if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest or checkpoint.authorization_digest!=authorization_digest:
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
         if checkpoint.state=="verified":
             return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
-        completed_step_ids=set(checkpoint.completed_step_ids)
+        completed_step_ids=set(checkpoint.completed_step_ids) | _verified_steps_from_audit(audit_path,execution_id)
         total_attempts=checkpoint.total_attempts
         _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_resumed",completed_steps=len(completed_step_ids))
     else:
@@ -71,7 +90,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         total_attempts=0
         _audit(audit_path,execution_id,ExecutionState.RUNNING,task_digest=task_digest,plan_digest=plan_digest,event="execution_started")
     retries=max(0,min(int(max_retries),MAX_RETRIES));timeout=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));output=max(1,min(int(output_limit),MAX_OUTPUT_BYTES))
-    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
     _remember(memory,project,task=plan.task,execution_id=execution_id,outcome="resumed" if checkpoint is not None else "started")
     results=[]
     for step in plan.steps:
@@ -80,11 +99,19 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             continue
         tool=registry.get(step.tool_name)
         if tool is None:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="unknown tool",tool=step.tool_name);return ExecutionResult(ExecutionState.BLOCKED,f"unknown tool is blocked: {step.tool_name}",total_attempts,tuple(results),str(audit_path))
+        consequence=ConsequenceAwareApprovalPolicy().evaluate(tool, explicitly_approved=explicitly_approved)
+        if consequence.mode is ApprovalMode.REQUIRE_APPROVAL and not explicitly_approved:
+            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="consequence-aware policy requires explicit approval",tool=tool.name)
+            return ExecutionResult(ExecutionState.BLOCKED,f"consequence-aware policy requires explicit approval for {tool.name}",total_attempts,tuple(results),str(audit_path))
+        if consequence.mode is ApprovalMode.DENY:
+            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="consequence-aware policy denies action",tool=tool.name)
+            return ExecutionResult(ExecutionState.BLOCKED,f"consequence-aware policy denies {tool.name}",total_attempts,tuple(results),str(audit_path))
         decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=True)
         if not decision.allowed:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=decision.reason,tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"authorization blocked for {tool.name}: {decision.reason}",total_attempts,tuple(results),str(audit_path))
         try:capability=Capability(tool.capability);operation=_CAPABILITY_TO_OPERATION[capability]
         except (ValueError,KeyError):_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="capability has no safe sandbox operation",tool=tool.name);return ExecutionResult(ExecutionState.BLOCKED,f"no safe sandbox operation exists for {tool.name}",total_attempts,tuple(results),str(audit_path))
         if capability is Capability.WEB_RESEARCH and not _validate_web_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"web tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
+        if capability is Capability.WORKSPACE_SHELL and not _validate_workspace_shell_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"workspace shell tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
         if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} and not _validate_files_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"filesystem tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
         if capability is Capability.EMAIL and not _validate_email_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"email tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
         if capability is Capability.CALENDAR and not _validate_calendar_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"calendar tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
@@ -94,14 +121,14 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None;connector=web_connector
-            if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} and isinstance(workspace_request,Mapping):candidate=workspace_request.get(tool.name,workspace_request);request=candidate if isinstance(candidate,Mapping) else None;connector=workspace_connector
+            if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} and isinstance(workspace_request,Mapping):candidate=workspace_request.get(tool.name,workspace_request);request=candidate if isinstance(candidate,Mapping) else None;connector=workspace_connector
             if capability is Capability.EMAIL and isinstance(gmail_request,Mapping):candidate=gmail_request.get(tool.name,gmail_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=gmail_connector
             if capability is Capability.EMAIL and tool.name=="email.send" and isinstance(request,dict):request["approved"]=bool(explicitly_approved)
             if capability is Capability.CALENDAR and isinstance(calendar_request,Mapping):candidate=calendar_request.get(tool.name,calendar_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=calendar_connector
             if capability is Capability.CALENDAR and tool.name in {"calendar.event.create","calendar.event.update","calendar.event.cancel"} and isinstance(request,dict):request["approved"]=bool(explicitly_approved)
             if capability is Capability.BROWSER and isinstance(browser_request,Mapping):candidate=browser_request.get(tool.name,browser_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=browser_connector
             if capability is Capability.BROWSER and isinstance(request,dict):request["operation"]={"browser.open":"open","browser.click":"click","browser.extract":"extract"}[tool.name]
-            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None);results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status)
+            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None);results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,step_id=step.step_id,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status,event="tool_result")
             if result.success and result.verification_status=="verified":break
         else:
             _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted")
