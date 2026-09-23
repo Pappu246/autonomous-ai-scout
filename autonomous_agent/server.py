@@ -38,6 +38,7 @@ class RuntimeTask:
     started_at: float | None = None
     finished_at: float | None = None
     results: list[dict[str, Any]] = field(default_factory=list)
+    explicitly_approved: bool = False
 
 
 class RuntimeTaskManager:
@@ -62,14 +63,19 @@ class RuntimeTaskManager:
             raise ValueError("task exceeds 4000 characters")
         return task
 
-    def submit(self, task: object) -> RuntimeTask:
+    def submit(self, task: object, *, explicitly_approved: bool = False) -> RuntimeTask:
         task_text = self._clean_task(task)
         with self._lock:
             if self._active_count() >= self.max_active:
                 raise RuntimeError("runtime task capacity is full")
             task_id = secrets.token_hex(8)
             execution_id = secrets.token_hex(8)
-            record = RuntimeTask(task_id=task_id, execution_id=execution_id, task=task_text)
+            record = RuntimeTask(
+                task_id=task_id,
+                execution_id=execution_id,
+                task=task_text,
+                explicitly_approved=bool(explicitly_approved),
+            )
             self._tasks[task_id] = record
             self._trim_locked()
             threading.Thread(target=self._run, args=(task_id,), daemon=True).start()
@@ -93,6 +99,7 @@ class RuntimeTaskManager:
                 audit_path=audit_path,
                 journal_path=journal_path,
                 execution_id=execution_id,
+                explicitly_approved=record.explicitly_approved,
             )
             safe_results = [
                 {
@@ -144,6 +151,7 @@ class RuntimeTaskManager:
             started_at=item.started_at,
             finished_at=item.finished_at,
             results=list(item.results),
+            explicitly_approved=item.explicitly_approved,
         )
 
     @staticmethod
@@ -311,7 +319,32 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if urlparse(self.path).path != "/api/tasks":
+        parsed_path = urlparse(self.path).path
+        if parsed_path.startswith("/api/tasks/") and parsed_path.endswith("/approve"):
+            task_id = parsed_path[len("/api/tasks/"):-len("/approve")].strip("/ ")
+            if not task_id:
+                return self._bad_request("task id is required")
+            current = self._manager().get(task_id)
+            if current is None:
+                return self._json(404, {"error": "task not found"})
+            if not current.get("approval_required"):
+                return self._json(409, {"error": "task is not awaiting approval"})
+            try:
+                item = self._manager().submit(current["task"], explicitly_approved=True)
+            except RuntimeError as exc:
+                return self._json(429, {"error": str(exc)})
+            self._json(
+                202,
+                {
+                    "task_id": item.task_id,
+                    "execution_id": item.execution_id,
+                    "state": item.state,
+                    "explicitly_approved": True,
+                    "message": "approval accepted; task was re-queued for bounded execution",
+                },
+            )
+            return
+        if parsed_path != "/api/tasks":
             self._json(404, {"error": "not found"})
             return
         try:
@@ -326,8 +359,11 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             return self._bad_request("request must contain valid JSON")
         if not isinstance(payload, dict):
             return self._bad_request("request body must be a JSON object")
+        approved = payload.get("approved", False)
+        if not isinstance(approved, bool):
+            return self._bad_request("approved must be a boolean")
         try:
-            item = self._manager().submit(payload.get("task", ""))
+            item = self._manager().submit(payload.get("task", ""), explicitly_approved=approved)
         except RuntimeError as exc:
             return self._json(429, {"error": str(exc)})
         except ValueError as exc:
@@ -338,6 +374,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 "task_id": item.task_id,
                 "execution_id": item.execution_id,
                 "state": item.state,
+                "explicitly_approved": item.explicitly_approved,
                 "message": "task accepted for bounded background execution",
             },
         )
