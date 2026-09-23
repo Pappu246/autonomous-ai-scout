@@ -83,6 +83,9 @@ def evaluate_admission(
     *,
     actual_task_digest: str,
     actual_authorization_digest: str,
+    actual_execution_id: str,
+    actual_side_effects: bool,
+    actual_explicitly_approved: bool,
     readiness: ReadinessReport,
     production_audit: ProductionAudit,
 ) -> AdmissionDecision:
