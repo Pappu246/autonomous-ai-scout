@@ -58,7 +58,7 @@ def extract_changed_files(unified_diff: str) -> tuple[str, ...]:
 
 
 
-_HUNK_RE = re.compile(r"^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,(\\d+))? @@")
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 def validate_patch_file_contents(
     unified_diff: str,
@@ -112,6 +112,9 @@ def review_patch(unified_diff: str) -> PatchReview:
     digest = hashlib.sha256(raw).hexdigest()
     if len(raw) > MAX_PATCH_BYTES:
         return PatchReview(False, "patch exceeds maximum size", digest, (), 0, 0)
+
+    if not unified_diff.strip():
+        return PatchReview(False, "patch is empty", digest, (), 0, 0)
 
     files = extract_changed_files(unified_diff)
     if not files:
