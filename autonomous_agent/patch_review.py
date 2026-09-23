@@ -105,7 +105,7 @@ def _parse_diff_hunks(unified_diff: str) -> dict[str, list[tuple[int, int, int, 
                 current[4].append(" ")
             elif line[0] in {" ", "+", "-"}:
                 current[4].append(line)
-            elif line.startswith("\ No newline"):
+            elif line.startswith("\\ No newline"):
                 return None
             else:
                 # Diff metadata outside a hunk is allowed; inside a hunk it is not.
