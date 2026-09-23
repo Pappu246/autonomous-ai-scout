@@ -147,7 +147,7 @@ def test_execute_binds_commit_to_expected_parent_and_fails_closed_on_race(tmp_pa
         def __init__(self):
             self.calls = []
         def read_file_at_ref(self, repository, path, ref):
-            return "print('old')\\n"
+            return "print('old')\n"
         def create_branch(self, *args):
             self.calls.append(("branch", args))
             return "branch"
@@ -179,7 +179,7 @@ def test_execute_binds_commit_to_expected_parent_and_fails_closed_on_race(tmp_pa
         approval,
         request,
         DIFF,
-        {"app.py": "print('new')\\n"},
+        {"app.py": "print('new')\n"},
         tmp_path / "claims",
         backend,
     )
