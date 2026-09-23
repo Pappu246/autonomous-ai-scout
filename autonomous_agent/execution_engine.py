@@ -21,9 +21,29 @@ _CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Ca
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
 def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
-def _authorization_digest(granted, explicitly_approved):
+def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGISTRY):
     values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
-    return hashlib.sha256(json.dumps({"granted":values,"explicitly_approved":bool(explicitly_approved)},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    tools=[]
+    if plan is not None:
+        for step in plan.steps:
+            tool=registry.get(step.tool_name)
+            if tool is None:
+                tools.append({"name":step.tool_name,"missing":True})
+            else:
+                tools.append({
+                    "name":tool.name,
+                    "capability":tool.capability,
+                    "risk":tool.risk_level.value,
+                    "read_write":tool.read_write_mode.value,
+                    "network":tool.network_requirement.value,
+                    "authentication":tool.authentication_requirement.value,
+                    "approval":tool.approval_requirement.value,
+                    "sandbox":tool.sandbox_requirement.value,
+                    "audit":tool.audit_requirement.value,
+                    "safe_autonomous":tool.safe_autonomous,
+                })
+    payload={"granted":values,"explicitly_approved":bool(explicitly_approved),"tools":tools}
+    return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
 def _verified_steps_from_audit(path,execution_id):
     completed=set()
@@ -81,7 +101,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
-    authorization_digest=_authorization_digest(granted, explicitly_approved)
+    authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if checkpoint is not None:
