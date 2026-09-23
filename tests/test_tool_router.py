@@ -48,6 +48,13 @@ def test_router_does_not_expand_capabilities():
     assert selection == ("email.send",)
     assert Capability.EMAIL.value == get_tool("email.send").capability
 
+def test_router_routes_canonical_workspace_shell_phrasing():
+    selection = DynamicToolRouter().select_names(
+        "Use the canonical local workspace shell to run exactly this command: pwd"
+    )
+    assert selection.tool_names == ("workspace.shell",)
+
+
 def test_router_does_not_route_negated_shell_requests():
     selection = DynamicToolRouter().select_names(
         "inspect the workspace. Do not run a shell command or py_compile."
