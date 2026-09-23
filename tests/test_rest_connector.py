@@ -149,6 +149,43 @@ def test_rest_safe_operation_uses_injected_connector():
     assert transport.calls[0][0] == "GET"
 
 
+def test_approved_rest_write_reaches_canonical_executor(tmp_path: Path):
+    transport = FakeREST()
+    transport.responses = [RestResponse(201, {"Content-Type": "application/json"}, b'{"created":true}', "https://example.com/items")]
+    connector = RestConnector({"example.com"}, transport=transport)
+    step = TaskStep(
+        "rest-write",
+        "approved REST write",
+        "rest.write",
+        PlanRisk.HIGH,
+        "registry_and_capability_policy",
+        "existing_safe_executor",
+        "verified",
+    )
+    plan = TaskPlan(
+        "approved REST write",
+        TaskIntent.AUTOMATE,
+        (step,),
+        PlanRisk.HIGH,
+        True,
+        "test",
+        TaskAuditRecord("approved REST write", TaskIntent.AUTOMATE, ("rest-write",), True, "e" * 64),
+    )
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.REST_API],
+        explicitly_approved=True,
+        audit_path=tmp_path / "audit-rest-write.jsonl",
+        execution_id="rest-write-exec",
+        registry=ToolRegistry(),
+        rest_connector=connector,
+        rest_request={"rest.write": {"url": "https://example.com/items", "method": "POST", "body": "payload"}},
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert transport.calls[0][2]["Idempotency-Key"] == deterministic_idempotency_key("POST", "https://example.com/items", b"payload")
+
+
 def test_rest_executor_path_is_verified(tmp_path: Path):
     transport = FakeREST()
     connector = RestConnector({"example.com"}, transport=transport)
