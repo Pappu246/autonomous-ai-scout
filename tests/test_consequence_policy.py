@@ -67,3 +67,16 @@ def test_safe_write_requires_explicit_approval():
     assert decision.mode is ApprovalMode.REQUIRE_APPROVAL
     approved = policy.evaluate(tool, explicitly_approved=True)
     assert approved.mode is ApprovalMode.AUTONOMOUS
+
+
+def test_non_autonomous_read_only_tool_requires_approval():
+    from dataclasses import replace
+    tool = replace(
+        REGISTRY.get("filesystem.read"),
+        name="test.manual.read",
+        safe_autonomous=False,
+        approval_requirement=ApprovalRequirement.NONE,
+    )
+    decision = ConsequenceAwareApprovalPolicy().evaluate(tool)
+    assert decision.mode is ApprovalMode.REQUIRE_APPROVAL
+    assert ConsequenceAwareApprovalPolicy().evaluate(tool, explicitly_approved=True).mode is ApprovalMode.AUTONOMOUS
