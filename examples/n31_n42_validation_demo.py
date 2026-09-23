@@ -5,6 +5,11 @@ from pathlib import Path
 
 from autonomous_agent.benchmark_harness import BenchmarkCase, run_benchmark
 from autonomous_agent.budget import BudgetLedger, ResourceBudget
+from autonomous_agent.capability_policy import Capability
+from autonomous_agent.execution_engine import ExecutionState, execute_plan
+from autonomous_agent.task_planner import plan_task
+from autonomous_agent.task_queue import TaskQueueStore
+from autonomous_agent.trigger_dispatch import TriggerQueueDispatcher
 from autonomous_agent.concurrency import ExecutionLeaseStore
 from autonomous_agent.delegation import build_delegation
 from autonomous_agent.external_side_effects import ExternalSideEffectStore, canonical_request_digest
@@ -71,6 +76,33 @@ def main() -> int:
         trigger = triggers.register("demo.event", {"id": "1"}, cooldown_seconds=60)
         assert triggers.fire(trigger.trigger_id)
 
+        dispatch_triggers = TriggerRegistry(path=root / "dispatch-triggers.json")
+        dispatch_trigger = dispatch_triggers.register("demo.queue", {"id": "2"}, cooldown_seconds=60)
+        dispatcher = TriggerQueueDispatcher(dispatch_triggers, TaskQueueStore(root / "queue.json"))
+        dispatched = dispatcher.dispatch(
+            dispatch_trigger.trigger_id,
+            task="process demo event",
+            task_id="demo-event-2",
+            execution_id="demo-execution-2",
+        )
+        assert dispatched.queued
+
+        plan = plan_task("inspect repository", granted=[Capability.INSPECT])
+        assert plan.executable
+        canonical_budget = BudgetLedger(ResourceBudget(tool_calls=2, attempts=2, output_bytes=64 * 1024))
+        canonical_telemetry = TelemetryBuffer(max_events=16)
+        canonical = execute_plan(
+            plan,
+            root,
+            granted=[Capability.INSPECT],
+            audit_path=root / "canonical.jsonl",
+            execution_id="demo-canonical",
+            budget_ledger=canonical_budget,
+            telemetry=canonical_telemetry,
+        )
+        assert canonical.state is ExecutionState.VERIFIED
+        assert any(event["name"] == "tool_result" for event in canonical_telemetry.snapshot())
+
         benchmark = run_benchmark([BenchmarkCase("double", 2, 4)], lambda value: value * 2)
         assert benchmark.score == 1.0
 
@@ -87,7 +119,7 @@ def main() -> int:
         audit = run_production_audit([AuditFinding(area, True, "demo") for area in areas])
         assert audit.passed
 
-    print("N31-N42 validation demo: VERIFIED")
+    print("N31-N45 validation demo: VERIFIED")
     return 0
 
 
