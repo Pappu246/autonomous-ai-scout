@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Mapping, Protocol
 
 from .continuous_improvement import ImprovementProposal
-from .patch_review import PatchReview, review_patch
+from .patch_review import PatchReview, review_patch, validate_patch_file_contents
 
 _SECRET = re.compile(
     r"(?i)(?:api[_-]?key|api\s+key|access[_-]?token|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+"
@@ -90,54 +90,6 @@ def _normalize_manifest(file_contents: Mapping[str, str]) -> tuple[str, ...]:
     )
 
 
-_HUNK_RE = re.compile(r"^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,(\\d+))? @@")
-
-
-def _diff_matches_candidate(unified_diff: str, file_contents: Mapping[str, str]) -> bool:
-    current_path: str | None = None
-    current_hunk: tuple[int, int, list[str]] | None = None
-    hunks: list[tuple[str, int, int, tuple[str, ...]]] = []
-
-    def flush() -> None:
-        nonlocal current_hunk
-        if current_path is not None and current_hunk is not None:
-            start, count, lines = current_hunk
-            hunks.append((current_path, start, count, tuple(lines)))
-        current_hunk = None
-
-    for line in unified_diff.splitlines():
-        if line.startswith("+++ b/"):
-            flush()
-            current_path = line[6:].strip().replace("\\\\", "/").removeprefix("./")
-            continue
-        if line.startswith("@@ "):
-            flush()
-            match = _HUNK_RE.match(line)
-            if not match:
-                return False
-            start = int(match.group(1))
-            count = int(match.group(2) or "1")
-            current_hunk = (start, count, [])
-            continue
-        if current_hunk is not None and line and line[0] in {" ", "+"}:
-            current_hunk[2].append(line[1:])
-        elif current_hunk is not None and line.startswith("\\ No newline"):
-            continue
-
-    flush()
-    if not hunks or set(path for path, *_ in hunks) != set(file_contents):
-        return False
-    for path, start, count, new_lines in hunks:
-        content = file_contents.get(path)
-        if content is None:
-            return False
-        candidate_lines = content.splitlines()
-        segment = candidate_lines[start - 1 : start - 1 + count]
-        if tuple(segment) != new_lines:
-            return False
-    return True
-
-
 def _contains_sensitive_candidate(candidate: PatchCandidate) -> bool:
     for content in candidate.file_contents.values():
         if _PRIVATE_KEY.search(content) or _SECRET.search(content):
@@ -157,7 +109,7 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
         return review, review.reason
     if _contains_sensitive_candidate(candidate):
         return review, "candidate file contents contain sensitive material"
-    if not _diff_matches_candidate(candidate.unified_diff, candidate.file_contents):
+    if not validate_patch_file_contents(candidate.unified_diff, candidate.file_contents):
         return review, "candidate file contents do not match the reviewed diff hunks"
     manifest = _normalize_manifest(candidate.file_contents)
     if manifest != review.files:
