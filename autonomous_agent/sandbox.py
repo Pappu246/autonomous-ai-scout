@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","rest","filesystem_workspace","workspace_shell","gmail","calendar","browser"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -55,6 +55,32 @@ def _run_test(root,timeout_seconds,output_limit):
         _kill(process);stdout,_=process.communicate();text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,"timeout\n"+text,truncated,command
     except OSError as exc:return None,f"sandbox subprocess could not start: {exc}",False,command
     text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,text,truncated,command
+def _run_rest(connector, request, limit, *, approved=False):
+    if connector is None or not isinstance(request, Mapping):
+        return False, "rest requires an approved injected REST connector and structured request", (), False
+    try:
+        from .rest_connector import RestRequest
+        raw_body = request.get("body", "")
+        body = raw_body.encode("utf-8") if isinstance(raw_body, str) else bytes(raw_body)
+        rest_request = RestRequest(
+            method=str(request.get("method", "GET")),
+            url=str(request.get("url", "")),
+            headers=request.get("headers", {}) if isinstance(request.get("headers", {}), Mapping) else {},
+            body=body,
+            credential_ref=request.get("credential_ref"),
+            idempotency_key=request.get("idempotency_key"),
+        )
+        payload = connector.safe_json(rest_request, approved=approved, resolve_dns=True)
+        text, truncated = _text_limit(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str),
+            limit,
+        )
+        success = 200 <= int(payload.get("status_code", 0)) < 400
+        return success, text, ("REST", rest_request.method.upper()), truncated
+    except Exception as exc:
+        return False, f"REST operation failed: {type(exc).__name__}", ("REST", str(request.get("method", ""))), False
+
+
 def _run_web_research(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"web_research requires an approved injected connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
@@ -137,6 +163,10 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
+    if op=="rest":
+        success,output,command,truncated=_run_rest(workspace_connector,workspace_request or {},limit,approved=bool(workspace_request.get("__approved__",False)) if isinstance(workspace_request,Mapping) else False)
+        finished=datetime.now(timezone.utc).isoformat()
+        return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="web_research":
         success,output,command,truncated=_run_web_research(web_connector,web_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="filesystem_workspace":
