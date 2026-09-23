@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 
+from autonomous_agent.admission import AdmissionRequest
 from autonomous_agent.benchmark_harness import BenchmarkCase, run_benchmark
 from autonomous_agent.budget import BudgetLedger, ResourceBudget
 from autonomous_agent.capability_policy import Capability
-from autonomous_agent.execution_engine import ExecutionState, execute_plan
+from autonomous_agent.execution_engine import ExecutionState, _authorization_digest, execute_plan
 from autonomous_agent.task_planner import plan_task
 from autonomous_agent.task_queue import TaskQueueStore
 from autonomous_agent.trigger_dispatch import TriggerQueueDispatcher
@@ -119,7 +121,28 @@ def main() -> int:
         audit = run_production_audit([AuditFinding(area, True, "demo") for area in areas])
         assert audit.passed
 
-    print("N31-N45 validation demo: VERIFIED")
+        gated_telemetry = TelemetryBuffer(max_events=16)
+        gated = execute_plan(
+            plan,
+            root,
+            granted=[Capability.INSPECT],
+            audit_path=root / "n46-gated.jsonl",
+            execution_id="demo-n46-gated",
+            budget_ledger=BudgetLedger(ResourceBudget(tool_calls=2, attempts=2, output_bytes=64 * 1024)),
+            telemetry=gated_telemetry,
+            admission_request=AdmissionRequest(
+                task_id="demo-n46-task",
+                execution_id="demo-n46-gated",
+                expected_task_digest=hashlib.sha256(plan.task.encode()).hexdigest(),
+                expected_authorization_digest=_authorization_digest([Capability.INSPECT], False, plan),
+            ),
+            readiness_report=readiness,
+            production_audit=audit,
+        )
+        assert gated.state is ExecutionState.VERIFIED
+        assert any(event["name"] == "admission_admitted" for event in gated_telemetry.snapshot())
+
+    print("N31-N46 validation demo: VERIFIED")
     return 0
 
 
