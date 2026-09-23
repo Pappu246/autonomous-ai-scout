@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
+from typing import Mapping
 from dataclasses import dataclass
 
 
@@ -53,6 +55,55 @@ def extract_changed_files(unified_diff: str) -> tuple[str, ...]:
             if path not in files:
                 files.append(path)
     return tuple(files)
+
+
+
+_HUNK_RE = re.compile(r"^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,(\\d+))? @@")
+
+def validate_patch_file_contents(
+    unified_diff: str,
+    file_contents: Mapping[str, str],
+) -> bool:
+    """Check that every unified-diff hunk's resulting lines match supplied files."""
+    current_path: str | None = None
+    current_hunk: tuple[int, int, list[str]] | None = None
+    hunks: list[tuple[str, int, int, tuple[str, ...]]] = []
+
+    def flush() -> None:
+        nonlocal current_hunk
+        if current_path is not None and current_hunk is not None:
+            start, count, lines = current_hunk
+            hunks.append((current_path, start, count, tuple(lines)))
+        current_hunk = None
+
+    for line in unified_diff.splitlines():
+        if line.startswith("+++ b/"):
+            flush()
+            current_path = _normalize_path(line[6:])
+            continue
+        if line.startswith("@@ "):
+            flush()
+            match = _HUNK_RE.match(line)
+            if not match:
+                return False
+            current_hunk = (int(match.group(1)), int(match.group(2) or "1"), [])
+            continue
+        if current_hunk is not None and line and line[0] in {" ", "+"}:
+            current_hunk[2].append(line[1:])
+        elif current_hunk is not None and line.startswith("\\ No newline"):
+            continue
+
+    flush()
+    if not hunks or set(path for path, *_ in hunks) != set(file_contents):
+        return False
+    for path, start, count, new_lines in hunks:
+        content = file_contents.get(path)
+        if content is None:
+            return False
+        segment = content.splitlines()[start - 1 : start - 1 + count]
+        if tuple(segment) != new_lines:
+            return False
+    return True
 
 
 def review_patch(unified_diff: str) -> PatchReview:
