@@ -101,6 +101,15 @@ class TriggerRegistry:
             self._save()
             return trigger
 
+    def ready(self, trigger_id: str) -> bool:
+        with self._lock:
+            trigger = self._triggers.get(str(trigger_id))
+            if trigger is None or not trigger.enabled:
+                return False
+            now = time.time()
+            last = self._last_fired.get(trigger.trigger_id, 0.0)
+            return now - last >= trigger.cooldown_seconds
+
     def fire(self, trigger_id: str) -> bool:
         with self._lock:
             trigger = self._triggers.get(str(trigger_id))
