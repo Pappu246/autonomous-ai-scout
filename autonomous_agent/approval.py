@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
 from pathlib import Path
 
 from .action_queue import PendingAction, load_queue, save_queue
