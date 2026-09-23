@@ -542,7 +542,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N31; the phase branch is undergoing N31 integration and verification.**
+**Implemented through N42; the phase branch is undergoing final N31-N42 integration and verification.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
@@ -568,6 +568,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N28 Auth / Credential / Permission Broker](N28_AUTH_CREDENTIAL_PERMISSION_BROKER.md)
 - [N29 Prompt Injection Defense](N29_PROMPT_INJECTION_DEFENSE.md)
 - [N30 Consequence-Aware Approval](N30_CONSEQUENCE_AWARE_APPROVAL.md)
+- [N31-N42 Autonomy Extensions](N31-N42_AUTONOMY.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
