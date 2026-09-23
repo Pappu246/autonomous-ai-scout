@@ -301,7 +301,6 @@ class GitHubApiClient:
         expected = expected_parent_sha.strip().lower()
         if expected and (not re.fullmatch(r"[0-9a-f]{40}", expected) or branch_sha.lower() != expected):
             raise GitHubApiError("change branch HEAD changed after approval")
-        
         commit_info = self._request(
             "GET",
             f"{_repo_path(repository)}/git/commits/{quote(branch_sha, safe='')}",
