@@ -407,6 +407,7 @@ Runtime examples:
 python -m autonomous_agent.runtime "inspect repository"
 python -m autonomous_agent.runtime --history
 python examples/n31_n42_validation_demo.py
+python -m pytest -q tests/test_admission.py
 python -m autonomous_agent.main
 ```
 
@@ -543,11 +544,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N45; N31-N45 controls are undergoing final integration verification on the phase branch.**
+**Implemented through N46; N31-N46 controls are undergoing final integration verification on the phase branch.**
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. N28 adds scoped credential/permission brokering without persisting raw credential material. N29 adds structural prompt-injection trust boundaries and write-sink protection for untrusted content. N30 adds consequence-aware approval decisions before the existing registry authorization boundary. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. N28 adds scoped credential/permission brokering without persisting raw credential material. N29 adds structural prompt-injection trust boundaries and write-sink protection for untrusted content. N30 adds consequence-aware approval decisions before the existing registry authorization boundary. N31-N45 add durable side-effect, concurrency, delegation, evaluation, goal-loop, budget, resilience, telemetry, trigger, benchmark, readiness, audit, canonical budget/telemetry, and trigger-to-queue controls. N46 turns readiness and production-audit evidence into a fail-closed admission gate bound to canonical task and authorization digests. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
 
 ---
 
@@ -571,6 +572,7 @@ N15 introduced the unified task-core boundary. N16 adds durable, non-secret exec
 - [N30 Consequence-Aware Approval](N30_CONSEQUENCE_AWARE_APPROVAL.md)
 - [N31-N42 Autonomy Extensions](N31-N42_AUTONOMY.md)
 - [N43-N45 Canonical Control Integration](N43-N45_CANONICAL_CONTROL_INTEGRATION.md)
+- [N46 Canonical Admission Gate](N46_CANONICAL_ADMISSION_GATE.md)
 - [GitHub Actions CI](.github/workflows/ci.yml)
 - [Project configuration](pyproject.toml)
 
