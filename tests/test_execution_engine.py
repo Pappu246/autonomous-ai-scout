@@ -370,6 +370,42 @@ def test_forged_verified_checkpoint_cannot_claim_completion_without_audit(tmp_pa
     assert "trusted audit" in result.reason
 
 
+def test_checkpoint_rejects_non_list_completed_steps(tmp_path: Path):
+    from autonomous_agent.execution_checkpoint import ExecutionCheckpointStore
+    checkpoint = tmp_path / "bad.json"
+    checkpoint.write_text(json.dumps({
+        "schema_version": 2,
+        "execution_id": "bad",
+        "task_digest": "task",
+        "plan_digest": "plan",
+        "authorization_digest": "auth",
+        "state": "running",
+        "completed_step_ids": "step-1",
+        "total_attempts": 0,
+        "updated_at": "2026-09-23T00:00:00+00:00",
+    }), encoding="utf-8")
+    try:
+        ExecutionCheckpointStore(checkpoint).load()
+    except ValueError as exc:
+        assert "must be a list" in str(exc)
+    else:
+        raise AssertionError("malformed completed_step_ids must be rejected")
+
+
+def test_checkpoint_rejects_unknown_state(tmp_path: Path):
+    from autonomous_agent.execution_checkpoint import ExecutionCheckpointStore
+    with __import__("pytest").raises(ValueError, match="state is invalid"):
+        ExecutionCheckpointStore(tmp_path / "new.json").save(
+            execution_id="bad",
+            task_digest="task",
+            plan_digest="plan",
+            authorization_digest="auth",
+            state="unknown",
+            completed_step_ids=(),
+            total_attempts=0,
+        )
+
+
 def test_resume_does_not_trust_checkpoint_completed_steps_without_audit(tmp_path: Path):
     plan = _inspect_plan()
     audit = tmp_path / "resume-forged.jsonl"
