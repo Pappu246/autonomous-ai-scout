@@ -93,6 +93,81 @@ def test_task_submission_endpoint_starts_bounded_background_task(tmp_path, monke
         _stop(server, thread)
 
 
+def test_approval_retry_requeues_blocked_task_with_explicit_approval(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run_task(task, **kwargs):
+        calls.append(bool(kwargs.get("explicitly_approved")))
+        if not kwargs.get("explicitly_approved"):
+            return ExecutionResult(
+                ExecutionState.BLOCKED,
+                "Authorization blocked for filesystem.transform: tool requires explicit approval",
+                0,
+                (),
+                str(kwargs["audit_path"]),
+            )
+        return ExecutionResult(
+            ExecutionState.VERIFIED,
+            "all planned actions executed and verified",
+            1,
+            (),
+            str(kwargs["audit_path"]),
+        )
+
+    monkeypatch.setattr(server_module, "run_task", fake_run_task)
+    server, thread = _start(tmp_path)
+    try:
+        body = json.dumps({"task": "transform file config.py"}).encode("utf-8")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/tasks",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        task_id = payload["task_id"]
+
+        deadline = time.time() + 3
+        blocked = None
+        while time.time() < deadline:
+            with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/tasks/{task_id}", timeout=3) as response:
+                blocked = json.loads(response.read().decode("utf-8"))
+            if blocked["state"] == "blocked":
+                break
+            time.sleep(0.03)
+        assert blocked is not None
+        assert blocked["approval_required"] is True
+        assert calls == [False]
+
+        approve = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/tasks/{task_id}/approve",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(approve, timeout=3) as response:
+            approved_payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 202
+        assert approved_payload["explicitly_approved"] is True
+
+        approved_id = approved_payload["task_id"]
+        deadline = time.time() + 3
+        final = None
+        while time.time() < deadline:
+            with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/tasks/{approved_id}", timeout=3) as response:
+                final = json.loads(response.read().decode("utf-8"))
+            if final["state"] == "verified":
+                break
+            time.sleep(0.03)
+        assert final is not None
+        assert final["state"] == "verified"
+        assert final["explicitly_approved"] is True
+        assert calls == [False, True]
+    finally:
+        _stop(server, thread)
+
+
 def test_history_and_approval_endpoints_are_bounded(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
