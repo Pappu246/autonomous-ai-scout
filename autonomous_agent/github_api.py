@@ -284,6 +284,7 @@ class GitHubApiClient:
         branch: str,
         files: Mapping[str, str],
         message: str,
+        expected_parent_sha: str = "",
     ) -> str:
         if not files:
             raise GitHubApiError("at least one file is required")
@@ -297,7 +298,10 @@ class GitHubApiClient:
         branch_sha = self.head_sha(repository, branch)
         if not branch_sha:
             raise GitHubApiError("change branch HEAD could not be verified")
-
+        expected = expected_parent_sha.strip().lower()
+        if expected and (not re.fullmatch(r"[0-9a-f]{40}", expected) or branch_sha.lower() != expected):
+            raise GitHubApiError("change branch HEAD changed after approval")
+        
         commit_info = self._request(
             "GET",
             f"{_repo_path(repository)}/git/commits/{quote(branch_sha, safe='')}",
