@@ -82,19 +82,19 @@ class TaskQueueStore:
         for item in payload["items"]:
             if not isinstance(item, dict):
                 raise ValueError("task queue item is invalid")
-            items.append(
-                QueueItem(
-                    str(item["task_id"]),
-                    str(item["task"]),
-                    str(item["execution_id"]),
-                    QueueState(str(item["state"])),
-                    str(item["created_at"]),
-                    str(item["updated_at"]),
-                    str(item["available_at"]),
-                    int(item.get("attempts", 0)),
-                    str(item.get("last_error", "")),
-                )
+            queue_item = QueueItem(
+                str(item["task_id"]),
+                str(item["task"]),
+                str(item["execution_id"]),
+                QueueState(str(item["state"])),
+                str(item["created_at"]),
+                str(item["updated_at"]),
+                str(item["available_at"]),
+                int(item.get("attempts", 0)),
+                str(item.get("last_error", "")),
             )
+            self._validate_item(queue_item)
+            items.append(queue_item)
         return items
 
     def _save_unlocked(self, items: Iterable[QueueItem]) -> None:
@@ -135,14 +135,19 @@ class TaskQueueStore:
         self, task: str, *, task_id: str, execution_id: str, available_at: str | None = None
     ) -> QueueItem:
         normalized = _safe_task(task)
-        if not task_id.strip() or not execution_id.strip():
-            raise ValueError("task_id and execution_id are required")
+        task_id = task_id.strip()
+        execution_id = execution_id.strip()
+        if not task_id or not execution_id or len(task_id) > 128 or len(execution_id) > 128:
+            raise ValueError("task_id and execution_id are required and bounded")
+        scheduled = available_at or _now()
+        self._validate_timestamp(scheduled, "available_at")
         with self._lock:
             items = self._load_unlocked()
             if any(item.task_id == task_id for item in items):
                 raise ValueError("task_id already exists")
             now = _now()
-            item = QueueItem(task_id, normalized, execution_id, QueueState.PENDING, now, now, available_at or now)
+            item = QueueItem(task_id, normalized, execution_id, QueueState.PENDING, now, now, scheduled)
+            self._validate_item(item)
             self._save_unlocked((*items, item))
             return item
 
@@ -204,6 +209,8 @@ class TaskQueueStore:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
+                    if item.state not in {QueueState.PENDING, QueueState.RECOVERY_REQUIRED}:
+                        raise ValueError("only pending or recovery-required tasks can be cancelled")
                     updated = QueueItem(item.task_id, item.task, item.execution_id, QueueState.CANCELLED, item.created_at, _now(), item.available_at, item.attempts, item.last_error)
                     items[index] = updated
                     self._save_unlocked(items)
