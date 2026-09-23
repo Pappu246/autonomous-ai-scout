@@ -121,6 +121,15 @@ def test_n39_trigger_cooldown_deduplicates():
     assert not registry.fire(trigger.trigger_id)
 
 
+def test_n39_trigger_registry_persists(tmp_path: Path):
+    path = tmp_path / "triggers.json"
+    first = TriggerRegistry(path=path)
+    trigger = first.register("github.ci", {"sha": "abc"}, cooldown_seconds=60)
+    assert first.fire(trigger.trigger_id)
+    second = TriggerRegistry(path=path)
+    assert not second.fire(trigger.trigger_id)
+
+
 def test_n40_benchmark_harness_is_deterministic():
     report = run_benchmark(
         [BenchmarkCase("one", 1, 2), BenchmarkCase("two", 2, 4)],
