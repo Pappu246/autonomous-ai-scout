@@ -245,3 +245,31 @@ def test_unknown_cost_class_is_skipped_even_when_key_is_configured(monkeypatch):
     )
     assert router.generate_patch(proposal=_proposal(), context=_context()) is None
     assert router.last_attempts[0].status == "skipped"
+
+
+def test_model_factory_failure_falls_back(monkeypatch):
+    monkeypatch.setenv("A_KEY", "a")
+    monkeypatch.setenv("B_KEY", "b")
+
+    class Good:
+        def generate_patch(self, **kwargs):
+            return PatchCandidate(
+                "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+                {"app.py": "new\n"},
+                "good",
+                (),
+            )
+
+    def factory(config):
+        if config.api_key_env == "A_KEY":
+            raise RuntimeError("factory down")
+        return Good()
+
+    router = CodingProviderRouter(
+        [_spec("a", "A_KEY", 10), _spec("b", "B_KEY", 20)],
+        model_factory=factory,
+    )
+    result = router.generate_patch(proposal=_proposal(), context=_context())
+    assert result is not None
+    assert result.summary == "good"
+    assert router.last_attempts[0].detail == "model_factory failed: RuntimeError"
