@@ -66,6 +66,7 @@ def run_task(
     journal_path: Path = JOURNAL_PATH,
     execution_id: str | None = None,
     checkpoint_path: Path | None = None,
+    explicitly_approved: bool = False,
     registry: ToolRegistry = REGISTRY,
     browser_connector: Any = None,
     browser_request: Mapping[str, Any] | None = None,
