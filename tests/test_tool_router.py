@@ -67,7 +67,7 @@ def test_router_keeps_explicit_workspace_mutation_requests_mutating_only_when_re
 
 def test_router_ignores_negated_workspace_mutations():
     selection = DynamicToolRouter().select_names(
-        "inspect the repository. Do not create, modify, save, or transform files."
+        "inspect the repository workspace. Do not create, modify, save, or transform files."
     )
     assert selection.tool_names == ("filesystem.list", "filesystem.read")
 
