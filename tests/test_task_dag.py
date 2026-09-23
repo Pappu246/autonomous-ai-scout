@@ -77,6 +77,22 @@ def test_dag_rejects_unbounded_node_count():
     assert "node limit" in result.reason
 
 
+def test_dag_planner_accepts_generator_capability_grants():
+    specs = (
+        DAGTaskSpec("inspect", "inspect repository"),
+        DAGTaskSpec("research", "research this topic"),
+    )
+    result = LongHorizonPlanner().plan(
+        "verify",
+        specs,
+        granted=(capability for capability in (
+            Capability.INSPECT,
+            Capability.WEB_RESEARCH,
+        )),
+    )
+    assert result.executable
+
+
 def test_dag_scheduler_blocks_downstream_after_failure():
     planner = LongHorizonPlanner()
     dag = planner.plan(
