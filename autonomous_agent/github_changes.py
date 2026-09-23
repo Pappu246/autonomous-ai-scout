@@ -7,7 +7,7 @@ from typing import Mapping, Protocol
 
 from .action_queue import PendingAction
 from .approved_executor import ApprovalRecord, ExecutionDecision, claim_approval, validate_approval
-from .patch_review import PatchReview, review_patch
+from .patch_review import PatchReview, review_patch, validate_patch_file_contents
 
 
 PROTECTED_BASE_BRANCHES = frozenset({"main", "master", "production", "prod", "release"})
@@ -163,6 +163,8 @@ def execute_approved_change(
     manifest_error = _validate_files(review, file_contents)
     if manifest_error:
         return GitHubChangeResult(False, manifest_error)
+    if not validate_patch_file_contents(unified_diff, file_contents):
+        return GitHubChangeResult(False, "changed file contents do not match the reviewed diff")
     if _contains_forbidden_term(" ".join((action.task, request.title, request.body))):
         return GitHubChangeResult(False, "change request crosses a forbidden capability boundary")
     if not request.repository:
