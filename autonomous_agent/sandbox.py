@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
+from .project_intelligence import analyze_project
+from .dependency_security import analyze_dependencies
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
 SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","rest","filesystem_workspace","workspace_shell","gmail","calendar","browser"}
 @dataclass(frozen=True)
@@ -181,14 +183,61 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
     if op=="browser":
         success,output,command,truncated=_run_browser(browser_connector,browser_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="inspect":
-        files=[]
-        for path in sorted(root_path.rglob("*")):
-            if ".git" in path.parts or not path.is_file():continue
-            relative=path.relative_to(root_path)
-            if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem",".key")) for part in relative.parts):continue
-            files.append(str(relative))
-            if len(files)>=MAX_FILES:break
-        output,truncated=_text_limit("Workspace files:\n"+"\n".join(f"- {x}" for x in files),limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,True,0,output,truncated,(),"verified",started,finished,True)
+        try:
+            findings = analyze_project(root_path, repository="local")
+            findings.extend(analyze_dependencies(root_path, repository="local"))
+            severity_rank = {"high": 0, "medium": 1, "low": 2, "info": 3}
+            findings = sorted(
+                findings,
+                key=lambda item: (
+                    severity_rank.get(str(item.severity).lower(), 3),
+                    -float(item.confidence),
+                    item.title.lower(),
+                ),
+            )
+            files = []
+            for path in sorted(root_path.rglob("*")):
+                if ".git" in path.parts or not path.is_file():
+                    continue
+                relative = path.relative_to(root_path)
+                if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem", ".key")) for part in relative.parts):
+                    continue
+                files.append(str(relative))
+                if len(files) >= MAX_FILES:
+                    break
+
+            lines = [
+                "Repository inspection completed in read-only mode.",
+                f"Files discovered: {len(files)}",
+                f"Verified findings: {len(findings)}",
+                "",
+            ]
+            if findings:
+                lines.append("Top findings:")
+                for index, finding in enumerate(findings[:10], 1):
+                    lines.extend(
+                        [
+                            f"{index}. [{str(finding.severity).upper()}] {finding.title}",
+                            f"   Evidence: {finding.detail}",
+                            f"   Next action: {finding.recommendation}",
+                            f"   Confidence: {float(finding.confidence):.2f}",
+                        ]
+                    )
+            else:
+                lines.append("No deterministic project/dependency findings were detected by the current inspection rules.")
+            lines.extend(
+                [
+                    "",
+                    "Inspection scope: read-only project structure, dependency hygiene, and high-confidence secret-pattern checks.",
+                    "No source files were modified.",
+                ]
+            )
+            output, truncated = _text_limit("\n".join(lines), limit)
+            finished = datetime.now(timezone.utc).isoformat()
+            return SandboxResult(op, True, 0, output, truncated, ("repository_inspection",), "verified", started, finished, True)
+        except (OSError, UnicodeError, ValueError) as exc:
+            finished = datetime.now(timezone.utc).isoformat()
+            return SandboxResult(op, False, 1, f"repository inspection failed: {type(exc).__name__}", False, (), "failed", started, finished, True)
     if op=="metrics":
         count=0;total=0
         for path in root_path.rglob("*"):
