@@ -159,7 +159,13 @@ class LongHorizonPlanner:
             return TaskDAGPlan(dag.objective, dag.nodes, "", False, "task DAG contains a dependency cycle")
         if not dag.executable:
             blocked = tuple(node.node_id for node in dag.nodes if not node.plan.executable)
-            return TaskDAGPlan(dag.objective, dag.nodes, _digest(dag.objective, dag.nodes), False, f"DAG contains non-executable nodes: {', '.join(blocked)}")
+            return TaskDAGPlan(
+                dag.objective,
+                dag.nodes,
+                _digest(dag.objective, dag.nodes),
+                False,
+                f"DAG contains non-executable nodes: {', '.join(blocked)}",
+            )
         return TaskDAGPlan(dag.objective, dag.nodes, _digest(dag.objective, dag.nodes), True, dag.reason)
 
 
@@ -169,24 +175,35 @@ def execute_dag(
 ) -> DAGExecutionResult:
     if not dag.executable:
         return DAGExecutionResult((), tuple(node.node_id for node in dag.nodes), None)
+
     node_by_id = {node.node_id: node for node in dag.nodes}
     completed: list[str] = []
     blocked: list[str] = []
+    failed_node: str | None = None
+
+    def add_blocked(node_id: str) -> None:
+        if node_id not in blocked:
+            blocked.append(node_id)
+
     for node_id in dag.topological_order():
         node = node_by_id[node_id]
+
         if any(dep in blocked for dep in node.depends_on):
-            blocked.append(node_id)
+            add_blocked(node_id)
             continue
+
         if any(dep not in completed for dep in node.depends_on):
-            blocked.append(node_id)
+            add_blocked(node_id)
             continue
+
         try:
             ok = bool(runner(node))
         except Exception:
             ok = False
+
         if not ok:
-            failed = node_id
-            descendants = {failed}
+            failed_node = node_id
+            descendants = {failed_node}
             changed = True
             while changed:
                 changed = False
@@ -196,18 +213,17 @@ def execute_dag(
                     if any(dep in descendants for dep in candidate.depends_on):
                         descendants.add(candidate.node_id)
                         changed = True
-                        if candidate.node_id not in blocked:
-                            blocked.append(candidate.node_id)
+
+            for descendant in sorted(descendants, key=lambda item: dag.topological_order().index(item)):
+                add_blocked(descendant)
+
             # A failed branch blocks only itself and its descendants.
             # Independent branches remain runnable and continue.
-            if failed not in blocked:
-                blocked.append(failed)
             continue
-        completed.append(node_id)
-    failed_node = next(
-        (node.node_id for node in dag.nodes if node.node_id not in completed and node.node_id not in blocked),
-        None,
-    )
+
+        if node_id not in completed:
+            completed.append(node_id)
+
     return DAGExecutionResult(tuple(completed), tuple(blocked), failed_node)
 
 
