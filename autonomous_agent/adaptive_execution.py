@@ -8,6 +8,7 @@ from typing import Callable, Iterable, Mapping
 
 from .capability_policy import Capability
 from .tool_registry import ReadWriteMode
+from .prompt_injection_guard import TrustLevel
 from .execution_engine import ExecutionResult, ExecutionState, execute_plan
 from .execution_audit import append_execution_record, verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES, SandboxResult
@@ -171,6 +172,7 @@ def execute_adaptive_plan(
                 calendar_request=calendar_request,
                 browser_connector=browser_connector,
                 browser_request=browser_request,
+                origin_trust=TrustLevel.TOOL_RESULT if replan_count > 0 else TrustLevel.USER,
             )
             total_attempts += max(1, child.attempts)
             results.extend(child.results)
