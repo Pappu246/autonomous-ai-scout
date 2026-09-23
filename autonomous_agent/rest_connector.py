@@ -20,7 +20,7 @@ SAFE_METHODS = frozenset({"GET", "HEAD"})
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 BLOCKED_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie"})
 SECRET_RE = re.compile(
-    r"(?i)(bearer\\s+|api[_-]?key\\s*=\\s*|password\\s*=\\s*|secret\\s*=\\s*|token\\s*=\\s*)[^\\s,;&]+"
+    r"(?i)(bearer\s+|api[_-]?key\s*=\s*|password\s*=\s*|secret\s*=\s*|token\s*=\s*)[^\s,;&]+"
 )
 _CREDENTIAL_REF_FORBIDDEN = ("token", "password", "secret", "key=")
 _SENSITIVE_JSON_KEYS = frozenset({
@@ -101,7 +101,7 @@ def _redact_json(value: Any) -> Any:
 
 def deterministic_idempotency_key(method: str, url: str, body: bytes) -> str:
     return hashlib.sha256(
-        method.upper().encode() + b"\\0" + url.encode() + b"\\0" + body
+        method.upper().encode() + b"\0" + url.encode() + b"\0" + body
     ).hexdigest()
 
 
