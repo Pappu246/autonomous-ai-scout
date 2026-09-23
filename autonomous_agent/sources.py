@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import re
 import socket
+from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
 import httpx
