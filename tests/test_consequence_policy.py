@@ -1,6 +1,6 @@
 from autonomous_agent.consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy, Consequence
 from autonomous_agent.prompt_injection_guard import TrustLevel
-from autonomous_agent.tool_registry import REGISTRY
+from autonomous_agent.tool_registry import REGISTRY, ApprovalRequirement, ReadWriteMode
 
 
 def test_low_risk_read_is_autonomous():
