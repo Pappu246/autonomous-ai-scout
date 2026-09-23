@@ -145,6 +145,8 @@ class TaskQueueStore:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2, sort_keys=True)
                 handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp_name, self.path)
         finally:
             try:
