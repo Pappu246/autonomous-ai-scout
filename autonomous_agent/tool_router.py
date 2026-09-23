@@ -57,7 +57,14 @@ class DynamicToolRouter:
                 for clause in clauses
             )
 
-        if any(x in text for x in ("run command", "shell command", "terminal command", "py_compile", "compile python")):
+        clauses = re.split(r"[.;!?\n]+", text)
+        negative_markers = ("do not", "don't", "never", "without")
+        positive_shell = any(
+            any(phrase in clause for phrase in ("run command", "shell command", "terminal command", "py_compile", "compile python"))
+            and not any(marker in clause for marker in negative_markers)
+            for clause in clauses
+        )
+        if positive_shell:
             return ("workspace.shell",)
         if positive_clause_contains("transform file", "replace in file", "modify file"):
             return ("filesystem.transform",)
