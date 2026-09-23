@@ -51,3 +51,19 @@ def test_medium_risk_read_only_is_autonomous():
     decision = policy.evaluate(REGISTRY.get("web.search"))
     assert decision.mode is ApprovalMode.AUTONOMOUS
     assert decision.consequence is Consequence.MEDIUM
+
+
+def test_safe_write_requires_explicit_approval():
+    policy = ConsequenceAwareApprovalPolicy()
+    from dataclasses import replace
+    tool = replace(
+        REGISTRY.get("filesystem.read"),
+        name="test.safe.write",
+        read_write_mode=ReadWriteMode.SAFE_WRITE,
+        safe_autonomous=False,
+        approval_requirement=ApprovalRequirement.NONE,
+    )
+    decision = policy.evaluate(tool)
+    assert decision.mode is ApprovalMode.REQUIRE_APPROVAL
+    approved = policy.evaluate(tool, explicitly_approved=True)
+    assert approved.mode is ApprovalMode.AUTONOMOUS
