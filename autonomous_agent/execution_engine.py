@@ -131,6 +131,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
     authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
+    admission=None
     if admission_request is not None:
         if readiness_report is None or production_audit is None:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="admission evidence is incomplete",event="admission_blocked")
@@ -140,7 +141,6 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=admission.reason,event="admission_blocked",admission_digest=admission.digest)
             _telemetry(telemetry,"admission_blocked",execution_id=execution_id,reason=admission.reason,admission_digest=admission.digest)
             return ExecutionResult(ExecutionState.BLOCKED,admission.reason,0,(),str(audit_path))
-        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="admission_admitted",admission_digest=admission.digest)
         _telemetry(telemetry,"admission_admitted",execution_id=execution_id,admission_digest=admission.digest)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
@@ -175,6 +175,8 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
     _remember(memory,project,task=plan.task,execution_id=execution_id,outcome="resumed" if checkpoint is not None else "started")
     _telemetry(telemetry,"execution_started",execution_id=execution_id,steps=len(plan.steps))
+    if admission is not None:
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="admission_admitted",admission_digest=admission.digest)
     results=[]
     for step in plan.steps:
         if step.step_id in completed_step_ids:
