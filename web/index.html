@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <title>Autonomous AI Scout</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-orb"><span></span></div>
+        <div>
+          <div class="brand-title">AUTONOMOUS AI</div>
+          <div class="brand-subtitle">SCOUT CONTROL</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="overview">◈ <span>Overview</span></button>
+        <button class="nav-item" data-view="tasks">▣ <span>Tasks</span></button>
+        <button class="nav-item" data-view="history">◷ <span>History</span></button>
+        <button class="nav-item" data-view="approvals">✓ <span>Approvals</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-pill"><span class="status-dot"></span><span id="healthText">Checking runtime…</span></div>
+        <div class="root-label" id="rootLabel">Local workspace</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">LOCAL AGENT DESTINATION</div>
+          <h1 id="pageTitle">Agent Overview</h1>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-button" id="refreshButton">Refresh</button>
+          <button class="primary-button compact" id="focusTaskButton">New Task</button>
+        </div>
+      </header>
+
+      <section class="view" id="view-overview">
+        <div class="hero-panel">
+          <div>
+            <div class="hero-kicker">TASK COMMAND</div>
+            <h2>Give the agent a job.</h2>
+            <p>Describe what you need in plain language. The runtime will plan, authorize, execute and verify through its existing safety boundaries.</p>
+          </div>
+          <div class="hero-orbit"><div class="orbit-core"></div><div class="orbit-ring"></div></div>
+        </div>
+
+        <section class="composer-card" id="composerCard">
+          <div class="section-label">TASK REQUEST</div>
+          <textarea id="taskInput" rows="4" maxlength="4000" placeholder="Example: inspect this repository and identify the most important current issue."></textarea>
+          <div class="composer-footer">
+            <div class="quick-actions">
+              <button class="quick-button" data-task="inspect this repository">Inspect repository</button>
+              <button class="quick-button" data-task="read README.md">Read README</button>
+              <button class="quick-button" data-task="run the tests">Run tests</button>
+              <button class="quick-button" data-task="run lint">Run lint</button>
+            </div>
+            <button class="primary-button" id="runTaskButton">Run Task <span>↗</span></button>
+          </div>
+        </section>
+
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">ACTIVE TASKS</div><div class="stat-value" id="statActive">0</div><div class="stat-meta">Currently executing</div></div>
+          <div class="stat-card"><div class="stat-label">VERIFIED</div><div class="stat-value" id="statVerified">0</div><div class="stat-meta">Recorded runs</div></div>
+          <div class="stat-card"><div class="stat-label">BLOCKED / FAILED</div><div class="stat-value" id="statBlocked">0</div><div class="stat-meta">Needs attention</div></div>
+          <div class="stat-card"><div class="stat-label">PENDING APPROVAL</div><div class="stat-value" id="statApprovals">0</div><div class="stat-meta">Human decision required</div></div>
+        </div>
+
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header"><div><div class="section-label">LIVE EXECUTION</div><h3>Current task</h3></div><span class="panel-badge" id="liveBadge">IDLE</span></div>
+            <div id="liveTask" class="empty-state">No task is running.</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><div><div class="section-label">RECENT</div><h3>Execution history</h3></div><button class="text-button" data-view-target="history">View all</button></div>
+            <div id="recentHistory" class="history-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-tasks">
+        <section class="panel">
+          <div class="panel-header"><div><div class="section-label">TASK CENTER</div><h3>Recent and active tasks</h3></div></div>
+          <div id="taskTable" class="task-list"></div>
+        </section>
+      </section>
+
+      <section class="view hidden" id="view-history">
+        <section class="panel">
+          <div class="panel-header"><div><div class="section-label">AUDITABLE HISTORY</div><h3>Runtime records</h3></div></div>
+          <div id="historyTable" class="task-list"></div>
+        </section>
+      </section>
+
+      <section class="view hidden" id="view-approvals">
+        <section class="panel">
+          <div class="panel-header"><div><div class="section-label">HUMAN GATE</div><h3>Pending approvals</h3></div></div>
+          <div class="approval-note">Consequential actions stay behind the existing approval boundary. This screen is the visibility layer; approval execution remains through the existing approval workflow.</div>
+          <div id="approvalList" class="approval-list"></div>
+        </section>
+      </section>
+
+      <footer class="footer">
+        <span>Autonomous AI Scout</span>
+        <span>Local control surface · fail-closed runtime</span>
+      </footer>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
