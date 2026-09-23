@@ -43,13 +43,17 @@ class CommunicationWorkflow:
         create_event: bool = False,
     ) -> CommunicationPlan:
         steps: list[CommunicationStep] = []
+        def requires_approval(tool_name: str) -> bool:
+            spec = self.tools.resolve(tool_name)
+            return bool(spec and (spec.approval_requirement.value != "none" or spec.read_write_mode.value != "read_only"))
+
         if include_email_search:
-            steps.append(CommunicationStep("email.search", "find the relevant conversation", False))
-        steps.append(CommunicationStep("calendar.find_free_time", "find compatible availability", False))
+            steps.append(CommunicationStep("email.search", "find the relevant conversation", requires_approval("email.search")))
+        steps.append(CommunicationStep("calendar.find_free_time", "find compatible availability", requires_approval("calendar.find_free_time")))
         if draft_email:
-            steps.append(CommunicationStep("email.draft", "prepare an unsent coordination message", True))
+            steps.append(CommunicationStep("email.draft", "prepare an unsent coordination message", requires_approval("email.draft")))
         if create_event:
-            steps.append(CommunicationStep("calendar.event.create", "create the agreed calendar event", True))
+            steps.append(CommunicationStep("calendar.event.create", "create the agreed calendar event", requires_approval("calendar.event.create")))
         return CommunicationPlan(" ".join(objective.strip().split()), tuple(steps))
 
     def authorization_report(
