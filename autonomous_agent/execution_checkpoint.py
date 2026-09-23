@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class ExecutionCheckpoint:
     execution_id: str
     task_digest: str
     plan_digest: str
+    authorization_digest: str
     state: str
     completed_step_ids: tuple[str, ...]
     total_attempts: int
@@ -48,6 +49,7 @@ class ExecutionCheckpointStore:
                 str(payload["execution_id"]),
                 str(payload["task_digest"]),
                 str(payload["plan_digest"]),
+                str(payload["authorization_digest"]),
                 str(payload["state"]),
                 completed,
                 int(payload["total_attempts"]),
@@ -67,6 +69,7 @@ class ExecutionCheckpointStore:
         execution_id: str,
         task_digest: str,
         plan_digest: str,
+        authorization_digest: str,
         state: str,
         completed_step_ids: tuple[str, ...],
         total_attempts: int,
@@ -76,6 +79,7 @@ class ExecutionCheckpointStore:
             execution_id,
             task_digest,
             plan_digest,
+            authorization_digest,
             state,
             tuple(dict.fromkeys(completed_step_ids)),
             max(0, int(total_attempts)),
@@ -85,6 +89,7 @@ class ExecutionCheckpointStore:
             "completed_step_ids": list(checkpoint.completed_step_ids),
             "execution_id": checkpoint.execution_id,
             "plan_digest": checkpoint.plan_digest,
+            "authorization_digest": checkpoint.authorization_digest,
             "schema_version": checkpoint.schema_version,
             "state": checkpoint.state,
             "task_digest": checkpoint.task_digest,
