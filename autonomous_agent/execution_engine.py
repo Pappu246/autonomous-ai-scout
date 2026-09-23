@@ -118,6 +118,7 @@ def _validate_browser_tool(tool):
     return tool.capability==Capability.BROWSER.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"browser.open","browser.click","browser.extract"}
 def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None)->ExecutionResult:
     started_monotonic=monotonic()
+    last_budget_monotonic=started_monotonic
     granted=tuple(granted)
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
@@ -226,9 +227,10 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if capability is Capability.BROWSER and isinstance(request,dict):request["operation"]={"browser.open":"open","browser.click":"click","browser.extract":"extract"}[tool.name]
             result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,rest_connector=connector if capability is Capability.REST_API else None,rest_request=request if capability is Capability.REST_API else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None)
             if budget_ledger is not None:
-                elapsed=max(0.0,monotonic()-started_monotonic)
+                elapsed=max(0.0,monotonic()-last_budget_monotonic)
                 try:
                     budget_ledger.consume(wall_seconds=elapsed,output_bytes=len(result.output.encode("utf-8",errors="replace")))
+                    last_budget_monotonic=monotonic()
                 except BudgetExceededError as exc:
                     _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason=str(exc))
                     _telemetry(telemetry,"budget_exceeded",tool=tool.name,reason=str(exc))
