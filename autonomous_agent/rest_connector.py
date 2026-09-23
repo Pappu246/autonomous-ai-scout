@@ -7,6 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
+from .external_side_effects import ExternalSideEffectStore, SideEffectError, canonical_request_digest
 from urllib.parse import urljoin, urlsplit
 
 MAX_TIMEOUT_SECONDS = 30
@@ -196,6 +197,7 @@ class RestConnector:
         *,
         transport: RestTransport,
         timeout_seconds: float = 10.0,
+        side_effect_store: ExternalSideEffectStore | None = None,
     ):
         hosts = frozenset(
             str(host).strip().lower().rstrip(".")
@@ -209,6 +211,7 @@ class RestConnector:
         self.allowed_hosts = hosts
         self.transport = transport
         self.timeout_seconds = max(0.1, min(float(timeout_seconds), MAX_TIMEOUT_SECONDS))
+        self.side_effect_store = side_effect_store
 
     def request(
         self,
@@ -230,9 +233,23 @@ class RestConnector:
             raise RestConnectorError("request body exceeds the size limit")
         url = validate_public_https_url(request.url, self.allowed_hosts, resolve_dns=resolve_dns)
         headers = validate_headers(request.headers)
+        side_effect_key = None
         if method in WRITE_METHODS:
             key = request.idempotency_key or deterministic_idempotency_key(method, url, body)
             headers = {**headers, "Idempotency-Key": key}
+            side_effect_key = key
+            if self.side_effect_store is not None:
+                digest = canonical_request_digest("rest." + method, {"url": url, "body": body})
+                try:
+                    decision = self.side_effect_store.claim(
+                        key=key,
+                        operation="rest." + method,
+                        request_digest=digest,
+                    )
+                except SideEffectError as exc:
+                    raise RestConnectorError(str(exc)) from exc
+                if not decision.allowed:
+                    raise RestConnectorError(decision.reason)
 
         attempts = 1 + (MAX_RETRIES if method in SAFE_METHODS else 0)
         retry_attempt = 0
@@ -271,7 +288,28 @@ class RestConnector:
             ):
                 retry_attempt += 1
                 continue
+            if side_effect_key is not None and self.side_effect_store is not None:
+                if 200 <= response.status_code < 400:
+                    self.side_effect_store.mark_executed(
+                        side_effect_key,
+                        result_digest=hashlib.sha256(response.body).hexdigest(),
+                    )
+                else:
+                    self.side_effect_store.mark_failed(
+                        side_effect_key,
+                        reason=f"provider returned HTTP {response.status_code}",
+                    )
             return response
+        except Exception as exc:
+            if side_effect_key is not None and self.side_effect_store is not None:
+                try:
+                    self.side_effect_store.mark_unknown(
+                        side_effect_key,
+                        reason=f"{type(exc).__name__}: external REST outcome is unresolved",
+                    )
+                except SideEffectError:
+                    pass
+            raise
         raise RestConnectorError("request retry/redirect policy exhausted")
 
     def safe_json(
