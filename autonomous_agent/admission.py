@@ -43,6 +43,9 @@ def _decision_digest(
     *,
     actual_task_digest: str,
     actual_authorization_digest: str,
+    actual_execution_id: str,
+    actual_side_effects: bool,
+    actual_explicitly_approved: bool,
     readiness: ReadinessReport,
     production_audit: ProductionAudit,
 ) -> str:
@@ -57,6 +60,9 @@ def _decision_digest(
         },
         "actual_task_digest": actual_task_digest,
         "actual_authorization_digest": actual_authorization_digest,
+        "actual_execution_id": actual_execution_id,
+        "actual_side_effects": bool(actual_side_effects),
+        "actual_explicitly_approved": bool(actual_explicitly_approved),
         "readiness": [
             {"name": check.name, "passed": bool(check.passed)}
             for check in readiness.checks
@@ -87,6 +93,9 @@ def evaluate_admission(
         request,
         actual_task_digest=actual_task_digest,
         actual_authorization_digest=actual_authorization_digest,
+        actual_execution_id=actual_execution_id,
+        actual_side_effects=actual_side_effects,
+        actual_explicitly_approved=actual_explicitly_approved,
         readiness=readiness,
         production_audit=production_audit,
     )
@@ -96,10 +105,16 @@ def evaluate_admission(
         return AdmissionDecision(False, "admission task identity is not normalized", digest)
     if request.execution_id != request.execution_id.strip():
         return AdmissionDecision(False, "admission execution identity is not normalized", digest)
+    if request.execution_id != actual_execution_id:
+        return AdmissionDecision(False, "admission execution identity does not match canonical execution", digest)
     if actual_task_digest != request.expected_task_digest:
         return AdmissionDecision(False, "admission task digest does not match canonical execution", digest)
     if actual_authorization_digest != request.expected_authorization_digest:
         return AdmissionDecision(False, "admission authorization digest does not match canonical execution", digest)
+    if bool(request.side_effects) != bool(actual_side_effects):
+        return AdmissionDecision(False, "admission side-effect classification does not match canonical execution", digest)
+    if bool(request.explicitly_approved) != bool(actual_explicitly_approved):
+        return AdmissionDecision(False, "admission approval state does not match canonical execution", digest)
     if not readiness.ready:
         return AdmissionDecision(False, "readiness gate is not satisfied", digest)
     if not production_audit.passed:
