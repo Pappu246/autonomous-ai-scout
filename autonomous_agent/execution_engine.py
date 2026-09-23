@@ -192,7 +192,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None;connector=web_connector
             if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} and isinstance(workspace_request,Mapping):candidate=workspace_request.get(tool.name,workspace_request);request=candidate if isinstance(candidate,Mapping) else None;connector=workspace_connector
             if capability is Capability.EMAIL and isinstance(gmail_request,Mapping):candidate=gmail_request.get(tool.name,gmail_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=gmail_connector
-            if capability is Capability.EMAIL and tool.name=="email.send" and isinstance(request,dict):request["approved"]=bool(explicitly_approved)
+            if capability is Capability.EMAIL and tool.name in {"email.draft","email.send"} and isinstance(request,dict):request["approved"]=bool(explicitly_approved)
             if capability is Capability.CALENDAR and isinstance(calendar_request,Mapping):candidate=calendar_request.get(tool.name,calendar_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=calendar_connector
             if capability is Capability.REST_API and isinstance(rest_request,Mapping):
                 candidate=rest_request.get(tool.name,rest_request)
