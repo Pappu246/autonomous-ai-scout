@@ -39,3 +39,16 @@ def test_explicit_test_request_with_file_safety_constraints_stays_test_intent():
     plan = plan_task(request, granted=[Capability.INSPECT, Capability.TEST])
     assert plan.intent is TaskIntent.TEST
     assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]
+
+
+def test_read_only_repository_inspection_with_file_mentions_stays_inspect_intent():
+    request = (
+        "Inspect this repository. Identify the 3 most important current issues "
+        "you can safely verify without modifying any files. For each issue, give "
+        "the affected file(s), evidence, severity, and a concrete next action. "
+        "Do not make any changes."
+    )
+    plan = plan_task(request, granted=[Capability.INSPECT])
+    assert plan.intent is TaskIntent.INSPECT
+    assert [step.tool_name for step in plan.steps] == ["github.inspect"]
+    assert plan.executable is True
