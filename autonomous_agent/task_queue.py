@@ -104,11 +104,16 @@ class TaskQueueStore:
         if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
             raise ValueError("task queue has an invalid schema")
         items: list[QueueItem] = []
+        seen_task_ids: set[str] = set()
         for item in payload["items"]:
             if not isinstance(item, dict):
                 raise ValueError("task queue item is invalid")
+            task_id = str(item["task_id"]).strip()
+            if task_id in seen_task_ids:
+                raise ValueError("task queue contains duplicate task_id values")
+            seen_task_ids.add(task_id)
             queue_item = QueueItem(
-                str(item["task_id"]),
+                task_id,
                 str(item["task"]),
                 str(item["execution_id"]),
                 QueueState(str(item["state"])),
