@@ -159,7 +159,7 @@ class TaskQueueStore:
                     recovered.append(item)
             if changed:
                 self._save_unlocked(recovered)
-            return tuple(item for item in recovered if item.state is QueueState.PENDING and item.last_error)
+            return tuple(item for item in recovered if item.state is QueueState.RECOVERY_REQUIRED)
 
     def confirm_recovery(self, task_id: str) -> QueueItem:
         with self._lock:
