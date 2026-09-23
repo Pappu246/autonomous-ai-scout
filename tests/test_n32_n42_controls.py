@@ -10,6 +10,7 @@ from autonomous_agent.resilience import RecoveryAction, classify_failure
 from autonomous_agent.self_evaluation import evaluate_execution
 from autonomous_agent.observability import TelemetryBuffer
 from autonomous_agent.triggers import TriggerRegistry
+from autonomous_agent.trigger_dispatch import TriggerQueueDispatcher
 from autonomous_agent.benchmark_harness import BenchmarkCase, run_benchmark
 from autonomous_agent.readiness import ReadinessCheck, evaluate_readiness
 from autonomous_agent.production_audit import AuditFinding, run_production_audit
@@ -156,3 +157,52 @@ def test_n42_production_audit_requires_required_areas():
     missing = run_production_audit([AuditFinding("ci", True, "verified")])
     assert passed.passed
     assert not missing.passed
+
+
+def test_n45_trigger_dispatch_hands_off_to_durable_queue(tmp_path: Path):
+    registry = TriggerRegistry(path=tmp_path / "triggers.json")
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    trigger = registry.register("github.ci", {"sha": "abc"}, cooldown_seconds=60)
+    dispatcher = TriggerQueueDispatcher(registry, queue)
+    first = dispatcher.dispatch(
+        trigger.trigger_id,
+        task="review verified CI result",
+        task_id="trigger-task-1",
+        execution_id="trigger-exec-1",
+    )
+    assert first.queued
+    assert first.item is not None
+    assert first.item.state.value == "pending"
+    assert not dispatcher.dispatch(
+        trigger.trigger_id,
+        task="review verified CI result",
+        task_id="trigger-task-2",
+        execution_id="trigger-exec-2",
+    ).queued
+
+
+def test_n45_trigger_dispatch_is_restart_safe_for_existing_task(tmp_path: Path):
+    trigger_path = tmp_path / "triggers.json"
+    queue_path = tmp_path / "queue.json"
+    first_registry = TriggerRegistry(path=trigger_path)
+    queue = TaskQueueStore(queue_path)
+    trigger = first_registry.register("github.ci", {"sha": "restart"}, cooldown_seconds=0)
+    dispatcher = TriggerQueueDispatcher(first_registry, queue)
+    first = dispatcher.dispatch(
+        trigger.trigger_id,
+        task="process CI event",
+        task_id="deterministic-task",
+        execution_id="exec-1",
+    )
+    assert first.queued
+
+    second_registry = TriggerRegistry(path=trigger_path)
+    second = TriggerQueueDispatcher(second_registry, TaskQueueStore(queue_path)).dispatch(
+        trigger.trigger_id,
+        task="process CI event",
+        task_id="deterministic-task",
+        execution_id="exec-1",
+    )
+    assert second.queued
+    assert second.already_queued
+    assert len(queue.list()) == 1
