@@ -62,8 +62,8 @@ def build_action_proposal(task: str, steps: tuple[str, ...], llm_requires_approv
     if requires:
         return ActionProposal(task, steps[:12], True, ActionStatus.PROPOSED,
                               "Approval is required because the task or proposed steps cross a sensitive action boundary.")
-    return ActionProposal(task, steps[:12], False, ActionStatus.COMPLETED,
-                          "Only bounded non-sensitive actions were proposed.")
+    return ActionProposal(task, steps[:12], False, ActionStatus.PROPOSED,
+                          "Only bounded non-sensitive actions were proposed; no execution has occurred.")
 
 
 def _id(proposal: ActionProposal, risk: str) -> str:
