@@ -132,14 +132,14 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if result.success and result.verification_status=="verified":break
         else:
             _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted")
-            checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+            checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
             return ExecutionResult(ExecutionState.FAILED,f"tool execution failed after bounded retries: {tool.name}",total_attempts,tuple(results),str(audit_path))
         completed_step_ids.add(step.step_id)
-        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
         _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_saved",tool=tool.name,step_id=step.step_id,attempts=total_attempts)
         _remember(memory,project,tool=tool.name,execution_id=execution_id,outcome="verified",attempts=total_attempts)
     if not completed_step_ids or len(completed_step_ids)<len(plan.steps):
-        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
         return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
-    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,state=ExecutionState.VERIFIED.value,completed_step_ids=tuple(s.step_id for s in plan.steps),total_attempts=total_attempts)
+    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.VERIFIED.value,completed_step_ids=tuple(s.step_id for s in plan.steps),total_attempts=total_attempts)
     _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts,event="checkpoint_verified");_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts);return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
