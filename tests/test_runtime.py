@@ -38,6 +38,16 @@ def test_runtime_derives_bounded_workspace_shell_request():
     assert request == {"workspace.shell": {"argv": ("python", "-m", "py_compile", "autonomous_agent/runtime.py")}}
 
 
+def test_runtime_derives_bounded_filesystem_read_request():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_core import AutonomousTaskCore
+
+    task = "Read file README.md from the local workspace."
+    prepared = AutonomousTaskCore().prepare(task)
+    request = _workspace_request_for_task(task, prepared.plan)
+    assert request == {"filesystem.read": {"operation": "read", "path": "README.md"}}
+
+
 def test_runtime_wires_workspace_connector_for_workspace_task(monkeypatch, tmp_path: Path):
     from autonomous_agent.runtime import run_task
     captured = {}
