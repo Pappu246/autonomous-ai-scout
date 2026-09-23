@@ -28,6 +28,8 @@ def classify_intent(task: str) -> TaskIntent:
     # Positive source-change requests outrank incidental mentions of tests/files.
     if _positive_clause_contains(text, "fix", "change", "edit", "modify", "update code", "repair"):
         return TaskIntent.CHANGE
+    if _positive_clause_contains(text, "improve", "implement", "add feature", "build", "refactor"):
+        return TaskIntent.IMPROVE
     if "repository workspace" in text or "local workspace" in text:
         return TaskIntent.WORKSPACE
     if _positive_clause_contains(text, "test suite", "run tests", "run the tests", "pytest", "unit tests", "integration tests"):
@@ -36,8 +38,7 @@ def classify_intent(task: str) -> TaskIntent:
         return TaskIntent.RESEARCH
     if any(term in text for term in ("file", "files", "workspace", "directory", "folder", "read file", "write file", "transform file", "run command", "shell command", "py_compile", "compile python")):
         return TaskIntent.WORKSPACE
-    if any(term in text for term in ("improve", "implement", "add feature", "build", "refactor")):
-        return TaskIntent.IMPROVE
+
     if any(term in text for term in ("inspect", "analyze", "analyse", "audit", "review")):
         return TaskIntent.INSPECT
     return TaskIntent.UNKNOWN
