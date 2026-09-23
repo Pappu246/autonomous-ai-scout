@@ -199,16 +199,23 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     if not proposal.requires_approval:
         return None
     normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
-    action = PendingAction(_id(proposal, normalized_risk), _safe_text(proposal.task), tuple(_safe_text(step, 2048) for step in proposal.steps[:12]), normalized_risk,
-                           _safe_text(proposal.reason, 2048), "pending", datetime.now(timezone.utc).isoformat())
+    action = PendingAction(
+        _id(proposal, normalized_risk),
+        _safe_text(proposal.task),
+        tuple(_safe_text(step, 2048) for step in proposal.steps[:12]),
+        normalized_risk,
+        _safe_text(proposal.reason, 2048),
+        "pending",
+        datetime.now(timezone.utc).isoformat(),
+    )
     with _QUEUE_LOCK:
         queue = expire_stale_actions(load_queue(path))
-    for item in queue:
-        if item.id == action.id and item.status == "pending":
-            return item
-    queue.append(action)
-    pending = prioritize_queue([item for item in queue if item.status == "pending"])
-    non_pending = [item for item in queue if item.status != "pending"]
-    queue = pending[:MAX_PENDING_ACTIONS] + non_pending
+        for item in queue:
+            if item.id == action.id and item.status == "pending":
+                return item
+        queue.append(action)
+        pending = prioritize_queue([item for item in queue if item.status == "pending"])
+        non_pending = [item for item in queue if item.status != "pending"]
+        queue = pending[:MAX_PENDING_ACTIONS] + non_pending
         save_queue(path, queue)
     return action
