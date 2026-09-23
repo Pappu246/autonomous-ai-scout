@@ -137,8 +137,8 @@ def test_runtime_uses_core_as_its_single_planning_entrypoint(monkeypatch, tmp_pa
         def __init__(self, *, registry):
             calls.append("init")
 
-        def prepare(self, task):
-            calls.append(f"prepare:{task}")
+        def prepare(self, task, *, explicitly_approved=False):
+            calls.append(f"prepare:{task}:{explicitly_approved}")
             return prepared
 
     monkeypatch.setattr(runtime, "AutonomousTaskCore", FakeCore)
@@ -152,4 +152,4 @@ def test_runtime_uses_core_as_its_single_planning_entrypoint(monkeypatch, tmp_pa
     )
 
     assert result.state is ExecutionState.BLOCKED
-    assert calls == ["init", "prepare:unsupported"]
+    assert calls == ["init", "prepare:unsupported:False"]
