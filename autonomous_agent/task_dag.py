@@ -185,7 +185,6 @@ def execute_dag(
             ok = False
         if not ok:
             failed = node_id
-            affected = []
             descendants = {failed}
             changed = True
             while changed:
@@ -196,10 +195,18 @@ def execute_dag(
                     if any(dep in descendants for dep in candidate.depends_on):
                         descendants.add(candidate.node_id)
                         changed = True
-                        affected.append(candidate.node_id)
-            return DAGExecutionResult(tuple(completed), tuple(blocked) + tuple(affected), failed)
+                        if candidate.node_id not in blocked:
+                            blocked.append(candidate.node_id)
+            # A failed branch blocks only its descendants. Independent
+            # branches remain runnable and continue through the deterministic
+            # topological order.
+            continue
         completed.append(node_id)
-    return DAGExecutionResult(tuple(completed), tuple(blocked), None)
+    failed_node = next(
+        (node.node_id for node in dag.nodes if node.node_id not in completed and node.node_id not in blocked),
+        None,
+    )
+    return DAGExecutionResult(tuple(completed), tuple(blocked), failed_node)
 
 
 __all__ = [
