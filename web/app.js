@@ -25,6 +25,26 @@
     setTimeout(() => el.remove(), 3500);
   }
 
+  function approvalButton(task) {
+    if (!task || !task.approval_required) return "";
+    return '<button class="primary-button compact approve-task-button" data-task-id="' + escapeHtml(task.task_id) + '">Approve & Retry</button>';
+  }
+
+  async function approveTask(taskId) {
+    try {
+      const data = await api("/api/tasks/" + encodeURIComponent(taskId) + "/approve", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: "{}"
+      });
+      state.currentTaskId = data.task_id;
+      showToast("Approval accepted. Task re-queued for execution.");
+      await refresh();
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
   async function api(path, options = {}) {
     const res = await fetch(path, { cache: "no-store", ...options });
     const data = await res.json().catch(() => ({ error: "Invalid server response" }));
@@ -70,6 +90,7 @@
           '<div class="live-title">' + escapeHtml(current.task) + '</div>' +
           '<div class="live-meta"><span>' + escapeHtml(current.task_id) + '</span><span>•</span><span>' + escapeHtml(current.execution_id) + '</span></div>' +
           '<div class="progress-line"><span></span></div>' +
+          (current.explicitly_approved ? '<div class="detail-box">Explicit approval is active for this execution.</div>' : '') +
         '</div>';
     } else if (latest) {
       const resultText = (latest.results || []).map(item =>
@@ -80,6 +101,7 @@
           '<div class="live-title">' + escapeHtml(latest.task) + '</div>' +
           '<div class="live-meta"><span>Task ' + escapeHtml(latest.task_id) + '</span><span>•</span>' + badge(latest.state) + '</div>' +
           (latest.reason ? '<div class="detail-box">' + escapeHtml(latest.reason) + '</div>' : '') +
+          (latest.approval_required ? '<div class="detail-box">This task stopped at the safety gate. No write-capable action was executed.</div>' + approvalButton(latest) : '') +
           (resultText ? '<div class="detail-box">' + escapeHtml(resultText) + '</div>' : '') +
         '</div>';
     } else {
@@ -91,6 +113,7 @@
         '<div class="row"><div class="task-name">' + escapeHtml(t.task) + '</div>' + badge(t.state) + '</div>' +
         '<div class="meta">Task ' + escapeHtml(t.task_id) + ' · Execution ' + escapeHtml(t.execution_id) + '</div>' +
         (t.reason ? '<div class="detail-box">' + escapeHtml(t.reason) + '</div>' : '') +
+        (t.approval_required ? approvalButton(t) : '') +
       '</div>'
     ).join("");
     $("#taskTable").innerHTML = html || '<div class="empty-state">No tasks have been submitted yet.</div>';
@@ -153,7 +176,7 @@
       const data = await api("/api/tasks", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({task: cleaned})
+        body: JSON.stringify({task: cleaned, approved: false})
       });
       $("#taskInput").value = "";
       state.currentTaskId = data.task_id;
@@ -167,7 +190,8 @@
     }
   }
 
-  $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+  $(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+  $(".approve-task-button").forEach(btn => btn.addEventListener("click", () => approveTask(btn.dataset.taskId)));
   $$(".quick-button").forEach(btn => btn.addEventListener("click", () => { $("#taskInput").value = btn.dataset.task; $("#taskInput").focus(); }));
   $$(".text-button").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.viewTarget)));
   $("#runTaskButton").addEventListener("click", () => submitTask($("#taskInput").value));
@@ -178,5 +202,5 @@
   });
 
   refresh();
-  state.timer = setInterval(refresh, 1800);
+  state.timer = setInterval(refresh, 700);
 })();
