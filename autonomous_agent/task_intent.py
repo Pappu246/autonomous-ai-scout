@@ -39,8 +39,12 @@ def classify_intent(task: str) -> TaskIntent:
 
     # Inspection/audit/review tasks must not become workspace tasks merely
     # because they mention files, especially in a negative safety clause such
-    # as "do not modify any files".
+    # as "do not modify any files". An explicit workspace target still takes
+    # the workspace path.
     if any(term in text for term in ("inspect", "analyze", "analyse", "audit", "review")):
+        explicit_workspace_target = _positive_clause_contains(
+            text, "workspace", "local workspace", "directory", "folder"
+        )
         workspace_action = _positive_clause_contains(
             text,
             "read file", "read the file", "open file", "list files",
@@ -48,7 +52,7 @@ def classify_intent(task: str) -> TaskIntent:
             "save file", "transform file", "modify file", "replace in file",
             "run command", "shell command", "py_compile", "compile python",
         )
-        if not workspace_action:
+        if not explicit_workspace_target and not workspace_action:
             return TaskIntent.INSPECT
 
     if any(term in text for term in ("file", "files", "workspace", "directory", "folder", "read file", "write file", "transform file", "run command", "shell command", "py_compile", "compile python")):
