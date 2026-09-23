@@ -62,16 +62,28 @@
     if (data.root_label) $("#rootLabel").textContent = data.root_label;
 
     const current = active[0] || null;
-    $("#liveBadge").textContent = current ? current.state.toUpperCase() : "IDLE";
-    if (!current) {
-      $("#liveTask").innerHTML = '<div class="empty-state">No task is running.</div>';
-    } else {
+    const latest = data.tasks[0] || null;
+    $("#liveBadge").textContent = current ? current.state.toUpperCase() : (latest ? latest.state.toUpperCase() : "IDLE");
+    if (current) {
       $("#liveTask").innerHTML =
         '<div class="live-card">' +
           '<div class="live-title">' + escapeHtml(current.task) + '</div>' +
           '<div class="live-meta"><span>' + escapeHtml(current.task_id) + '</span><span>•</span><span>' + escapeHtml(current.execution_id) + '</span></div>' +
           '<div class="progress-line"><span></span></div>' +
         '</div>';
+    } else if (latest) {
+      const resultText = (latest.results || []).map(item =>
+        '[' + (item.verification || 'result') + '] ' + (item.operation || 'operation') + '\n' + (item.output || '')
+      ).join('\n\n');
+      $("#liveTask").innerHTML =
+        '<div class="live-card">' +
+          '<div class="live-title">' + escapeHtml(latest.task) + '</div>' +
+          '<div class="live-meta"><span>Task ' + escapeHtml(latest.task_id) + '</span><span>•</span>' + badge(latest.state) + '</div>' +
+          (latest.reason ? '<div class="detail-box">' + escapeHtml(latest.reason) + '</div>' : '') +
+          (resultText ? '<div class="detail-box">' + escapeHtml(resultText) + '</div>' : '') +
+        '</div>';
+    } else {
+      $("#liveTask").innerHTML = '<div class="empty-state">No task has been submitted yet.</div>';
     }
 
     const html = data.tasks.map(t =>
