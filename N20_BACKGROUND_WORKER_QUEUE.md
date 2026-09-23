@@ -46,7 +46,7 @@ The demo submits two tasks to a durable queue, starts a background thread, and p
 
 ## Recovery
 
-On worker startup, previously `RUNNING` queue entries are returned to `PENDING` and marked with a restart diagnostic. The original `execution_id` is preserved so N16 checkpoint/resume can continue the execution without inventing a new identity.
+On worker startup, previously `RUNNING` queue entries move to `RECOVERY_REQUIRED` and are marked with an interruption diagnostic. They are not claimable by the background worker. An explicit `confirm_recovery(task_id)` transition is required before the task returns to `PENDING`. This prevents an ambiguous external side effect from being blindly replayed after a worker crash.
 
 ## Safety
 
