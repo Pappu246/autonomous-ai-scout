@@ -19,10 +19,10 @@ def test_sensitive_step_requires_approval():
     assert proposal.status is ActionStatus.PROPOSED
 
 
-def test_read_only_plan_can_complete():
+def test_read_only_plan_is_only_proposed_until_execution():
     proposal = build_action_proposal("inspect project", ("list files", "run tests"))
     assert proposal.requires_approval is False
-    assert proposal.status is ActionStatus.COMPLETED
+    assert proposal.status is ActionStatus.PROPOSED
 
 
 def test_approval_proposal_is_persisted_and_deduplicated(tmp_path: Path):

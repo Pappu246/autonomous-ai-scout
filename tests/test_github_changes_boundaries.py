@@ -96,3 +96,94 @@ def test_execute_rejects_file_manifest_mismatch_before_remote_calls(tmp_path):
     assert not result.allowed
     assert "manifest" in result.reason
     assert backend.calls == 0
+
+
+def test_execute_rejects_file_contents_not_produced_by_verified_base(tmp_path):
+    class Backend:
+        def __init__(self):
+            self.calls = 0
+        def read_file_at_ref(self, repository, path, ref):
+            return "print('old')\n"
+        def create_branch(self, *args):
+            self.calls += 1
+            return "branch"
+        def commit_files(self, *args, **kwargs):
+            self.calls += 1
+            return "commit"
+        def open_draft_pr(self, *args):
+            self.calls += 1
+            return "pr"
+
+    act = action()
+    approval = ApprovalRecord.for_action(
+        act, "single-use", datetime.now(timezone.utc), timedelta(hours=1)
+    )
+    request = build_change_request(
+        act,
+        "Pappu246/autonomous-ai-scout",
+        "main",
+        "agent/safe-change",
+        "Safe inspection",
+        "Prepared for review.",
+        DIFF,
+    )
+    backend = Backend()
+    result = execute_approved_change(
+        act,
+        approval,
+        request,
+        DIFF,
+        {"app.py": "print('new')\nprint('attacker')\n"},
+        tmp_path / "claims",
+        backend,
+    )
+    assert not result.allowed
+    assert "supplied file contents" in result.reason
+    assert backend.calls == 0
+
+
+def test_execute_binds_commit_to_expected_parent_and_fails_closed_on_race(tmp_path):
+    class Backend:
+        def __init__(self):
+            self.calls = []
+        def read_file_at_ref(self, repository, path, ref):
+            return "print('old')\n"
+        def create_branch(self, *args):
+            self.calls.append(("branch", args))
+            return "branch"
+        def commit_files(self, *args, **kwargs):
+            self.calls.append(("commit", args, kwargs))
+            assert kwargs["expected_parent_sha"] == "b" * 40
+            raise RuntimeError("branch parent changed")
+        def open_draft_pr(self, *args):
+            self.calls.append(("pr", args))
+            return "pr"
+
+    act = action()
+    approval = ApprovalRecord.for_action(
+        act, "single-use", datetime.now(timezone.utc), timedelta(hours=1)
+    )
+    request = build_change_request(
+        act,
+        "Pappu246/autonomous-ai-scout",
+        "main",
+        "agent/safe-change",
+        "Safe inspection",
+        "Prepared for review.",
+        DIFF,
+        expected_head_sha="b" * 40,
+    )
+    backend = Backend()
+    result = execute_approved_change(
+        act,
+        approval,
+        request,
+        DIFF,
+        {"app.py": "print('new')\n"},
+        tmp_path / "claims",
+        backend,
+    )
+    assert not result.allowed
+    assert "failed closed" in result.reason
+    assert [entry[0] for entry in backend.calls] == ["branch", "commit"]
+

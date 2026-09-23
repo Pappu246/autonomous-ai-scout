@@ -28,16 +28,19 @@ def append_decision(path: Path, action_id: str, decision: str) -> None:
         raise ValueError("action_id must not be empty")
     previous_hash = ""
     if path.exists():
+        if not verify_audit_chain(path):
+            raise ValueError("approval audit chain is invalid")
         try:
             for line in reversed(path.read_text(encoding="utf-8").splitlines()):
                 if not line.strip():
                     continue
                 previous = json.loads(line)
-                if isinstance(previous, dict):
-                    previous_hash = str(previous.get("hash", ""))
-                    break
+                if not isinstance(previous, dict):
+                    raise ValueError("approval audit contains an invalid record")
+                previous_hash = str(previous.get("hash", ""))
+                break
         except (OSError, ValueError):
-            previous_hash = ""
+            raise ValueError("approval audit chain is invalid")
     record: dict[str, str] = {
         "action_id": action_id,
         "decision": decision,

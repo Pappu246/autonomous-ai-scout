@@ -11,10 +11,12 @@ def _canonical(record: dict[str, str]) -> str:
 
 
 def append_execution_record(path: Path, record: dict[str, str]) -> None:
-    """Append one hash-chained execution record without storing raw credentials."""
+    """Append one hash-chained execution record without extending a corrupted chain."""
     safe = {str(k): str(v) for k, v in record.items() if k != "hash"}
     previous_hash = ""
     if path.exists():
+        if not verify_execution_audit(path):
+            raise ValueError("execution audit chain is invalid")
         lines = path.read_text(encoding="utf-8").splitlines()
         for line in reversed(lines):
             if line.strip():

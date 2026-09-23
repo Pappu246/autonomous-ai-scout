@@ -29,7 +29,14 @@ def test_github_connector_rejects_cross_repository_pr():
     def bad(path,params=None):return {"base":{"repo":{"full_name":"other/repo"}},"head":{"repo":{"full_name":"owner/repo"}}}
     with pytest.raises(GitHubConnectorError):GitHubDomainConnector(bad).pull_request("owner/repo",7)
 def test_prepare_change_only_crosses_existing_approval_boundary():
-    calls=[]; c=GitHubDomainConnector(lambda path,params=None:calls.append(path) or {}); a=PendingAction(id="act-1",task="fix safe lint issue",steps=("prepare source change",),risk="high",reason="requires review"); r=c.prepare_change(a,"owner/repo","main","feature/safe","Fix lint","Safe fix","diff"); assert r.repository=="owner/repo" and r.requires_approval and calls==[]
+    calls=[]; c=GitHubDomainConnector(lambda path,params=None:calls.append(path) or {}); a=PendingAction(id="act-1",task="fix safe lint issue",steps=("prepare source change",),risk="high",reason="requires review"); r=c.prepare_change(a,"owner/repo","main","feature/safe","Fix lint","Safe fix","""diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1 +1 @@
+-old
++new
+"""); assert r.repository=="owner/repo" and r.requires_approval and calls==[]
+
 def test_web_capability_is_public_read_only_and_uses_new_policy():
     registry=web_capabilities(REGISTRY); assert registry.authorize("web:search",("web_research",)).allowed; assert not registry.authorize("web:search",()).allowed
 def test_web_connector_compatibility_bounds():

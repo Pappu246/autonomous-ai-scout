@@ -73,6 +73,36 @@ def _bounded(text: str) -> str:
     return _redact(text)[:_MAX_FILE_BYTES]
 
 
+def _safe_repository(value: str) -> str:
+    normalized = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", normalized):
+        raise ValueError("repository must use owner/repository identity")
+    return normalized
+
+
+def _safe_repository_path(value: str) -> str:
+    normalized = value.strip().replace("\\", "/").removeprefix("./")
+    drive_like = len(normalized) >= 2 and normalized[1] == ":"
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or drive_like
+        or normalized in {".", ".."}
+        or normalized.startswith("../")
+        or "/../" in normalized
+        or normalized.endswith("/..")
+        or normalized == ".git"
+        or normalized.startswith(".git/")
+        or normalized == ".github/workflows"
+        or normalized.startswith(".github/workflows/")
+        or normalized == ".env"
+        or normalized.startswith(".env.")
+        or normalized.startswith("state/secrets/")
+    ):
+        raise ValueError("repository context path is outside the allowed inspection boundary")
+    return normalized
+
+
 class GitRepositoryInspector:
     """Read-only repository context adapter.
 
@@ -84,7 +114,8 @@ class GitRepositoryInspector:
         self.reader = reader
 
     def inspect(self, repository: str, paths: Iterable[str]) -> RepositoryContext:
-        requested_paths = tuple(dict.fromkeys(paths))
+        repository = _safe_repository(repository)
+        requested_paths = tuple(dict.fromkeys(_safe_repository_path(path) for path in paths))
         files: list[RepositoryFile] = []
         truncated = False
 

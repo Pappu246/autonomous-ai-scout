@@ -75,14 +75,32 @@ class ControlledWorkspaceShell:
             target = self._safe_target(parts[3])
             if target is None or target.suffix != ".py" or not target.is_file():
                 return WorkspaceShellResult(False, parts, "", None, "py_compile target must be a workspace Python file")
-            prefix = shutil.which("unshare")
-            if prefix is None or os.name != "posix":
-                return WorkspaceShellResult(False, parts, "", None, "network-isolated shell execution is unavailable")
-            command = (prefix, "--user", "--map-root-user", "--net", "--mount-proc", "--", sys.executable, "-m", "py_compile", str(target.relative_to(self.root)))
-            try:
-                process = subprocess.run(command, cwd=self.root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, env={"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"}, check=False, text=True, shell=False)
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                return WorkspaceShellResult(False, parts, "", None, f"py_compile failed to run: {type(exc).__name__}")
+            if os.name == "posix" and (prefix := shutil.which("unshare")):
+                command = (prefix, "--user", "--map-root-user", "--net", "--mount-proc", "--", sys.executable, "-m", "py_compile", str(target.relative_to(self.root)))
+            else:
+                # py_compile parses/compiles the target file without importing it; it is a fixed
+                # non-networking operation, so the safe check remains available on Windows.
+                command = (sys.executable, "-m", "py_compile", str(target.relative_to(self.root)))
+            with tempfile.TemporaryDirectory(prefix="scout-pycache-") as cache_dir:
+                try:
+                    process = subprocess.run(
+                        command,
+                        cwd=self.root,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        timeout=timeout,
+                        env={
+                            "PATH": os.environ.get("PATH", ""),
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                            "PYTHONPYCACHEPREFIX": cache_dir,
+                        },
+                        check=False,
+                        text=True,
+                        shell=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    return WorkspaceShellResult(False, parts, "", None, f"py_compile failed to run: {type(exc).__name__}")
             return WorkspaceShellResult(process.returncode == 0, parts, process.stdout[:MAX_OUTPUT_BYTES], process.returncode, "verified" if process.returncode == 0 else "failed")
         return WorkspaceShellResult(False, parts, "", None, "unsupported workspace shell operation")
 

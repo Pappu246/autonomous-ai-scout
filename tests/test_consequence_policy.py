@@ -1,6 +1,6 @@
 from autonomous_agent.consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy, Consequence
 from autonomous_agent.prompt_injection_guard import TrustLevel
-from autonomous_agent.tool_registry import REGISTRY
+from autonomous_agent.tool_registry import REGISTRY, ApprovalRequirement, ReadWriteMode
 
 
 def test_low_risk_read_is_autonomous():
@@ -51,3 +51,32 @@ def test_medium_risk_read_only_is_autonomous():
     decision = policy.evaluate(REGISTRY.get("web.search"))
     assert decision.mode is ApprovalMode.AUTONOMOUS
     assert decision.consequence is Consequence.MEDIUM
+
+
+def test_safe_write_requires_explicit_approval():
+    policy = ConsequenceAwareApprovalPolicy()
+    from dataclasses import replace
+    tool = replace(
+        REGISTRY.get("filesystem.read"),
+        name="test.safe.write",
+        read_write_mode=ReadWriteMode.SAFE_WRITE,
+        safe_autonomous=False,
+        approval_requirement=ApprovalRequirement.NONE,
+    )
+    decision = policy.evaluate(tool)
+    assert decision.mode is ApprovalMode.REQUIRE_APPROVAL
+    approved = policy.evaluate(tool, explicitly_approved=True)
+    assert approved.mode is ApprovalMode.AUTONOMOUS
+
+
+def test_non_autonomous_read_only_tool_requires_approval():
+    from dataclasses import replace
+    tool = replace(
+        REGISTRY.get("filesystem.read"),
+        name="test.manual.read",
+        safe_autonomous=False,
+        approval_requirement=ApprovalRequirement.NONE,
+    )
+    decision = ConsequenceAwareApprovalPolicy().evaluate(tool)
+    assert decision.mode is ApprovalMode.REQUIRE_APPROVAL
+    assert ConsequenceAwareApprovalPolicy().evaluate(tool, explicitly_approved=True).mode is ApprovalMode.AUTONOMOUS

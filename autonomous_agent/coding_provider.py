@@ -3,6 +3,7 @@ import json, os, re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 from .ai_coding_brain import RepositoryContext, _redact
+from .prompt_injection_guard import PromptInjectionGuard, TrustLevel
 from .self_improvement import PatchCandidate
 
 
@@ -82,7 +83,13 @@ class OpenAICompatibleCodingModel:
             "task": proposal.problem, "solution": proposal.proposed_solution,
             "validation": proposal.validation_strategy, "affected_area": proposal.affected_area,
             "repository": context.repository,
-            "files": [{"path": f.path, "content": f.content} for f in context.files],
+            "files": [
+                {
+                    "path": f.path,
+                    "content": PromptInjectionGuard.wrap(f.content, source=f.path, trust=TrustLevel.EXTERNAL),
+                }
+                for f in context.files
+            ],
             "feedback": _redact(feedback)[:4000],
             "previous_summary": previous.summary if previous else "",
             "output_schema": {"unified_diff":"string", "file_contents":{"path":"complete UTF-8 file"}, "summary":"string", "test_commands":["leave empty; sandbox validation executes the approved proposal commands"]},

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import re
 from dataclasses import dataclass
@@ -251,12 +252,39 @@ class GitHubApiClient:
             raise GitHubApiError("GitHub did not return the created branch ref")
         return str(ref)
 
+    def read_file_at_ref(self, repository: str, path: str, ref: str) -> str:
+        """Read one regular file from an exact Git ref for base-aware patch validation."""
+        ref_value = ref.strip()
+        if not ref_value or len(ref_value) > 128 or any(ch in ref_value for ch in ("\n", "\r", "\x00")):
+            raise GitHubApiError("Git ref is invalid")
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/contents/{quote(_file_path(path), safe='/')}",
+            params={"ref": ref_value},
+        )
+        if not isinstance(result, Mapping) or str(result.get("type", "")) != "file":
+            raise GitHubApiError("GitHub did not return a regular file")
+        encoded = result.get("content")
+        if not isinstance(encoded, str):
+            raise GitHubApiError("GitHub file content is missing")
+        try:
+            raw = base64.b64decode(encoded, validate=False)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise GitHubApiError("GitHub file content is not valid base64") from exc
+        if len(raw) > 200_000:
+            raise GitHubApiError("GitHub base file exceeds the safe size limit")
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise GitHubApiError("GitHub base file is not UTF-8 text") from exc
+
     def commit_files(
         self,
         repository: str,
         branch: str,
         files: Mapping[str, str],
         message: str,
+        expected_parent_sha: str = "",
     ) -> str:
         if not files:
             raise GitHubApiError("at least one file is required")
@@ -270,7 +298,10 @@ class GitHubApiClient:
         branch_sha = self.head_sha(repository, branch)
         if not branch_sha:
             raise GitHubApiError("change branch HEAD could not be verified")
-
+        expected = expected_parent_sha.strip().lower()
+        if expected and (not re.fullmatch(r"[0-9a-f]{40}", expected) or branch_sha.lower() != expected):
+            raise GitHubApiError("change branch HEAD changed after approval")
+        
         commit_info = self._request(
             "GET",
             f"{_repo_path(repository)}/git/commits/{quote(branch_sha, safe='')}",

@@ -230,3 +230,46 @@ def test_provider_env_parser_does_not_store_secret(monkeypatch):
     assert len(providers) == 1
     assert providers[0].config.api_key_env == "GROQ_API_KEY"
     assert "super-secret" not in repr(providers[0])
+
+
+def test_unknown_cost_class_is_skipped_even_when_key_is_configured(monkeypatch):
+    monkeypatch.setenv("UNKNOWN_KEY", "secret")
+
+    class Unknown:
+        def generate_patch(self, **kwargs):
+            raise AssertionError("unknown-cost provider must never be selected")
+
+    router = CodingProviderRouter(
+        [_spec("unknown", "UNKNOWN_KEY", cost="mystery")],
+        model_factory=lambda _: Unknown(),
+    )
+    assert router.generate_patch(proposal=_proposal(), context=_context()) is None
+    assert router.last_attempts[0].status == "skipped"
+
+
+def test_model_factory_failure_falls_back(monkeypatch):
+    monkeypatch.setenv("A_KEY", "a")
+    monkeypatch.setenv("B_KEY", "b")
+
+    class Good:
+        def generate_patch(self, **kwargs):
+            return PatchCandidate(
+                "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+                {"app.py": "new\n"},
+                "good",
+                (),
+            )
+
+    def factory(config):
+        if config.api_key_env == "A_KEY":
+            raise RuntimeError("factory down")
+        return Good()
+
+    router = CodingProviderRouter(
+        [_spec("a", "A_KEY", 10), _spec("b", "B_KEY", 20)],
+        model_factory=factory,
+    )
+    result = router.generate_patch(proposal=_proposal(), context=_context())
+    assert result is not None
+    assert result.summary == "good"
+    assert router.last_attempts[0].detail == "model_factory failed: RuntimeError"

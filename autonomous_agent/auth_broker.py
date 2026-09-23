@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Callable, Iterable
@@ -21,10 +22,12 @@ class CredentialRef:
             raise ValueError("credential reference fields are required")
         if not self.scopes:
             raise ValueError("credential reference must include at least one scope")
-        forbidden = ("token=", "password=", "secret=", "api_key=")
-        joined = " ".join((self.provider, self.subject, self.resource, *self.scopes)).lower()
-        if any(marker in joined for marker in forbidden):
+        joined = " ".join((self.provider, self.subject, self.resource, *self.scopes))
+        lowered = joined.lower()
+        if re.search(r"(?i)(api[_-]?key|access[_-]?token|token|password|secret|authorization|credential)\s*[:=]\s*\S+", joined):
             raise ValueError("credential reference must not contain credential material")
+        if "-----begin " in lowered and "private key-----" in lowered:
+            raise ValueError("credential reference must not contain private key material")
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,14 @@ class CredentialBroker:
         self._leases: dict[str, tuple[str, datetime]] = {}
         self._lock = Lock()
 
+    def purge_expired(self) -> int:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            expired = [handle for handle, (_, expires) in self._leases.items() if now >= expires]
+            for handle in expired:
+                self._leases.pop(handle, None)
+            return len(expired)
+
     def acquire(
         self,
         reference: CredentialRef,
@@ -70,6 +81,7 @@ class CredentialBroker:
         granted_scopes: Iterable[str] = (),
         lease_seconds: int = 60,
     ) -> CredentialLease:
+        self.purge_expired()
         allowed, reason = self.permissions.authorize(reference.scopes, granted_scopes)
         if not allowed:
             raise PermissionError(reason)
@@ -89,6 +101,7 @@ class CredentialBroker:
         lease: CredentialLease,
         consumer: Callable[[str], object],
     ) -> object:
+        self.purge_expired()
         now = datetime.now(timezone.utc)
         if now >= datetime.fromisoformat(lease.expires_at):
             with self._lock:

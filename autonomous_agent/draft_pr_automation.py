@@ -9,7 +9,7 @@ from typing import Mapping, Protocol
 from .action_queue import PendingAction
 from .approved_executor import ApprovalRecord, action_fingerprint, validate_approval
 from .github_changes import GitHubChangeBackend, GitHubChangeResult, build_change_request, execute_approved_change
-from .patch_review import PatchReview, review_patch
+from .patch_review import PatchReview, review_patch, validate_patch_file_contents
 
 
 _OWNER_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -191,6 +191,8 @@ def prepare_draft_pr(
         return DraftPrResult(False, "approved file contents fingerprint mismatch", request.request_fingerprint)
     if any("\x00" in content for content in file_contents.values()):
         return DraftPrResult(False, "changed file contains NUL bytes", request.request_fingerprint)
+    if not validate_patch_file_contents(unified_diff, file_contents):
+        return DraftPrResult(False, "changed file contents do not match the reviewed diff", request.request_fingerprint)
     try:
         current_sha = head_provider.head_sha(request.repository, request.base_branch)
     except Exception as exc:

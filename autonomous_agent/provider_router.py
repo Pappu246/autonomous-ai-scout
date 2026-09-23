@@ -55,12 +55,19 @@ class CodingProviderRouter(CodingModel):
         self.last_attempts: tuple[ProviderAttempt, ...] = ()
 
     def _eligible(self, spec: ProviderSpec) -> bool:
-        if "coding" not in spec.capabilities:
+        capabilities = {str(item).strip().lower() for item in spec.capabilities}
+        if "coding" not in capabilities:
             return False
 
-        if spec.cost_class == "paid" and not self.allow_paid:
+        cost_class = str(spec.cost_class).strip().lower()
+        if cost_class == "paid":
+            if not self.allow_paid:
+                return False
+        elif cost_class != "free":
             return False
 
+        if not spec.config.api_key_env or not str(spec.config.api_key_env).strip():
+            return False
         return bool(os.getenv(spec.config.api_key_env))
 
     def generate_patch(
@@ -84,7 +91,11 @@ class CodingProviderRouter(CodingModel):
                 )
                 continue
 
-            model = self.model_factory(spec.config)
+            try:
+                model = self.model_factory(spec.config)
+            except Exception as exc:
+                attempts.append(ProviderAttempt(spec.name, "failed", f"model_factory failed: {type(exc).__name__}"))
+                continue
             attempt_limit = max(1, min(spec.max_attempts, 3))
 
             for attempt_number in range(attempt_limit):

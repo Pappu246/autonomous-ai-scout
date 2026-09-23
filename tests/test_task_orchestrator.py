@@ -5,7 +5,7 @@ from autonomous_agent.task_orchestrator import OrchestrationState, StructuredTas
 class _Executor:
     def __init__(self, result=True, interrupt=False):
         self.calls = []
-        self.result = result
+        self.result = {"success": True, "verification_status": "verified"} if result is True else result
         self.interrupt = interrupt
 
     def execute_authorized(self, step_id, tool_name, task_digest):
@@ -127,3 +127,21 @@ def test_report_is_secret_safe_and_contains_only_references():
     rendered = str(report.safe_dict)
     assert "abc123" not in rendered
     assert not hasattr(report, "executor")
+
+
+def test_orchestrator_does_not_call_unverified_executor_result_success():
+    executor = _Executor(result={"success": True, "verification_status": "pending"})
+    report = TaskOrchestrator().orchestrate("inspect the project", granted=_safe_grants())
+    assert report.state is OrchestrationState.AUTHORIZED
+    failed = TaskOrchestrator().execute(report, executor)
+    assert failed.state is OrchestrationState.VERIFICATION_FAILED
+
+
+def test_orchestrator_consequence_policy_blocks_non_autonomous_read_tool():
+    from dataclasses import replace
+    from autonomous_agent.tool_registry import ToolRegistry, REGISTRY
+    custom = replace(REGISTRY.get("filesystem.read"), name="manual.read", safe_autonomous=False)
+    registry = ToolRegistry([custom])
+    # Use a task that routes to the custom registry tool through an explicit router replacement.
+    report = TaskOrchestrator(registry=registry).orchestrate("inspect the project", granted=(Capability.FILES_WORKSPACE,))
+    assert report.state in {OrchestrationState.BLOCKED, OrchestrationState.REQUIRES_APPROVAL}

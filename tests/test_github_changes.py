@@ -22,7 +22,10 @@ class FakeBackend:
         self.calls.append(("branch", repository, branch, base_branch))
         return branch
 
-    def commit_files(self, repository, branch, files, message):
+    def read_file_at_ref(self, repository, path, ref):
+        return "print('old')\n"
+
+    def commit_files(self, repository, branch, files, message, expected_parent_sha=""):
         self.calls.append(("commit", repository, branch, dict(files), message))
         return "commit-sha"
 

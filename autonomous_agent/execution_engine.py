@@ -21,9 +21,46 @@ _CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Ca
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
 def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
-def _authorization_digest(granted, explicitly_approved):
+def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGISTRY):
     values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
-    return hashlib.sha256(json.dumps({"granted":values,"explicitly_approved":bool(explicitly_approved)},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    tools=[]
+    if plan is not None:
+        for step in plan.steps:
+            tool=registry.get(step.tool_name)
+            if tool is None:
+                tools.append({"name":step.tool_name,"missing":True})
+            else:
+                tools.append({
+                    "name":tool.name,
+                    "capability":tool.capability,
+                    "risk":tool.risk_level.value,
+                    "read_write":tool.read_write_mode.value,
+                    "network":tool.network_requirement.value,
+                    "authentication":tool.authentication_requirement.value,
+                    "approval":tool.approval_requirement.value,
+                    "sandbox":tool.sandbox_requirement.value,
+                    "audit":tool.audit_requirement.value,
+                    "safe_autonomous":tool.safe_autonomous,
+                })
+    payload={"granted":values,"explicitly_approved":bool(explicitly_approved),"tools":tools}
+    return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+
+def _audit_events(path,execution_id):
+    if not path.exists():return ()
+    events=[]
+    try:lines=path.read_text(encoding="utf-8").splitlines()
+    except OSError:raise ValueError("execution audit is unreadable")
+    for line in lines:
+        if not line.strip():continue
+        item=json.loads(line)
+        if isinstance(item,dict) and item.get("execution_id")==execution_id:events.append(item)
+    return tuple(events)
+
+def _audit_has_verified_completion(path,execution_id,plan):
+    events=_audit_events(path,execution_id)
+    verified_steps={str(item.get("step_id")) for item in events if item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id")}
+    terminal=any(item.get("event")=="checkpoint_verified" and item.get("state")==ExecutionState.VERIFIED.value for item in events)
+    return all(step.step_id in verified_steps for step in plan.steps) and terminal
 
 def _verified_steps_from_audit(path,execution_id):
     completed=set()
@@ -45,14 +82,20 @@ def _remember(memory,project,*,task=None,tool=None,execution_id="",outcome="",at
 def _has_unfinished_execution(path,execution_id):
     if not path.exists():return False
     terminal={ExecutionState.VERIFIED.value,ExecutionState.FAILED.value,ExecutionState.BLOCKED.value};last=None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():continue
-        item=json.loads(line)
-        if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
+    try:
+        lines=path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            if not line.strip():continue
+            item=json.loads(line)
+            if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
+    except (OSError,UnicodeError,json.JSONDecodeError):
+        raise ValueError("execution audit contains an invalid record")
     return last==ExecutionState.RUNNING.value or (last is not None and last not in terminal)
 def recover_execution(execution_id,audit_path):
     if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
-    if _has_unfinished_execution(audit_path,execution_id):return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
+    try:unfinished=_has_unfinished_execution(audit_path,execution_id)
+    except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
+    if unfinished:return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
     return ExecutionResult(ExecutionState.VERIFIED,"no unfinished execution requires recovery",0,(),str(audit_path))
 def _validate_web_tool(tool):
     expected="required" if tool.name in {"web.search","web.read"} else "none";return tool.capability==Capability.WEB_RESEARCH.value and tool.network_requirement.value==expected and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"web.search","web.read","web.extract","web.compare"}
@@ -75,21 +118,29 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
-    authorization_digest=_authorization_digest(granted, explicitly_approved)
+    authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if checkpoint is not None:
         if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest or checkpoint.authorization_digest!=authorization_digest:
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
         if checkpoint.state=="verified":
-            return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+            try:verified=_audit_has_verified_completion(audit_path,execution_id,plan)
+            except (OSError,UnicodeError,json.JSONDecodeError,ValueError) as exc:return ExecutionResult(ExecutionState.BLOCKED,f"execution audit cannot verify checkpoint: {type(exc).__name__}",checkpoint.total_attempts,(),str(audit_path))
+            if verified:
+                return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by trusted audit and durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims verified execution without matching trusted audit evidence",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="failed":
             return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"failed execution checkpoint requires explicit recovery; automatic replay is disabled",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="blocked":
             return ExecutionResult(ExecutionState.BLOCKED,"blocked execution checkpoint cannot be resumed",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state!="running":
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint has an invalid resumable state",checkpoint.total_attempts,(),str(audit_path))
-        completed_step_ids=set(checkpoint.completed_step_ids) | _verified_steps_from_audit(audit_path,execution_id)
+        audit_completed=_verified_steps_from_audit(audit_path,execution_id)
+        checkpoint_completed=set(checkpoint.completed_step_ids)
+        if checkpoint_completed - audit_completed:
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims completed steps without matching trusted audit evidence",checkpoint.total_attempts,(),str(audit_path))
+        completed_step_ids=audit_completed
         total_attempts=checkpoint.total_attempts
         _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_resumed",completed_steps=len(completed_step_ids))
     else:

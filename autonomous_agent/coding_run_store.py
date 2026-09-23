@@ -21,7 +21,7 @@ from .action_queue import PendingAction
 from .approved_executor import action_fingerprint
 from .continuous_improvement import ImpactAnalysis, ImprovementEvidence, ImprovementProposal, ImprovementRisk
 from .draft_pr_automation import file_contents_digest, validate_draft_identity
-from .patch_review import MAX_FILES, MAX_PATCH_BYTES, PatchReview, review_patch
+from .patch_review import MAX_FILES, MAX_PATCH_BYTES, PatchReview, review_patch, validate_patch_file_contents
 from .self_improvement import (
     MAX_FILE_BYTES,
     MAX_TOTAL_FILE_BYTES,
@@ -387,6 +387,8 @@ def _validate_record(record: StoredCodingRun) -> None:
     actual_review = review_patch(candidate.unified_diff)
     if not actual_review.allowed or actual_review != review:
         raise CodingRunStoreError("stored patch review does not match candidate")
+    if not validate_patch_file_contents(candidate.unified_diff, candidate.file_contents):
+        raise CodingRunStoreError("stored candidate file contents do not match reviewed diff")
     manifest = tuple(path.strip().replace("\\", "/").removeprefix("./") for path in candidate.file_contents)
     if manifest != review.files:
         raise CodingRunStoreError("stored candidate file manifest does not match review")

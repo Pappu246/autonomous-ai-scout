@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Mapping, Protocol
 
 from .continuous_improvement import ImprovementProposal
-from .patch_review import PatchReview, review_patch
+from .patch_review import PatchReview, review_patch, validate_patch_file_contents
 
 _SECRET = re.compile(
     r"(?i)(?:api[_-]?key|api\s+key|access[_-]?token|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+"
@@ -90,6 +90,13 @@ def _normalize_manifest(file_contents: Mapping[str, str]) -> tuple[str, ...]:
     )
 
 
+def _contains_sensitive_candidate(candidate: PatchCandidate) -> bool:
+    for content in candidate.file_contents.values():
+        if _PRIVATE_KEY.search(content) or _SECRET.search(content):
+            return True
+    return False
+
+
 def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, str | None]:
     if not candidate.summary.strip():
         return None, "patch summary is required"
@@ -113,6 +120,10 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
         total_bytes += size
     if total_bytes > MAX_TOTAL_FILE_BYTES:
         return review, "changed file contents exceed total size budget"
+    if _contains_sensitive_candidate(candidate):
+        return review, "candidate file contents contain sensitive material"
+    if not validate_patch_file_contents(candidate.unified_diff, candidate.file_contents):
+        return review, "candidate file contents do not match the reviewed diff hunks"
     if any("\x00" in content for content in candidate.file_contents.values()):
         return review, "changed file contains NUL bytes"
     return review, None
