@@ -107,8 +107,11 @@ class ControlledWorkspaceShell:
     def _safe_target(self, value: str) -> Path | None:
         candidate = (self.root / value).resolve()
         try:
-            candidate.relative_to(self.root)
+            relative = candidate.relative_to(self.root)
         except ValueError:
+            return None
+        sensitive_names = {'.git', '.env', '.ssh', '.npmrc', '.pypirc', '.netrc', 'credentials.json', 'service-account.json', 'id_rsa', 'id_ed25519'}
+        if any(part in sensitive_names or part.endswith(('.pem', '.key')) for part in relative.parts):
             return None
         return candidate
 
