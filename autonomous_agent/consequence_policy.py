@@ -60,7 +60,11 @@ class ConsequenceAwareApprovalPolicy:
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.CRITICAL, tuple(reasons))
         if tool.risk_level is RiskLevel.HIGH or tool.read_write_mode in {ReadWriteMode.CONTROLLED_WRITE, ReadWriteMode.HIGH_RISK_WRITE}:
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.HIGH, tuple(reasons))
-        if tool.risk_level is RiskLevel.MEDIUM or tool.approval_requirement is not ApprovalRequirement.NONE:
+        if tool.risk_level is RiskLevel.MEDIUM:
+            if tool.read_write_mode is ReadWriteMode.READ_ONLY and tool.approval_requirement is ApprovalRequirement.NONE:
+                return ApprovalDecision(ApprovalMode.AUTONOMOUS, Consequence.MEDIUM, tuple(reasons))
+            return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.MEDIUM, tuple(reasons))
+        if tool.approval_requirement is not ApprovalRequirement.NONE:
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.MEDIUM, tuple(reasons))
         return ApprovalDecision(ApprovalMode.AUTONOMOUS, Consequence.NONE if tool.read_write_mode is ReadWriteMode.READ_ONLY else Consequence.LOW, tuple(reasons))
 
