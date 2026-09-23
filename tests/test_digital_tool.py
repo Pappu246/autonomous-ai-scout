@@ -99,3 +99,44 @@ def test_untrusted_origin_cannot_authorize_a_write_without_approval():
     assert not result.success
     assert "untrusted content cannot authorize" in result.error
     assert called is False
+
+
+def test_invocation_rejects_invalid_argument_types():
+    layer = UniversalDigitalToolLayer()
+    denied = layer.invoke(
+        ToolInvocation("workspace.shell", {"argv": "python"}, "now"),
+        granted=[Capability.WORKSPACE_SHELL],
+        invoker=lambda _: "should-not-run",
+    )
+    assert not denied.success
+    assert "must be of type array" in denied.error
+
+
+def test_invocation_rejects_missing_required_argument_when_schema_requires_it():
+    from autonomous_agent.tool_registry import ToolSpec, RiskLevel, ReadWriteMode, NetworkRequirement, AuthenticationRequirement, ApprovalRequirement, SandboxRequirement, AuditRequirement
+    from autonomous_agent.tool_registry import ToolRegistry
+    spec = ToolSpec(
+        "test.required",
+        "required field test",
+        "test",
+        RiskLevel.LOW,
+        ReadWriteMode.READ_ONLY,
+        NetworkRequirement.NONE,
+        AuthenticationRequirement.NONE,
+        ApprovalRequirement.NONE,
+        SandboxRequirement.REQUIRED,
+        AuditRequirement.REQUIRED,
+        {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"], "additionalProperties": False},
+        {"type": "object"},
+        Capability.INSPECT.value,
+        True,
+    )
+    registry = ToolRegistry()
+    registry.register(spec)
+    result = UniversalDigitalToolLayer(registry=registry).invoke(
+        ToolInvocation("test.required", {}, "now"),
+        granted=[Capability.INSPECT],
+        invoker=lambda _: "bad",
+    )
+    assert not result.success
+    assert "missing required" in result.error
