@@ -63,6 +63,14 @@ class CredentialBroker:
         self._leases: dict[str, tuple[str, datetime]] = {}
         self._lock = Lock()
 
+    def purge_expired(self) -> int:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            expired = [handle for handle, (_, expires) in self._leases.items() if now >= expires]
+            for handle in expired:
+                self._leases.pop(handle, None)
+            return len(expired)
+
     def acquire(
         self,
         reference: CredentialRef,
@@ -70,6 +78,7 @@ class CredentialBroker:
         granted_scopes: Iterable[str] = (),
         lease_seconds: int = 60,
     ) -> CredentialLease:
+        self.purge_expired()
         allowed, reason = self.permissions.authorize(reference.scopes, granted_scopes)
         if not allowed:
             raise PermissionError(reason)
@@ -89,6 +98,7 @@ class CredentialBroker:
         lease: CredentialLease,
         consumer: Callable[[str], object],
     ) -> object:
+        self.purge_expired()
         now = datetime.now(timezone.utc)
         if now >= datetime.fromisoformat(lease.expires_at):
             with self._lock:
