@@ -44,3 +44,10 @@ def test_universal_tool_layer_reports_consequence_policy_before_invoke():
     assert not result.success
     assert "consequence-aware policy" in result.error
     assert not calls
+
+
+def test_medium_risk_read_only_is_autonomous():
+    policy = ConsequenceAwareApprovalPolicy()
+    decision = policy.evaluate(REGISTRY.get("web.search"))
+    assert decision.mode is ApprovalMode.AUTONOMOUS
+    assert decision.consequence is Consequence.MEDIUM

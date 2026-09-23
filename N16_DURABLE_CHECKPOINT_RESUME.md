@@ -52,8 +52,10 @@ A checkpoint is saved only after a step returns a successful, verified result. T
 - Invalid or unreadable checkpoints fail closed.
 - A checkpoint for another execution identity is rejected.
 - A checkpoint for a different task or plan is rejected.
+- A checkpoint created under a different granted-capability set or approval state is rejected.
+- Failed or blocked checkpoints are never automatically replayed; they require an explicit recovery path.
+- Verified step results already recorded in the trusted audit chain are reconciled on resume to reduce the checkpoint-write crash window.
 - Existing sandbox, capability, audit, and approval checks remain in force.
-- The pre-N16 behavior for an interrupted execution with no durable checkpoint remains recovery-required.
 - No lifecycle replacement is introduced.
 
 ## Tests

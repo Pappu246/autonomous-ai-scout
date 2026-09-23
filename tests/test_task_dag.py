@@ -121,3 +121,22 @@ def test_dag_scheduler_executes_ready_nodes_in_dependency_order(tmp_path: Path):
     assert result.success
     assert result.completed == ("inspect", "research", "test")
     assert calls == ["inspect", "research", "test"]
+
+
+def test_dag_failure_only_blocks_failed_node_and_descendants():
+    planner = LongHorizonPlanner()
+    dag = planner.plan(
+        "verify project",
+        (
+            DAGTaskSpec("inspect", "inspect repository"),
+            DAGTaskSpec("test", "run tests", ("inspect",)),
+            DAGTaskSpec("research", "research this topic"),
+            DAGTaskSpec("report", "inspect repository", ("research",)),
+        ),
+        granted=[Capability.INSPECT, Capability.TEST, Capability.WEB_RESEARCH],
+    )
+    result = execute_dag(dag, lambda node: node.node_id != "inspect")
+    assert result.failed_node == "inspect"
+    assert set(result.blocked) == {"test"}
+    assert "research" not in result.blocked
+    assert "report" not in result.blocked

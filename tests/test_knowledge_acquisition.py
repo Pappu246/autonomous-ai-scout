@@ -49,3 +49,17 @@ def test_knowledge_acquirer_handles_no_results():
     assert packet.source_count == 0
     assert packet.sources == ()
     assert packet.facts == ()
+
+
+def test_knowledge_acquirer_compares_sources_only_once():
+    class Counting(FakeWeb):
+        def __init__(self):
+            self.compare_calls = 0
+        def compare(self, sources):
+            self.compare_calls += 1
+            return super().compare(sources)
+
+    web = Counting()
+    packet = KnowledgeAcquirer(web).collect("compare examples", results=2)
+    assert packet.fingerprint == "comparison-fp"
+    assert web.compare_calls == 1

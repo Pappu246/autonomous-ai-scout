@@ -44,6 +44,8 @@ The demonstration shows a permitted read scope producing an ephemeral lease hand
 - Credential material is provided only by an injected provider and is never written by the broker.
 - Lease duration is bounded to 300 seconds.
 - Permission scope is checked before credential access.
+- Lease handles are random opaque identifiers and do not contain raw credential material.
+- Lease use is single-use and expiry is checked immediately before consumption.
 - The broker does not itself broaden Tool Registry authorization or approval policy.
 
 ## Limitations after N28

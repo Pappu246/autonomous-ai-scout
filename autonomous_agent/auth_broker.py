@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Iterable, Mapping
+from threading import Lock
+from typing import Callable, Iterable
+from uuid import uuid4
 
 MAX_LEASE_SECONDS = 300
 
@@ -53,11 +55,13 @@ CredentialProvider = Callable[[CredentialRef], str]
 
 
 class CredentialBroker:
-    """Resolve ephemeral credentials from an injected provider and never persist them."""
+    """Resolve scoped credentials into short-lived in-memory, single-use lease handles."""
 
     def __init__(self, provider: CredentialProvider, permissions: PermissionBroker | None = None) -> None:
         self.provider = provider
         self.permissions = permissions or PermissionBroker()
+        self._leases: dict[str, tuple[str, datetime]] = {}
+        self._lock = Lock()
 
     def acquire(
         self,
@@ -75,8 +79,33 @@ class CredentialBroker:
             raise RuntimeError("credential provider returned no credential")
         now = datetime.now(timezone.utc)
         expires = now + timedelta(seconds=duration)
-        handle = f"lease:{reference.provider}:{reference.subject}:{int(now.timestamp())}"
+        handle = f"lease:{uuid4().hex}"
+        with self._lock:
+            self._leases[handle] = (secret, expires)
         return CredentialLease(reference, now.isoformat(), expires.isoformat(), handle)
+
+    def use_lease(
+        self,
+        lease: CredentialLease,
+        consumer: Callable[[str], object],
+    ) -> object:
+        now = datetime.now(timezone.utc)
+        if now >= datetime.fromisoformat(lease.expires_at):
+            with self._lock:
+                self._leases.pop(lease.secret_handle, None)
+            raise PermissionError("credential lease has expired")
+        with self._lock:
+            record = self._leases.pop(lease.secret_handle, None)
+        if record is None:
+            raise PermissionError("credential lease is invalid or already consumed")
+        secret, expires = record
+        if now >= expires:
+            raise PermissionError("credential lease has expired")
+        return consumer(secret)
+
+    def revoke_lease(self, lease: CredentialLease) -> bool:
+        with self._lock:
+            return self._leases.pop(lease.secret_handle, None) is not None
 
     def with_credential(
         self,
@@ -85,13 +114,8 @@ class CredentialBroker:
         *,
         granted_scopes: Iterable[str] = (),
     ) -> object:
-        allowed, reason = self.permissions.authorize(reference.scopes, granted_scopes)
-        if not allowed:
-            raise PermissionError(reason)
-        secret = self.provider(reference)
-        if not isinstance(secret, str) or not secret:
-            raise RuntimeError("credential provider returned no credential")
-        return consumer(secret)
+        lease = self.acquire(reference, granted_scopes=granted_scopes, lease_seconds=60)
+        return self.use_lease(lease, consumer)
 
 
 class AuthPermissionBoundary:

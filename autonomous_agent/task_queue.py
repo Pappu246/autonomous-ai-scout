@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from typing import Iterable
 class QueueState(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    RECOVERY_REQUIRED = "recovery_required"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -34,6 +36,21 @@ class QueueItem:
     @property
     def ready(self) -> bool:
         return _parse_time(self.available_at) <= datetime.now(timezone.utc)
+
+
+_TASK_SECRET_PATTERNS = (
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|authorization|token|secret|password|credential)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----"),
+)
+
+def _safe_task(value: str) -> str:
+    text = str(value)
+    for pattern in _TASK_SECRET_PATTERNS:
+        text = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]" if match.lastindex else "[REDACTED]", text)
+    normalized = " ".join(text.split())
+    if not normalized:
+        raise ValueError("queued task must be non-empty")
+    return normalized[:4000]
 
 
 def _now() -> str:
@@ -117,9 +134,7 @@ class TaskQueueStore:
     def enqueue(
         self, task: str, *, task_id: str, execution_id: str, available_at: str | None = None
     ) -> QueueItem:
-        normalized = " ".join(task.strip().split())
-        if not normalized:
-            raise ValueError("queued task must be non-empty")
+        normalized = _safe_task(task)
         if not task_id.strip() or not execution_id.strip():
             raise ValueError("task_id and execution_id are required")
         with self._lock:
@@ -138,13 +153,26 @@ class TaskQueueStore:
             changed = False
             for item in items:
                 if item.state is QueueState.RUNNING:
-                    recovered.append(QueueItem(item.task_id, item.task, item.execution_id, QueueState.PENDING, item.created_at, _now(), item.available_at, item.attempts, "worker restarted while task was running"))
+                    recovered.append(QueueItem(item.task_id, item.task, item.execution_id, QueueState.RECOVERY_REQUIRED, item.created_at, _now(), item.available_at, item.attempts, "worker restarted while task was running; explicit recovery confirmation required"))
                     changed = True
                 else:
                     recovered.append(item)
             if changed:
                 self._save_unlocked(recovered)
-            return tuple(item for item in recovered if item.state is QueueState.PENDING and item.last_error)
+            return tuple(item for item in recovered if item.state is QueueState.RECOVERY_REQUIRED)
+
+    def confirm_recovery(self, task_id: str) -> QueueItem:
+        with self._lock:
+            items = self._load_unlocked()
+            for index, item in enumerate(items):
+                if item.task_id == task_id:
+                    if item.state is not QueueState.RECOVERY_REQUIRED:
+                        raise ValueError("task is not awaiting recovery")
+                    updated = QueueItem(item.task_id, item.task, item.execution_id, QueueState.PENDING, item.created_at, _now(), item.available_at, item.attempts, "recovery explicitly confirmed")
+                    items[index] = updated
+                    self._save_unlocked(items)
+                    return updated
+        raise KeyError(task_id)
 
     def claim_next(self) -> QueueItem | None:
         with self._lock:
@@ -162,6 +190,8 @@ class TaskQueueStore:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
+                    if item.state is not QueueState.RUNNING:
+                        raise ValueError("only a running task can be completed")
                     state = QueueState.SUCCEEDED if success else QueueState.FAILED
                     updated = QueueItem(item.task_id, item.task, item.execution_id, state, item.created_at, _now(), item.available_at, item.attempts, error[:500])
                     items[index] = updated

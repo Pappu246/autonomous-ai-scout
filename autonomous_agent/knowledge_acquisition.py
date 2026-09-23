@@ -42,10 +42,11 @@ class KnowledgeAcquirer:
                 extracted = self.connector.extract(source, fields)
                 for field, value in extracted.items():
                     facts.append({"source_ref": source.source_ref, "field": field, **value})
+        comparison: dict = {}
         if len(read_sources) >= 2:
             comparison = self.connector.compare(read_sources)
             facts.extend(comparison.get("facts", ()))
-        fingerprint = read_sources[0].fingerprint if len(read_sources) == 1 else self.connector.compare(read_sources)["comparison_fingerprint"] if len(read_sources) >= 2 else ""
+        fingerprint = read_sources[0].fingerprint if len(read_sources) == 1 else str(comparison.get("comparison_fingerprint", "")) if len(read_sources) >= 2 else ""
         deduped: list[dict] = []
         seen_facts: set[str] = set()
         for fact in facts:

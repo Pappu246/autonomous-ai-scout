@@ -43,7 +43,7 @@ Runnable test:
 pytest -q tests/test_prompt_injection_guard.py
 ```
 
-The tests detect instruction override, secret-exfiltration and control-bypass patterns, wrap untrusted content as data, prevent untrusted content from authorizing actions, and verify that N27 context marks tool results as untrusted.
+The tests detect instruction override, secret-exfiltration and control-bypass patterns, escape attacker-controlled delimiters, keep bounded untrusted wrappers structurally closed, prevent untrusted content from authorizing actions, and verify that N27 context marks tool results as untrusted.
 
 ## Safety model
 

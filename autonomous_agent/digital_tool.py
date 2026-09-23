@@ -101,11 +101,33 @@ class UniversalDigitalToolLayer:
         schema = spec.input_schema
         if schema.get("type") != "object":
             return None
+        properties = schema.get("properties", {})
+        if not isinstance(properties, Mapping):
+            return "tool input schema properties are invalid"
+        required = schema.get("required", ())
+        if isinstance(required, (list, tuple)):
+            missing = sorted(name for name in required if name not in arguments)
+            if missing:
+                return f"missing required tool arguments: {', '.join(str(name) for name in missing)}"
         if schema.get("additionalProperties") is False:
-            allowed = set(schema.get("properties", {}))
-            unknown = sorted(set(arguments) - allowed)
+            unknown = sorted(set(arguments) - set(properties))
             if unknown:
                 return f"unknown tool arguments: {', '.join(unknown)}"
+        for name, value in arguments.items():
+            rule = properties.get(name)
+            if not isinstance(rule, Mapping) or "type" not in rule:
+                continue
+            expected = rule.get("type")
+            valid = {
+                "string": isinstance(value, str),
+                "integer": isinstance(value, int) and not isinstance(value, bool),
+                "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+                "boolean": isinstance(value, bool),
+                "array": isinstance(value, (list, tuple)),
+                "object": isinstance(value, Mapping),
+            }.get(expected, True)
+            if not valid:
+                return f"tool argument '{name}' must be of type {expected}"
         return None
 
     def authorize(

@@ -18,8 +18,10 @@ Supported shell-style operations:
 - No `shell=True` or shell-string parsing is used.
 - Shell metacharacters are rejected.
 - Paths are resolved and must remain inside the approved root.
+- The shell is represented by a dedicated `WORKSPACE_SHELL` capability rather than sharing the filesystem capability.
 - Commands are allowlisted by executable and argument shape.
 - Network-isolated Python subprocess execution fails closed when the required isolation primitive is unavailable.
+- The canonical execution engine routes `workspace.shell` through a dedicated sandbox operation.
 - Writes and destructive/admin operations remain outside this shell path and continue through existing approval-gated tools.
 
 ## Capability proof

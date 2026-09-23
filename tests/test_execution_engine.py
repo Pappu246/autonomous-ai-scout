@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from autonomous_agent.capability_policy import Capability
@@ -221,3 +222,121 @@ def test_verified_checkpoint_prevents_duplicate_execution(tmp_path: Path, monkey
     )
     assert second.state is ExecutionState.VERIFIED
     assert "already verified" in second.reason
+
+
+def test_checkpoint_resume_requires_same_authorization_context(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "authorization.jsonl"
+    checkpoint = tmp_path / "authorization.checkpoint.json"
+    first = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="auth-binding",
+    )
+    assert first.state is ExecutionState.VERIFIED
+
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["state"] = "running"
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+    changed_plan = plan
+    result = execute_plan(
+        changed_plan,
+        tmp_path,
+        granted=[Capability.INSPECT, Capability.READ_FILE],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="auth-binding",
+    )
+    assert result.state is ExecutionState.BLOCKED
+    assert "does not match" in result.reason
+
+
+
+def test_verified_audit_step_is_recoverable_from_audit(tmp_path: Path):
+    audit = tmp_path / "audit.jsonl"
+    append_execution_record(audit, {"execution_id": "audit-recover", "event": "tool_result", "step_id": "step-1", "result": "success", "verification": "verified"})
+    from autonomous_agent.execution_engine import _verified_steps_from_audit
+    assert _verified_steps_from_audit(audit, "audit-recover") == {"step-1"}
+
+
+def test_workspace_shell_uses_dedicated_sandbox_operation(tmp_path: Path):
+    plan = plan_task("run a shell command", granted=[Capability.WORKSPACE_SHELL])
+    assert plan.executable
+    from dataclasses import dataclass
+    @dataclass
+    class Shell:
+        def run(self, argv, *, timeout_seconds=20):
+            return type("R", (), {
+                "success": True,
+                "argv": tuple(argv),
+                "output": "safe-shell-ok",
+                "exit_status": 0,
+                "reason": "verified",
+            })()
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.WORKSPACE_SHELL],
+        audit_path=tmp_path / "shell.jsonl",
+        execution_id="shell-1",
+        workspace_connector=Shell(),
+        workspace_request={"workspace.shell": {"argv": ["pwd"]}},
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "workspace_shell"
+    assert "safe-shell-ok" in result.results[-1].output
+
+
+def test_canonical_executor_enforces_consequence_policy(tmp_path: Path):
+    base = plan_task("inspect repository", granted=[Capability.INSPECT])
+    step = base.steps[0]
+    changed = type(step)(
+        step.step_id,
+        step.description,
+        "filesystem.write",
+        step.risk,
+        "authorized",
+        step.execution_boundary,
+        step.verification,
+    )
+    altered = TaskPlan(base.task, base.intent, (changed,), base.risk, True, base.reason, base.audit)
+    result = execute_plan(
+        altered,
+        tmp_path,
+        granted=[Capability.FILES_WORKSPACE],
+        explicitly_approved=False,
+        audit_path=tmp_path / "policy.jsonl",
+        execution_id="policy-1",
+    )
+    assert result.state is ExecutionState.BLOCKED
+    assert "consequence-aware policy" in result.reason
+
+
+def test_failed_checkpoint_requires_recovery_instead_of_replay(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "failed.jsonl"
+    checkpoint = tmp_path / "failed.checkpoint.json"
+    execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="failed-replay",
+    )
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["state"] = "failed"
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="failed-replay",
+    )
+    assert result.state is ExecutionState.RECOVERY_REQUIRED
+    assert "automatic replay" in result.reason

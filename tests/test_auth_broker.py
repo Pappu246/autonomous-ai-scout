@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from datetime import timedelta
 
 import pytest
 
@@ -53,3 +54,25 @@ def test_with_credential_passes_secret_only_to_consumer_and_persists_nothing(tmp
     assert result == "done"
     assert observed == ["SUPERSECRET"]
     assert list(tmp_path.iterdir()) == []
+
+
+def test_credential_lease_can_be_used_only_once():
+    reference = CredentialRef("github", "demo-user", "primary", ("repo:read",))
+    broker = CredentialBroker(lambda _: "SUPERSECRET")
+    lease = broker.acquire(reference, granted_scopes=["repo:read"])
+    assert broker.use_lease(lease, lambda secret: secret) == "SUPERSECRET"
+    with pytest.raises(PermissionError, match="invalid or already consumed"):
+        broker.use_lease(lease, lambda _: "should-not-run")
+
+
+def test_credential_lease_expiry_is_enforced():
+    reference = CredentialRef("github", "demo-user", "primary", ("repo:read",))
+    broker = CredentialBroker(lambda _: "SUPERSECRET")
+    lease = broker.acquire(reference, granted_scopes=["repo:read"])
+    from dataclasses import replace
+    expired = replace(
+        lease,
+        expires_at=(datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+    )
+    with pytest.raises(PermissionError, match="expired"):
+        broker.use_lease(expired, lambda _: "should-not-run")

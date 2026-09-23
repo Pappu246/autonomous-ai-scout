@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 from .capability_policy import Capability
+from .tool_registry import ReadWriteMode
+from .prompt_injection_guard import TrustLevel
 from .execution_engine import ExecutionResult, ExecutionState, execute_plan
 from .execution_audit import append_execution_record, verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES, SandboxResult
@@ -43,6 +45,7 @@ class AdaptiveExecutionResult:
 
 MAX_ADAPTIVE_RETRIES = 2
 MAX_ADAPTIVE_REPLANS = 2
+MAX_REPLACEMENT_STEPS = 12
 
 Replanner = Callable[[StepObservation, tuple[TaskStep, ...]], Iterable[TaskStep] | None]
 
@@ -170,6 +173,7 @@ def execute_adaptive_plan(
                 calendar_request=calendar_request,
                 browser_connector=browser_connector,
                 browser_request=browser_request,
+                origin_trust=TrustLevel.TOOL_RESULT if replan_count > 0 else TrustLevel.USER,
             )
             total_attempts += max(1, child.attempts)
             results.extend(child.results)
@@ -218,6 +222,24 @@ def execute_adaptive_plan(
             _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="replanner produced no replacement steps")
             return AdaptiveExecutionResult(ExecutionState.FAILED, f"replanner produced no safe replacement for {step.tool_name}", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
 
+        replacement = tuple(replacement)
+        for candidate in replacement:
+            tool = registry.get(candidate.tool_name)
+            if tool is None:
+                _audit(audit_path, execution_id, "ADAPTATION_BLOCKED", step_id=step.step_id, reason=f"replacement tool is unknown: {candidate.tool_name}")
+                return AdaptiveExecutionResult(ExecutionState.BLOCKED, f"replanner selected unknown tool: {candidate.tool_name}", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+            if tool.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
+                _audit(audit_path, execution_id, "ADAPTATION_BLOCKED", step_id=step.step_id, reason="replanner cannot introduce write side effects without explicit approval")
+                return AdaptiveExecutionResult(ExecutionState.BLOCKED, "replanner cannot introduce write side effects without explicit approval", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+
+        if len(replacement) > MAX_REPLACEMENT_STEPS:
+            _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="replanner replacement exceeds bounded step limit")
+            return AdaptiveExecutionResult(ExecutionState.FAILED, "replanner replacement exceeds bounded step limit", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+        replacement_ids = [candidate.step_id for candidate in replacement]
+        if len(set(replacement_ids)) != len(replacement_ids):
+            _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="replanner produced duplicate replacement step ids")
+            return AdaptiveExecutionResult(ExecutionState.FAILED, "replanner produced duplicate replacement step ids", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+
         existing_ids = {candidate.step_id for candidate in steps}
         if any(candidate.step_id in existing_ids and candidate.step_id != step.step_id for candidate in replacement):
             _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="replanner produced colliding step ids")
@@ -246,4 +268,4 @@ def execute_adaptive_plan(
     )
 
 
-__all__ = ["AdaptiveExecutionResult", "MAX_ADAPTIVE_REPLANS", "MAX_ADAPTIVE_RETRIES", "Replanner", "StepObservation", "execute_adaptive_plan"]
+__all__ = ["AdaptiveExecutionResult", "MAX_ADAPTIVE_REPLANS", "MAX_ADAPTIVE_RETRIES", "MAX_REPLACEMENT_STEPS", "Replanner", "StepObservation", "execute_adaptive_plan"]
