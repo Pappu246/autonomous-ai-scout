@@ -191,7 +191,10 @@
   }
 
   $(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
-  $(".approve-task-button").forEach(btn => btn.addEventListener("click", () => approveTask(btn.dataset.taskId)));
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".approve-task-button");
+    if (button) approveTask(button.dataset.taskId);
+  });
   $$(".quick-button").forEach(btn => btn.addEventListener("click", () => { $("#taskInput").value = btn.dataset.task; $("#taskInput").focus(); }));
   $$(".text-button").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.viewTarget)));
   $("#runTaskButton").addEventListener("click", () => submitTask($("#taskInput").value));
