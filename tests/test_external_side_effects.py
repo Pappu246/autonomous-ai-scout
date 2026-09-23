@@ -91,3 +91,33 @@ def test_approved_flag_does_not_change_request_identity():
     one = canonical_request_digest("email.send", {"to": "a@example.com", "approved": True})
     two = canonical_request_digest("email.send", {"to": "a@example.com", "approved": False})
     assert one == two
+
+
+def test_corrupt_ledger_fails_closed(tmp_path: Path):
+    path = tmp_path / "external-side-effects.json"
+    path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(SideEffectError, match="unreadable"):
+        _store(tmp_path).claim(
+            key="broken",
+            operation="email.send",
+            request_digest=canonical_request_digest("email.send", {"to": "a@example.com"}),
+        )
+
+
+def test_duplicate_persisted_keys_fail_closed(tmp_path: Path):
+    path = tmp_path / "external-side-effects.json"
+    digest = canonical_request_digest("email.send", {"to": "a@example.com"})
+    item = {
+        "created_at": "2026-09-23T17:00:00+00:00",
+        "key": "duplicate",
+        "operation": "email.send",
+        "reason": "",
+        "request_digest": digest,
+        "result_digest": "",
+        "state": "reserved",
+        "updated_at": "2026-09-23T17:00:00+00:00",
+    }
+    import json
+    path.write_text(json.dumps({"records": [item, item]}), encoding="utf-8")
+    with pytest.raises(SideEffectError, match="duplicate keys"):
+        _store(tmp_path).get("duplicate")
