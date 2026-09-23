@@ -62,3 +62,18 @@ def test_router_keeps_explicit_workspace_mutation_requests_mutating_only_when_re
     selection = DynamicToolRouter().select_names("transform file config.py")
     assert selection.intent is TaskIntent.WORKSPACE
     assert selection.tool_names == ("filesystem.transform",)
+
+
+
+def test_router_ignores_negated_workspace_mutations():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository. Do not create, modify, save, or transform files."
+    )
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+
+
+def test_router_allows_explicit_workspace_mutation_in_positive_clause():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository. Transform file config.py."
+    )
+    assert selection.tool_names == ("filesystem.transform",)
