@@ -28,11 +28,6 @@ def test_symlink_escape_is_blocked(tmp_path):
         if getattr(exc, "winerror", None) == 1314:
             pytest.skip("Windows symlink privilege is unavailable")
         raise
-        link.symlink_to(outside)
-    except OSError as exc:
-        if getattr(exc, "winerror", None) == 1314:
-            pytest.skip("Windows symlink privilege is unavailable")
-        raise
     try:
         c=_workspace(tmp_path)
         with pytest.raises(WorkspaceError):c.read("link")
