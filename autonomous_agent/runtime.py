@@ -27,11 +27,11 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         if not match:
             return None
         command_text = match.group(1).strip().strip("`")
-        py_compile = re.match(r"python\\s+-m\\s+py_compile\\s+([A-Za-z0-9_./\\\\-]+)", command_text, re.I)
+        py_compile = re.match(r"python\s+-m\s+py_compile\s+([A-Za-z0-9_./\\-]+)", command_text, re.I)
         if py_compile:
             argv = ("python", "-m", "py_compile", py_compile.group(1))
         else:
-            simple = re.match(r"(pwd|ls|dir)\\b", command_text, re.I)
+            simple = re.match(r"(pwd|ls|dir)\b", command_text, re.I)
             if not simple:
                 return None
             argv = (simple.group(1).lower(),)
