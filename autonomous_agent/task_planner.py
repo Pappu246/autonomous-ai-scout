@@ -65,6 +65,14 @@ def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved
     descriptions=decompose_task(raw,intent);steps=[]
     for index,tool in enumerate(selected,1):
         description=descriptions[min(index-1,len(descriptions)-1)] if descriptions else f"Run {tool.name}.";decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=audit_available)
-        if not decision.allowed:executable,reason=False,f"Authorization blocked for {tool.name}: {decision.reason}"
+        if not decision.allowed:
+            if (
+                not explicitly_approved
+                and Capability(tool.capability) not in DENIED_CAPABILITIES
+                and tool.approval_requirement.value != "none"
+            ):
+                executable, reason = False, f"Explicit approval required for {tool.name}: {decision.reason}"
+            else:
+                executable, reason = False, f"Authorization blocked for {tool.name}: {decision.reason}"
         steps.append(TaskStep(f"step-{index}",description,tool.name,PlanRisk(tool.risk_level.value),"authorized" if decision.allowed else "blocked","execute only through the existing registered capability/sandbox/lifecycle boundary","verify tool result before proceeding and retain audit record"))
     digest=_digest(raw,intent.value,tuple(s.tool_name for s in steps));return TaskPlan(raw,intent,tuple(steps),aggregate_risk(selected),executable,reason,TaskAuditRecord(raw,intent,tuple(s.step_id for s in steps),executable,digest))
