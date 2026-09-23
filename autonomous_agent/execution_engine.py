@@ -15,8 +15,11 @@ from .execution_audit import append_execution_record,verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES,MAX_TIMEOUT_SECONDS,SandboxResult,run_safe_operation
 from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY,ToolRegistry
+from .admission import AdmissionRequest, evaluate_admission
 from .budget import BudgetExceededError, BudgetLedger
 from .observability import TelemetryBuffer
+from .production_audit import ProductionAudit
+from .readiness import ReadinessReport
 class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
 class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
@@ -116,7 +119,7 @@ def _validate_calendar_tool(tool):
     return tool.capability==Capability.CALENDAR.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="user_auth" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"}
 def _validate_browser_tool(tool):
     return tool.capability==Capability.BROWSER.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"browser.open","browser.click","browser.extract"}
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
     started_monotonic=monotonic()
     last_budget_monotonic=started_monotonic
     granted=tuple(granted)
@@ -128,6 +131,17 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
     authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
+    if admission_request is not None:
+        if readiness_report is None or production_audit is None:
+            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="admission evidence is incomplete",event="admission_blocked")
+            return ExecutionResult(ExecutionState.BLOCKED,"admission evidence is incomplete",0,(),str(audit_path))
+        admission=evaluate_admission(admission_request,actual_task_digest=task_digest,actual_authorization_digest=authorization_digest,readiness=readiness_report,production_audit=production_audit)
+        if not admission.admitted:
+            _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=admission.reason,event="admission_blocked",admission_digest=admission.digest)
+            _telemetry(telemetry,"admission_blocked",execution_id=execution_id,reason=admission.reason,admission_digest=admission.digest)
+            return ExecutionResult(ExecutionState.BLOCKED,admission.reason,0,(),str(audit_path))
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="admission_admitted",admission_digest=admission.digest)
+        _telemetry(telemetry,"admission_admitted",execution_id=execution_id,admission_digest=admission.digest)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if checkpoint is not None:
