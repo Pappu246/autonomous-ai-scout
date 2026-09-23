@@ -5,8 +5,17 @@ def test_sandbox_has_explicit_safe_operation_allowlist():
     assert SAFE_OPERATIONS == {"inspect", "test", "lint", "metrics", "read_file", "benchmark", "web_research", "rest", "filesystem_workspace", "workspace_shell", "gmail", "calendar", "browser"}
 def test_sandbox_rejects_arbitrary_command_names(tmp_path: Path):
     result=run_safe_operation("rm -rf /",tmp_path); assert not result.success and result.verification_status=="blocked"
-def test_sandbox_inspect_is_deterministic(tmp_path: Path):
-    (tmp_path/"b.txt").write_text("b",encoding="utf-8");(tmp_path/"a.txt").write_text("a",encoding="utf-8");r=run_safe_operation("inspect",tmp_path);assert r.success and r.output.splitlines()==["Workspace files:","- a.txt","- b.txt"] and r.network_disabled
+def test_sandbox_inspect_produces_read_only_repository_findings(tmp_path: Path):
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('ok')", encoding="utf-8")
+    result = run_safe_operation("inspect", tmp_path)
+    assert result.success
+    assert result.network_disabled
+    assert "Repository inspection completed in read-only mode." in result.output
+    assert "Top findings:" in result.output
+    assert "Empty Python dependency manifest" in result.output
+    assert "No test directory detected" in result.output
+    assert "No source files were modified." in result.output
 def test_sandbox_metrics_counts_files(tmp_path: Path):
     (tmp_path/"a.txt").write_text("123",encoding="utf-8");r=run_safe_operation("metrics",tmp_path);assert r.success and "files=1" in r.output and "total_bytes=3" in r.output
 def test_sandbox_read_file_blocks_escape(tmp_path: Path):
