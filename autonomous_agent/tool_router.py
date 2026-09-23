@@ -42,12 +42,26 @@ class DynamicToolRouter:
 
     @staticmethod
     def _workspace_tools(task: str) -> tuple[str, ...]:
+        import re
+
         text = task.lower()
+
+        def positive_clause_contains(*phrases: str) -> bool:
+            # Mutation words inside explicit prohibitions must not authorize
+            # mutation routing. Positive clauses can still request mutations.
+            clauses = re.split(r"[.;!?\n]+", text)
+            negative_markers = ("do not", "don't", "never", "without")
+            return any(
+                any(phrase in clause for phrase in phrases)
+                and not any(marker in clause for marker in negative_markers)
+                for clause in clauses
+            )
+
         if any(x in text for x in ("run command", "shell command", "terminal command", "py_compile", "compile python")):
             return ("workspace.shell",)
-        if any(x in text for x in ("transform file", "replace in file", "modify file")):
+        if positive_clause_contains("transform file", "replace in file", "modify file"):
             return ("filesystem.transform",)
-        if any(x in text for x in ("write file", "create file", "save file")):
+        if positive_clause_contains("write file", "create file", "save file"):
             return ("filesystem.write",)
         if any(x in text for x in ("read file", "read the file", "open file")):
             return ("filesystem.read",)
@@ -56,8 +70,6 @@ class DynamicToolRouter:
         if any(x in text for x in ("read-only", "read only", "inspect", "audit", "analyze", "analyse", "review")):
             return ("filesystem.list", "filesystem.read")
         # An ambiguous workspace request must remain read-only by default.
-        # Mutation tools are selected only when the request explicitly asks for
-        # a write/transform operation above.
         return ("filesystem.list", "filesystem.read")
 
     @staticmethod
