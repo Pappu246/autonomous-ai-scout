@@ -107,10 +107,6 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
     review = review_patch(candidate.unified_diff)
     if not review.allowed:
         return review, review.reason
-    if _contains_sensitive_candidate(candidate):
-        return review, "candidate file contents contain sensitive material"
-    if not validate_patch_file_contents(candidate.unified_diff, candidate.file_contents):
-        return review, "candidate file contents do not match the reviewed diff hunks"
     manifest = _normalize_manifest(candidate.file_contents)
     if manifest != review.files:
         return review, "file manifest does not exactly match the reviewed patch"
@@ -124,6 +120,10 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
         total_bytes += size
     if total_bytes > MAX_TOTAL_FILE_BYTES:
         return review, "changed file contents exceed total size budget"
+    if _contains_sensitive_candidate(candidate):
+        return review, "candidate file contents contain sensitive material"
+    if not validate_patch_file_contents(candidate.unified_diff, candidate.file_contents):
+        return review, "candidate file contents do not match the reviewed diff hunks"
     if any("\x00" in content for content in candidate.file_contents.values()):
         return review, "changed file contains NUL bytes"
     return review, None
