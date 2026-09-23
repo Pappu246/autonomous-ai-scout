@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 from enum import Enum
 from pathlib import Path
+from time import monotonic
 from typing import Any,Iterable,Mapping
 from .capability_policy import Capability
 from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
@@ -14,12 +15,18 @@ from .execution_audit import append_execution_record,verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES,MAX_TIMEOUT_SECONDS,SandboxResult,run_safe_operation
 from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY,ToolRegistry
+from .budget import BudgetExceededError, BudgetLedger
+from .observability import TelemetryBuffer
 class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
 class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
 _CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.REST_API:"rest",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser"}
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
+def _telemetry(buffer,name,**fields):
+    if buffer is None:return
+    try:buffer.record(name,**fields)
+    except Exception:return
 def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
 def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGISTRY):
     values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
@@ -109,7 +116,8 @@ def _validate_calendar_tool(tool):
     return tool.capability==Capability.CALENDAR.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="user_auth" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"}
 def _validate_browser_tool(tool):
     return tool.capability==Capability.BROWSER.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"browser.open","browser.click","browser.extract"}
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None)->ExecutionResult:
+    started_monotonic=monotonic()
     granted=tuple(granted)
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
@@ -151,6 +159,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     retries=max(0,min(int(max_retries),MAX_RETRIES));timeout=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));output=max(1,min(int(output_limit),MAX_OUTPUT_BYTES))
     checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
     _remember(memory,project,task=plan.task,execution_id=execution_id,outcome="resumed" if checkpoint is not None else "started")
+    _telemetry(telemetry,"execution_started",execution_id=execution_id,steps=len(plan.steps))
     results=[]
     for step in plan.steps:
         if step.step_id in completed_step_ids:
@@ -189,6 +198,18 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         if not tool.safe_autonomous and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR,Capability.REST_API} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
+            try:
+                if budget_ledger is not None:
+                    budget_ledger.consume(
+                        attempts=1,
+                        tool_calls=1,
+                        external_side_effects=1 if tool.read_write_mode.value!="read_only" else 0,
+                    )
+            except BudgetExceededError as exc:
+                _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason=str(exc))
+                _telemetry(telemetry,"budget_exceeded",tool=tool.name,reason=str(exc))
+                checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+                return ExecutionResult(ExecutionState.FAILED,f"resource budget exceeded before tool execution: {tool.name}",total_attempts,tuple(results),str(audit_path))
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None;connector=web_connector
             if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} and isinstance(workspace_request,Mapping):candidate=workspace_request.get(tool.name,workspace_request);request=candidate if isinstance(candidate,Mapping) else None;connector=workspace_connector
             if capability is Capability.EMAIL and isinstance(gmail_request,Mapping):candidate=gmail_request.get(tool.name,gmail_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=gmail_connector
@@ -203,7 +224,19 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if capability is Capability.CALENDAR and tool.name in {"calendar.event.create","calendar.event.update","calendar.event.cancel"} and isinstance(request,dict):request["approved"]=bool(explicitly_approved)
             if capability is Capability.BROWSER and isinstance(browser_request,Mapping):candidate=browser_request.get(tool.name,browser_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=browser_connector
             if capability is Capability.BROWSER and isinstance(request,dict):request["operation"]={"browser.open":"open","browser.click":"click","browser.extract":"extract"}[tool.name]
-            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,rest_connector=connector if capability is Capability.REST_API else None,rest_request=request if capability is Capability.REST_API else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None);results.append(result);_audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,step_id=step.step_id,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status,event="tool_result")
+            result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,rest_connector=connector if capability is Capability.REST_API else None,rest_request=request if capability is Capability.REST_API else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None)
+            if budget_ledger is not None:
+                elapsed=max(0.0,monotonic()-started_monotonic)
+                try:
+                    budget_ledger.consume(wall_seconds=elapsed,output_bytes=len(result.output.encode("utf-8",errors="replace")))
+                except BudgetExceededError as exc:
+                    _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason=str(exc))
+                    _telemetry(telemetry,"budget_exceeded",tool=tool.name,reason=str(exc))
+                    checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+                    return ExecutionResult(ExecutionState.FAILED,f"resource budget exceeded after tool execution: {tool.name}",total_attempts,tuple(results),str(audit_path))
+            results.append(result)
+            _telemetry(telemetry,"tool_result",tool=tool.name,step_id=step.step_id,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status)
+            _audit(audit_path,execution_id,ExecutionState.RUNNING,tool=tool.name,step_id=step.step_id,attempt=attempt+1,result="success" if result.success else "failure",verification=result.verification_status,event="tool_result")
             if result.success and result.verification_status=="verified":break
         else:
             _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason="bounded retries exhausted")
