@@ -6,6 +6,7 @@ from email import policy
 from email.parser import BytesParser
 from html import unescape
 from typing import Any,Mapping,Protocol
+from .external_side_effects import ExternalSideEffectStore, SideEffectError, canonical_request_digest
 from urllib.parse import quote
 GMAIL_API_ROOT="https://gmail.googleapis.com/gmail/v1/users/me"
 MAX_QUERY_LENGTH=500;MAX_RESULTS=20;MAX_MESSAGE_BYTES=256*1024;MAX_THREAD_MESSAGES=25;MAX_ATTACHMENT_METADATA=20;MAX_RETRIES=2;MAX_TIMEOUT_SECONDS=30;MAX_BODY_CHARS=100_000
@@ -78,9 +79,9 @@ def _raw_message(to,subject,body,thread_id=None):
     if thread_id:payload["threadId"]=_safe_id(thread_id,"thread id")
     return payload
 class GmailConnector:
-    def __init__(self,transport:GmailTransport,*,credential_reference="gmail:oauth:user",credential_resolver:CredentialResolver|None=None,timeout_seconds=10):
+    def __init__(self,transport:GmailTransport,*,credential_reference="gmail:oauth:user",credential_resolver:CredentialResolver|None=None,timeout_seconds=10,side_effect_store:ExternalSideEffectStore|None=None):
         if not credential_reference or any(x in credential_reference.lower() for x in ("token","password","secret","key=")):raise GmailError("credential reference is invalid")
-        self.transport=transport;self.credential_reference=credential_reference;self.credential_resolver=credential_resolver;self.timeout_seconds=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));self._send_keys:set[str]=set()
+        self.transport=transport;self.credential_reference=credential_reference;self.credential_resolver=credential_resolver;self.timeout_seconds=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));self._send_keys:set[str]=set();self.side_effect_store=side_effect_store
     def _request(self,method,path,*,params=None,body=None,retries=MAX_RETRIES):
         if not path.startswith(GMAIL_API_ROOT+"/"):raise GmailError("request escaped the official Gmail API root")
         last=None
@@ -99,13 +100,50 @@ class GmailConnector:
         thread_id=_safe_id(thread_id,"thread id");payload=self._request("GET",f"{GMAIL_API_ROOT}/threads/{quote(thread_id,safe='')}",params={"format":"full"});items=payload.get("messages",[]) if isinstance(payload.get("messages",[]),list) else [];messages=[{"id":_bounded_text(x.get("id",""),512),"threadId":_bounded_text(x.get("threadId",thread_id),512),"internalDate":_bounded_text(x.get("internalDate",""),32),"snippet":_bounded_text(x.get("snippet",""))} for x in items[:MAX_THREAD_MESSAGES] if isinstance(x,Mapping)];messages.sort(key=lambda x:(x["internalDate"],x["id"]));data={"threadId":thread_id,"messages":messages};return GmailEvidence("email.thread",data,_fingerprint(data))
     def draft(self,*,to,subject,body,thread_id=None,approved=False):
         if not approved:raise GmailError("email.draft requires explicit approval")
-        message=_raw_message(to,subject,body,thread_id);response=self._request("POST",f"{GMAIL_API_ROOT}/drafts",body={"message":message});data={"draft":response,"content_fingerprint":_fingerprint(message)};return GmailEvidence("email.draft",data,_fingerprint(data))
+        message=_raw_message(to,subject,body,thread_id)
+        claim_key=canonical_request_digest("email.draft",message)
+        if self.side_effect_store is not None:
+            try:
+                decision=self.side_effect_store.claim(key=claim_key,operation="email.draft",request_digest=claim_key)
+            except SideEffectError as exc:
+                raise GmailError(str(exc)) from exc
+            if not decision.allowed:
+                raise GmailError(decision.reason)
+        try:
+            response=self._request("POST",f"{GMAIL_API_ROOT}/drafts",body={"message":message},retries=0)
+            if self.side_effect_store is not None:
+                self.side_effect_store.mark_executed(claim_key,result_digest=_fingerprint(response))
+        except Exception as exc:
+            if self.side_effect_store is not None:
+                try:
+                    self.side_effect_store.mark_unknown(claim_key,reason=f"{type(exc).__name__}: external draft outcome is unresolved")
+                except SideEffectError:
+                    pass
+            raise
+        data={"draft":response,"content_fingerprint":_fingerprint(message)};return GmailEvidence("email.draft",data,_fingerprint(data))
     def send(self,*,to,subject,body,idempotency_key,approved,thread_id=None):
         if not approved:raise GmailError("email.send requires explicit human approval")
         message=_raw_message(to,subject,body,thread_id);digest=_fingerprint(message)
         if idempotency_key!=digest:raise GmailError("idempotency key does not match the message digest")
         if digest in self._send_keys:raise GmailError("duplicate email.send operation blocked by idempotency guard")
-        response=self._request("POST",f"{GMAIL_API_ROOT}/messages/send",body=message,retries=0)
+        if self.side_effect_store is not None:
+            try:
+                decision=self.side_effect_store.claim(key=idempotency_key,operation="email.send",request_digest=digest)
+            except SideEffectError as exc:
+                raise GmailError(str(exc)) from exc
+            if not decision.allowed:
+                raise GmailError(decision.reason)
+        try:
+            response=self._request("POST",f"{GMAIL_API_ROOT}/messages/send",body=message,retries=0)
+            if self.side_effect_store is not None:
+                self.side_effect_store.mark_executed(idempotency_key,result_digest=_fingerprint(response))
+        except Exception as exc:
+            if self.side_effect_store is not None:
+                try:
+                    self.side_effect_store.mark_unknown(idempotency_key,reason=f"{type(exc).__name__}: external send outcome is unresolved")
+                except SideEffectError:
+                    pass
+            raise
         self._send_keys.add(digest)
         data={"recipient":to,"message_fingerprint":digest,"response":response};return GmailEvidence("email.send",data,_fingerprint(data))
 def gmail_oauth_scopes(*,include_send=False):return (READ_SCOPE,COMPOSE_SCOPE,SEND_SCOPE) if include_send else (READ_SCOPE,COMPOSE_SCOPE)
