@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any,Iterable,Mapping
 from .capability_policy import Capability
 from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
+from .prompt_injection_guard import TrustLevel
 from .cross_project_memory import CrossProjectMemory
 from .execution_checkpoint import ExecutionCheckpointStore
 from .execution_audit import append_execution_record,verify_execution_audit
@@ -65,7 +66,7 @@ def _validate_calendar_tool(tool):
     return tool.capability==Capability.CALENDAR.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="user_auth" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"calendar.read","calendar.list","calendar.find_free_time","calendar.event.create","calendar.event.update","calendar.event.cancel"}
 def _validate_browser_tool(tool):
     return tool.capability==Capability.BROWSER.value and tool.network_requirement.value=="required" and tool.authentication_requirement.value=="none" and tool.read_write_mode.value=="read_only" and tool.approval_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"browser.open","browser.click","browser.extract"}
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None)->ExecutionResult:
     granted=tuple(granted)
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
@@ -106,7 +107,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             continue
         tool=registry.get(step.tool_name)
         if tool is None:_audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="unknown tool",tool=step.tool_name);return ExecutionResult(ExecutionState.BLOCKED,f"unknown tool is blocked: {step.tool_name}",total_attempts,tuple(results),str(audit_path))
-        consequence=ConsequenceAwareApprovalPolicy().evaluate(tool, explicitly_approved=explicitly_approved)
+        consequence=ConsequenceAwareApprovalPolicy().evaluate(tool, origin_trust=origin_trust, explicitly_approved=explicitly_approved)
         if consequence.mode is ApprovalMode.REQUIRE_APPROVAL and not explicitly_approved:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="consequence-aware policy requires explicit approval",tool=tool.name)
             return ExecutionResult(ExecutionState.BLOCKED,f"consequence-aware policy requires explicit approval for {tool.name}",total_attempts,tuple(results),str(audit_path))
