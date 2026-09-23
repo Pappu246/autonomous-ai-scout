@@ -24,6 +24,25 @@ class MemoryMatch:
     data: Mapping[str, Any]
 
 
+def _safe_metadata(value: Any, *, depth: int = 0) -> Any:
+    """Recursively sanitize bounded metadata before durable memory persistence."""
+    if depth >= 4:
+        return "[REDACTED]"
+    if isinstance(value, str):
+        return _safe_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        items = list(value.items())[:32]
+        return {
+            _safe_text(key, 256): _safe_metadata(item, depth=depth + 1)
+            for key, item in items
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_safe_metadata(item, depth=depth + 1) for item in list(value)[:32]]
+    return _safe_text(value)
+
+
 def _tokens(value: object) -> frozenset[str]:
     return frozenset(_TOKEN.findall(_safe_text(value).lower())[:MAX_QUERY_TOKENS])
 
@@ -63,7 +82,7 @@ class PersistentMemory:
             "summary_tokens": sorted(_tokens(safe_summary)),
         }
         if metadata:
-            payload["metadata"] = dict(metadata)
+            payload["metadata"] = _safe_metadata(metadata)
         fingerprint = f"episode:{task}"
         return self.store.record(
             MemoryEvent(project, kind, fingerprint, outcome, payload)
