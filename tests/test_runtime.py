@@ -38,6 +38,33 @@ def test_runtime_derives_bounded_workspace_shell_request():
     assert request == {"workspace.shell": {"argv": ("python", "-m", "py_compile", "autonomous_agent/runtime.py")}}
 
 
+def test_runtime_executes_workspace_shell_end_to_end(tmp_path: Path):
+    result = run_task(
+        "Use the canonical local workspace shell to run exactly this command: pwd",
+        root=tmp_path,
+        audit_path=tmp_path / "shell-runtime.jsonl",
+        journal_path=tmp_path / "shell-runtime-journal.jsonl",
+        execution_id="workspace-shell-runtime",
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "workspace_shell"
+    assert str(tmp_path.resolve()) in result.results[-1].output
+
+
+def test_runtime_executes_filesystem_read_end_to_end(tmp_path: Path):
+    (tmp_path / "README.md").write_text("runtime-read-ok", encoding="utf-8")
+    result = run_task(
+        "Read file README.md from the local workspace.",
+        root=tmp_path,
+        audit_path=tmp_path / "read-runtime.jsonl",
+        journal_path=tmp_path / "read-runtime-journal.jsonl",
+        execution_id="filesystem-read-runtime",
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "filesystem_workspace"
+    assert "runtime-read-ok" in result.results[-1].output
+
+
 def test_runtime_derives_bounded_filesystem_read_request():
     from autonomous_agent.runtime import _workspace_request_for_task
     from autonomous_agent.task_core import AutonomousTaskCore
