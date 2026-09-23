@@ -7,6 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .execution_engine import ExecutionResult, ExecutionState
+from .filesystem_workspace import WorkspaceConnector
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
 from .task_plan_models import TaskPlan
@@ -101,7 +102,15 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(f"execution_id={record.execution_id} state={record.state} task={record.task} attempts={record.attempts} results={record.result_count} recorded_at={record.recorded_at}")
         return 0
 
-    result = run_task(args.task, root=Path(args.root).resolve(), audit_path=Path(args.audit).resolve(), journal_path=Path(args.journal).resolve())
+    root = Path(args.root).resolve()
+    workspace_connector = WorkspaceConnector(root)
+    result = run_task(
+        args.task,
+        root=root,
+        audit_path=Path(args.audit).resolve(),
+        journal_path=Path(args.journal).resolve(),
+        workspace_connector=workspace_connector,
+    )
     print(f"state={result.state.value}"); print(f"reason={result.reason}"); print(f"attempts={result.attempts}")
     for item in result.results:
         print(f"operation={item.operation} success={item.success} verification={item.verification_status}")
