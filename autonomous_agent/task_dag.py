@@ -198,9 +198,10 @@ def execute_dag(
                         changed = True
                         if candidate.node_id not in blocked:
                             blocked.append(candidate.node_id)
-            # A failed branch blocks only its descendants. Independent
-            # branches remain runnable and continue through the deterministic
-            # topological order.
+            # A failed branch blocks only itself and its descendants.
+            # Independent branches remain runnable and continue.
+            if failed not in blocked:
+                blocked.append(failed)
             continue
         completed.append(node_id)
     failed_node = next(
