@@ -131,7 +131,7 @@ def _run_gmail(connector,request,limit):
         if op=="search":payload=connector.search(str(request.get("query","")),results=int(request.get("results",10))).safe_dict()
         elif op=="read":payload=connector.read(str(request.get("message_id",""))).safe_dict()
         elif op=="thread":payload=connector.thread(str(request.get("thread_id",""))).safe_dict()
-        elif op=="draft":payload=connector.draft(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),thread_id=request.get("thread_id")).safe_dict()
+        elif op=="draft":payload=connector.draft(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),thread_id=request.get("thread_id"),approved=bool(request.get("approved",False))).safe_dict()
         elif op=="send":payload=connector.send(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False)),thread_id=request.get("thread_id")).safe_dict()
         else:return False,"sandbox gmail allowlist supports only search/read/thread/draft/send",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("GMAIL",op),truncated
