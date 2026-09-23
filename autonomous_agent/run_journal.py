@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,15 @@ from typing import Any
 MAX_RECORD_BYTES = 16_384
 MAX_READ_RECORDS = 1_000
 MAX_JOURNAL_BYTES = 1_048_576
+
+_SECRET = re.compile(r"(?i)(?:api[_-]?key|api\s+key|access[_-]?token|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
+_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----.*?-----END [A-Z0-9 ]+PRIVATE KEY-----", re.S)
+
+def _safe_text(value: object, limit: int) -> str:
+    text = _PRIVATE_KEY.sub("[REDACTED]", str(value))
+    text = _SECRET.sub("[REDACTED]", text)
+    return " ".join(text.strip().split())[:limit]
+
 
 @dataclass(frozen=True)
 class RunJournalRecord:
@@ -56,9 +66,9 @@ def append_run_record(path: Path, record: RunJournalRecord) -> None:
 def make_run_record(*, execution_id: str, task: str, result: Any) -> RunJournalRecord:
     return RunJournalRecord(
         execution_id=execution_id,
-        task=" ".join(task.strip().split()),
-        state=result.state.value,
-        reason=str(result.reason),
+        task=_safe_text(task, 4000),
+        state=_safe_text(result.state.value, 128),
+        reason=_safe_text(result.reason, 4096),
         attempts=int(result.attempts),
         result_count=len(result.results),
         recorded_at=datetime.now(timezone.utc).isoformat(),
