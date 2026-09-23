@@ -42,6 +42,8 @@ class ExecutionCheckpointStore:
             raise ValueError("execution checkpoint is unreadable") from exc
         if not isinstance(payload, dict):
             raise ValueError("execution checkpoint must be a JSON object")
+        if not isinstance(payload.get("completed_step_ids"), list):
+            raise ValueError("execution checkpoint completed_step_ids must be a list")
         try:
             completed = tuple(str(item) for item in payload["completed_step_ids"])
             checkpoint = ExecutionCheckpoint(
@@ -88,6 +90,15 @@ class ExecutionCheckpointStore:
         completed_step_ids: tuple[str, ...],
         total_attempts: int,
     ) -> ExecutionCheckpoint:
+        if state not in {"running", "failed", "blocked", "verified", "recovery_required"}:
+            raise ValueError("execution checkpoint state is invalid")
+        if not execution_id or len(execution_id) > 256:
+            raise ValueError("execution checkpoint execution id is invalid")
+        if not task_digest or not plan_digest or not authorization_digest:
+            raise ValueError("execution checkpoint digests are required")
+        normalized_steps = tuple(dict.fromkeys(completed_step_ids))
+        if len(normalized_steps) > 256:
+            raise ValueError("execution checkpoint completed steps exceed the limit")
         checkpoint = ExecutionCheckpoint(
             SCHEMA_VERSION,
             execution_id,
@@ -95,7 +106,7 @@ class ExecutionCheckpointStore:
             plan_digest,
             authorization_digest,
             state,
-            tuple(dict.fromkeys(completed_step_ids)),
+            normalized_steps,
             max(0, int(total_attempts)),
             datetime.now(timezone.utc).isoformat(),
         )
