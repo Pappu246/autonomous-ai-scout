@@ -243,7 +243,8 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             try:
                 requested = int(parse_qs(parsed.query).get("limit", ["30"])[0])
                 limit = max(1, min(requested, 100))
-                records = list(read_run_records(self._manager().root / "state" / "runtime_runs.jsonl", limit=limit))
+                all_records = list(read_run_records(self._manager().root / "state" / "runtime_runs.jsonl", limit=1000))
+                records = all_records[-limit:]
                 records.reverse()
                 self._json(200, {"records": [asdict(record) for record in records]})
             except (ValueError, OSError) as exc:
