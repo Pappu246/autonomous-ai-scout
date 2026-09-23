@@ -1,5 +1,5 @@
 from __future__ import annotations
-import ast,json,os,shutil,signal,subprocess,sys
+import ast,json,os,re,shutil,signal,subprocess,sys
 from dataclasses import dataclass
 from datetime import datetime,timezone
 from pathlib import Path
@@ -23,6 +23,19 @@ def _inside(root,target):
     try:resolved.relative_to(root)
     except ValueError as exc:raise ValueError("sandbox target escapes the project root") from exc
     return resolved
+_SENSITIVE_PATH_NAMES=frozenset({".env",".ssh",".npmrc",".pypirc",".netrc","credentials.json","service-account.json","id_rsa","id_ed25519"})
+_SECRET_TEXT_RE=re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|authorization|token|password|secret|cookie|session|credential)\s*[:=]\s*[^\s,;]+")
+
+def _safe_path(root,target):
+    resolved=_inside(root,root/target)
+    relative=resolved.relative_to(root)
+    if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem",".key")) for part in relative.parts):
+        raise ValueError("sensitive workspace path is not authorized")
+    return resolved
+
+def _redact_output(text):
+    return _SECRET_TEXT_RE.sub(lambda match: re.sub(r"(?i)(?:api[_-]?key|access[_-]?token|authorization|token|password|secret|cookie|session|credential)", lambda _: "[REDACTED]", match.group(0), count=1), text)
+
 def _safe_env():return {"PATH":os.environ.get("PATH",""),"LANG":os.environ.get("LANG","C.UTF-8"),"LC_ALL":os.environ.get("LC_ALL","C.UTF-8"),"PYTHONDONTWRITEBYTECODE":"1","PYTHONHASHSEED":"0"}
 def _network_prefix():
     unshare=shutil.which("unshare");return None if not unshare or os.name!="posix" else (unshare,"--user","--map-root-user","--net","--mount-proc","--")
@@ -140,7 +153,9 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         files=[]
         for path in sorted(root_path.rglob("*")):
             if ".git" in path.parts or not path.is_file():continue
-            files.append(str(path.relative_to(root_path)))
+            relative=path.relative_to(root_path)
+            if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem",".key")) for part in relative.parts):continue
+            files.append(str(relative))
             if len(files)>=MAX_FILES:break
         output,truncated=_text_limit("Workspace files:\n"+"\n".join(f"- {x}" for x in files),limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,True,0,output,truncated,(),"verified",started,finished,True)
     if op=="metrics":
@@ -156,10 +171,10 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         if not target:
             finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"read_file requires a target",False,(),"blocked",started,finished,True)
         try:
-            path=_inside(root_path,root_path/target)
+            path=_safe_path(root_path,target)
             if not path.is_file():raise ValueError("sandbox target is not a file")
             if path.stat().st_size>MAX_READ_BYTES:raise ValueError("sandbox read target exceeds the size limit")
-            output=path.read_text(encoding="utf-8")
+            output=_redact_output(path.read_text(encoding="utf-8"))
         except (OSError,UnicodeError,ValueError) as exc:
             finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,str(exc),False,(),"failed",started,finished,True)
         output,truncated=_text_limit(output,limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,True,0,output,truncated,(),"verified",started,finished,True)
