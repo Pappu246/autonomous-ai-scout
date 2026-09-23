@@ -40,8 +40,14 @@ def test_shell_request_is_routed_as_workspace_shell():
     assert classify_intent("run a shell command") is TaskIntent.WORKSPACE
     assert DynamicToolRouter().select("run a shell command") == ("workspace.shell",)
 def test_shell_rejects_sensitive_targets(tmp_path):
-    from autonomous_agent.workspace_shell import ControlledWorkspaceShell
-
     (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
     result = ControlledWorkspaceShell(tmp_path).run(("cat", ".env"))
     assert not result.success
+
+
+def test_shell_redacts_secret_like_read_output(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("safe\nAPI_KEY=supersecret\n", encoding="utf-8")
+    result = ControlledWorkspaceShell(tmp_path).run(("cat", "notes.txt"))
+    assert result.success
+    assert "supersecret" not in result.output
+    assert "[REDACTED]" in result.output
