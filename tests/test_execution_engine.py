@@ -283,6 +283,7 @@ def test_workspace_shell_uses_dedicated_sandbox_operation(tmp_path: Path):
         audit_path=tmp_path / "shell.jsonl",
         execution_id="shell-1",
         workspace_connector=Shell(),
+        workspace_request={"workspace.shell": {"argv": ["pwd"]}},
     )
     assert result.state is ExecutionState.VERIFIED
     assert result.results[-1].operation == "workspace_shell"
