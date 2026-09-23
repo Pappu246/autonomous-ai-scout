@@ -254,37 +254,9 @@ def test_checkpoint_resume_requires_same_authorization_context(tmp_path: Path):
     assert "does not match" in result.reason
 
 
-def test_verified_audit_step_is_not_replayed_when_checkpoint_write_was_missed(tmp_path: Path, monkeypatch):
-    plan = _inspect_plan("run the tests")
+
+def test_verified_audit_step_is_recoverable_from_audit(tmp_path: Path):
     audit = tmp_path / "audit.jsonl"
-    checkpoint = tmp_path / "checkpoint.json"
-    import autonomous_agent.execution_engine as engine
-    calls = []
-
-    def stop_after_result(operation, root, target=None, **kwargs):
-        calls.append(operation)
-        result = _verified_result(operation)
-        if len(calls) == 1:
-            original = engine._audit
-            original(audit, "audit-recover", ExecutionState.RUNNING, tool="github.inspect", step_id="step-1", attempt=1, result="success", verification="verified", event="tool_result")
-        return result
-
-    monkeypatch.setattr("autonomous_agent.execution_engine.run_safe_operation", stop_after_result)
-    # Initial execution is interrupted after the first verified audit record.
-    try:
-        execute_plan(plan, tmp_path, granted=[Capability.INSPECT], audit_path=audit, checkpoint_path=checkpoint, execution_id="audit-recover")
-    except Exception:
-        pass
-
-    checkpoint.write_text(json.dumps({
-        "schema_version": 2,
-        "execution_id": "audit-recover",
-        "task_digest": hashlib.sha256(plan.task.encode()).hexdigest(),
-        "plan_digest": plan.audit.plan_digest,
-        "authorization_digest": engine._authorization_digest([Capability.INSPECT], False),
-        "state": "running",
-        "completed_step_ids": [],
-        "total_attempts": 1,
-        "updated_at": "now",
-    }), encoding="utf-8")
-    assert audit.exists()
+    append_execution_record(audit, {"execution_id": "audit-recover", "event": "tool_result", "step_id": "step-1", "result": "success", "verification": "verified"})
+    from autonomous_agent.execution_engine import _verified_steps_from_audit
+    assert _verified_steps_from_audit(audit, "audit-recover") == {"step-1"}
