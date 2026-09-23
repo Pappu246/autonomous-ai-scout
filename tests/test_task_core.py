@@ -60,6 +60,25 @@ def test_change_request_remains_blocked_by_existing_approval_boundary() -> None:
     assert Capability.SOURCE_WRITE not in prepared.granted
 
 
+def test_runtime_approved_transform_executes_through_workspace_boundary(tmp_path: Path) -> None:
+    target = tmp_path / "config.py"
+    target.write_text("old\n", encoding="utf-8")
+    audit = tmp_path / "execution.jsonl"
+    journal = tmp_path / "runs.jsonl"
+
+    result = runtime.run_task(
+        "transform file config.py: old -> new",
+        root=tmp_path,
+        audit_path=audit,
+        journal_path=journal,
+        execution_id="runtime-transform-approved",
+        explicitly_approved=True,
+    )
+
+    assert result.state is ExecutionState.VERIFIED
+    assert target.read_text(encoding="utf-8") == "new\n"
+
+
 def test_prepare_accepts_explicit_capability_grants_without_widening_them() -> None:
     core = AutonomousTaskCore()
 
