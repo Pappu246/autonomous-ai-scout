@@ -228,6 +228,9 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
             lines.extend(
                 [
                     "",
+                    "Files inspected (bounded sample):",
+                    *[f"- {name}" for name in files[:50]],
+                    "",
                     "Inspection scope: read-only project structure, dependency hygiene, and high-confidence secret-pattern checks.",
                     "No source files were modified.",
                 ]
