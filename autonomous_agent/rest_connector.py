@@ -248,6 +248,95 @@ class RestConnector:
             return response
         raise RestConnectorError("request retry/redirect policy exhausted")
 
+def _redact_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): "[REDACTED]"
+            if str(key).lower() in {"authorization", "cookie", "set-cookie", "api_key", "access_token", "refresh_token", "client_secret", "password", "secret"}
+            else _redact_json(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_json(item) for item in value[:200]]
+    if isinstance(value, str):
+        return _redact_text(value)[:MAX_RESPONSE_BYTES]
+    return value
+
+
+class RestConnector:
+    def __init__(
+        self,
+        allowed_hosts: set[str] | frozenset[str],
+        *,
+        transport: RestTransport,
+        timeout_seconds: float = 10.0,
+    ):
+        hosts = frozenset(str(h).strip().lower().rstrip(".") for h in allowed_hosts if str(h).strip())
+        if not hosts:
+            raise RestConnectorError("at least one explicit host allowlist entry is required")
+        if not callable(getattr(transport, "request", None)):
+            raise RestConnectorError("REST transport must expose a request method")
+        self.allowed_hosts = hosts
+        self.transport = transport
+        self.timeout_seconds = max(0.1, min(float(timeout_seconds), MAX_TIMEOUT_SECONDS))
+
+    def request(
+        self,
+        request: RestRequest,
+        *,
+        approved: bool = False,
+        resolve_dns: bool = True,
+    ) -> RestResponse:
+        if not isinstance(request, RestRequest):
+            raise RestConnectorError("request must be a RestRequest")
+        method = request.method.upper().strip()
+        if method not in SAFE_METHODS | WRITE_METHODS:
+            raise RestConnectorError("HTTP method is not supported")
+        if method in WRITE_METHODS and not approved:
+            raise RestConnectorError("write requests require explicit human approval")
+        _validate_credential_ref(request.credential_ref)
+        body = request.body if isinstance(request.body, bytes) else bytes(request.body)
+        if len(body) > MAX_REQUEST_BYTES:
+            raise RestConnectorError("request body exceeds the size limit")
+        url = validate_public_https_url(request.url, self.allowed_hosts, resolve_dns=resolve_dns)
+        headers = validate_headers(request.headers)
+        if method in WRITE_METHODS:
+            key = request.idempotency_key or deterministic_idempotency_key(method, url, body)
+            headers = {**headers, "Idempotency-Key": key}
+        attempts = 1 + (MAX_RETRIES if method in SAFE_METHODS else 0)
+        redirect_count = 0
+        for retry_attempt in range(attempts):
+            response = self.transport.request(
+                method,
+                url,
+                headers=headers,
+                body=body,
+                timeout=self.timeout_seconds,
+            )
+            if not isinstance(response, RestResponse):
+                raise RestConnectorError("REST transport returned an invalid response")
+            if len(response.body) > MAX_RESPONSE_BYTES:
+                raise RestConnectorError("response exceeds the size limit")
+            location = next(
+                (v for k, v in response.headers.items() if str(k).lower() == "location"),
+                None,
+            )
+            if response.status_code in {301, 302, 303, 307, 308} and location:
+                redirect_count += 1
+                if redirect_count > MAX_REDIRECTS:
+                    raise RestConnectorError("redirect limit exceeded")
+                url = validate_public_https_url(
+                    urljoin(url, str(location)),
+                    self.allowed_hosts,
+                    resolve_dns=resolve_dns,
+                )
+                continue
+            if response.status_code in {429, 500, 502, 503, 504} and method in SAFE_METHODS:
+                if retry_attempt + 1 < attempts:
+                    continue
+            return response
+        raise RestConnectorError("request retry/redirect policy exhausted")
+
     def safe_json(
         self,
         request: RestRequest,
@@ -263,7 +352,8 @@ class RestConnector:
         )
         if "json" in str(content_type).lower():
             try:
-                result["json"] = json.loads(response.body.decode("utf-8"))
+                parsed = json.loads(response.body.decode("utf-8"))
+                result["json"] = _redact_json(parsed)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 result["json_error"] = "invalid JSON response"
         return result
