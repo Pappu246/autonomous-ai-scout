@@ -149,3 +149,37 @@ def test_n46_canonical_execution_enforces_admission_gate(tmp_path: Path):
         production_audit=audit,
     )
     assert verified.state is ExecutionState.VERIFIED
+
+
+def test_n46_admission_rejects_execution_identity_mismatch():
+    readiness, audit = _evidence()
+    request = AdmissionRequest("n46-task", "expected-exec", "0" * 64, "1" * 64)
+    decision = evaluate_admission(
+        request,
+        actual_task_digest="0" * 64,
+        actual_authorization_digest="1" * 64,
+        actual_execution_id="actual-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
+        readiness=readiness,
+        production_audit=audit,
+    )
+    assert not decision.admitted
+    assert "execution identity" in decision.reason
+
+
+def test_n46_admission_rejects_approval_state_mismatch():
+    readiness, audit = _evidence()
+    request = AdmissionRequest("n46-task", "n46-exec", "0" * 64, "1" * 64, explicitly_approved=True)
+    decision = evaluate_admission(
+        request,
+        actual_task_digest="0" * 64,
+        actual_authorization_digest="1" * 64,
+        actual_execution_id="n46-exec",
+        actual_side_effects=False,
+        actual_explicitly_approved=False,
+        readiness=readiness,
+        production_audit=audit,
+    )
+    assert not decision.admitted
+    assert "approval state" in decision.reason
