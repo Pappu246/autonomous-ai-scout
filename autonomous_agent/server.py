@@ -162,6 +162,7 @@ class RuntimeTaskManager:
                 max(0.0, (item.finished_at or time.time()) - (item.started_at or item.submitted_at)),
                 2,
             ),
+            "approval_required": item.state == ExecutionState.BLOCKED.value and "approval" in item.reason.lower(),
         }
 
     def get(self, task_id: str) -> dict[str, Any] | None:
