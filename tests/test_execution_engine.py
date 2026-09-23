@@ -340,3 +340,58 @@ def test_failed_checkpoint_requires_recovery_instead_of_replay(tmp_path: Path):
     )
     assert result.state is ExecutionState.RECOVERY_REQUIRED
     assert "automatic replay" in result.reason
+
+
+def test_forged_verified_checkpoint_cannot_claim_completion_without_audit(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "forged.jsonl"
+    checkpoint = tmp_path / "forged.checkpoint.json"
+    checkpoint.write_text(json.dumps({
+        "schema_version": 2,
+        "execution_id": "forged",
+        "task_digest": hashlib.sha256(plan.task.encode()).hexdigest(),
+        "plan_digest": plan.audit.plan_digest,
+        "authorization_digest": _authorization_digest([Capability.INSPECT], False, plan),
+        "state": "verified",
+        "completed_step_ids": [step.step_id for step in plan.steps],
+        "total_attempts": 1,
+        "updated_at": "2026-09-23T00:00:00+00:00",
+    }), encoding="utf-8")
+    from autonomous_agent.execution_engine import execute_plan
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="forged",
+    )
+    assert result.state is ExecutionState.RECOVERY_REQUIRED
+    assert "trusted audit" in result.reason
+
+
+def test_resume_does_not_trust_checkpoint_completed_steps_without_audit(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "resume-forged.jsonl"
+    checkpoint = tmp_path / "resume-forged.checkpoint.json"
+    checkpoint.write_text(json.dumps({
+        "schema_version": 2,
+        "execution_id": "resume-forged",
+        "task_digest": hashlib.sha256(plan.task.encode()).hexdigest(),
+        "plan_digest": plan.audit.plan_digest,
+        "authorization_digest": _authorization_digest([Capability.INSPECT], False, plan),
+        "state": "running",
+        "completed_step_ids": [step.step_id for step in plan.steps],
+        "total_attempts": 1,
+        "updated_at": "2026-09-23T00:00:00+00:00",
+    }), encoding="utf-8")
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="resume-forged",
+    )
+    assert result.state is ExecutionState.RECOVERY_REQUIRED
+    assert "without matching trusted audit evidence" in result.reason
