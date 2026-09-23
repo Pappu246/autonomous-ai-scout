@@ -68,3 +68,20 @@ def test_review_patch_rejects_absolute_and_windows_paths():
         result = review_patch(diff)
         assert not result.allowed
         assert "forbidden path" in result.reason
+
+
+def test_review_patch_rejects_file_deletion_and_rename_artifacts():
+    deletion = """diff --git a/old.py b/old.py
+deleted file mode 100644
+--- a/old.py
++++ /dev/null
+@@ -1 +0,0 @@
+-print(1)
+"""
+    rename = """diff --git a/old.py b/new.py
+similarity index 100%
+rename from old.py
+rename to new.py
+"""
+    assert not review_patch(deletion).allowed
+    assert not review_patch(rename).allowed
