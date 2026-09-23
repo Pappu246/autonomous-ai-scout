@@ -45,6 +45,23 @@ def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGI
     payload={"granted":values,"explicitly_approved":bool(explicitly_approved),"tools":tools}
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
+def _audit_events(path,execution_id):
+    if not path.exists():return ()
+    events=[]
+    try:lines=path.read_text(encoding="utf-8").splitlines()
+    except OSError:raise ValueError("execution audit is unreadable")
+    for line in lines:
+        if not line.strip():continue
+        item=json.loads(line)
+        if isinstance(item,dict) and item.get("execution_id")==execution_id:events.append(item)
+    return tuple(events)
+
+def _audit_has_verified_completion(path,execution_id,plan):
+    events=_audit_events(path,execution_id)
+    verified_steps={str(item.get("step_id")) for item in events if item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id")}
+    terminal=any(item.get("event")=="checkpoint_verified" and item.get("state")==ExecutionState.VERIFIED.value for item in events)
+    return all(step.step_id in verified_steps for step in plan.steps) and terminal
+
 def _verified_steps_from_audit(path,execution_id):
     completed=set()
     if not path.exists():return completed
@@ -108,14 +125,22 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest or checkpoint.authorization_digest!=authorization_digest:
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
         if checkpoint.state=="verified":
-            return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+            try:verified=_audit_has_verified_completion(audit_path,execution_id,plan)
+            except (OSError,UnicodeError,json.JSONDecodeError,ValueError) as exc:return ExecutionResult(ExecutionState.BLOCKED,f"execution audit cannot verify checkpoint: {type(exc).__name__}",checkpoint.total_attempts,(),str(audit_path))
+            if verified:
+                return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by trusted audit and durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims verified execution without matching trusted audit evidence",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="failed":
             return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"failed execution checkpoint requires explicit recovery; automatic replay is disabled",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="blocked":
             return ExecutionResult(ExecutionState.BLOCKED,"blocked execution checkpoint cannot be resumed",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state!="running":
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint has an invalid resumable state",checkpoint.total_attempts,(),str(audit_path))
-        completed_step_ids=set(checkpoint.completed_step_ids) | _verified_steps_from_audit(audit_path,execution_id)
+        audit_completed=_verified_steps_from_audit(audit_path,execution_id)
+        checkpoint_completed=set(checkpoint.completed_step_ids)
+        if checkpoint_completed - audit_completed:
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims completed steps without matching trusted audit evidence",checkpoint.total_attempts,(),str(audit_path))
+        completed_step_ids=audit_completed
         total_attempts=checkpoint.total_attempts
         _audit(audit_path,execution_id,ExecutionState.RUNNING,event="checkpoint_resumed",completed_steps=len(completed_step_ids))
     else:
