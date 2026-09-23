@@ -195,7 +195,7 @@ class ExternalSideEffectStore:
             if existing.operation != candidate.operation or existing.request_digest != candidate.request_digest:
                 raise SideEffectError("side-effect key was reused for a different request")
             if existing.state is SideEffectState.EXECUTED:
-                return SideEffectDecision(False, True, "side effect was already executed; automatic replay is blocked", existing)
+                return SideEffectDecision(False, True, "side effect was already executed; it has already been executed; automatic replay is blocked", existing)
             if existing.state in {SideEffectState.RESERVED, SideEffectState.UNKNOWN}:
                 return SideEffectDecision(False, True, "side effect has an unresolved prior execution; reconciliation is required before replay", existing)
             return SideEffectDecision(False, True, "side effect has a terminal failed record; automatic replay is blocked", existing)
