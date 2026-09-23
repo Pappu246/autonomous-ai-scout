@@ -38,6 +38,35 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         return {"workspace.shell": {"argv": argv}}
     if "filesystem.list" in selected:
         return {"filesystem.list": {"operation": "list", "path": "."}}
+    if "filesystem.transform" in selected:
+        match = re.search(
+            r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$",
+            task.strip(),
+            re.I,
+        )
+        if match:
+            return {
+                "filesystem.transform": {
+                    "operation": "transform",
+                    "path": match.group(1).rstrip("."),
+                    "find": match.group(2),
+                    "replace": match.group(3),
+                }
+            }
+    if "filesystem.write" in selected:
+        match = re.search(
+            r"(?:write|create|save)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*)$",
+            task.strip(),
+            re.I,
+        )
+        if match:
+            return {
+                "filesystem.write": {
+                    "operation": "write",
+                    "path": match.group(1).rstrip("."),
+                    "content": match.group(2),
+                }
+            }
     if "filesystem.read" in selected:
         match = re.search(
             r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)",
