@@ -47,3 +47,18 @@ def test_router_does_not_expand_capabilities():
     selection = DynamicToolRouter().select("send email")
     assert selection == ("email.send",)
     assert Capability.EMAIL.value == get_tool("email.send").capability
+
+def test_router_defaults_ambiguous_workspace_requests_to_read_only_tools():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository workspace and investigate its structure"
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+    assert "filesystem.write" not in selection.tool_names
+    assert "filesystem.transform" not in selection.tool_names
+
+
+def test_router_keeps_explicit_workspace_mutation_requests_mutating_only_when_requested():
+    selection = DynamicToolRouter().select_names("transform file config.py")
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.transform",)
