@@ -53,7 +53,12 @@ class DynamicToolRouter:
             return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
             return ("filesystem.list",)
-        return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
+        if any(x in text for x in ("read-only", "read only", "inspect", "audit", "analyze", "analyse", "review")):
+            return ("filesystem.list", "filesystem.read")
+        # An ambiguous workspace request must remain read-only by default.
+        # Mutation tools are selected only when the request explicitly asks for
+        # a write/transform operation above.
+        return ("filesystem.list", "filesystem.read")
 
     @staticmethod
     def _email_tools(task: str) -> tuple[str, ...]:
