@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+import httpx
 
 import pytest
 
@@ -16,7 +16,7 @@ class FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise RuntimeError("http error")
+            raise httpx.HTTPError("http error")
 
 
 class FakeClient:
@@ -56,7 +56,7 @@ def test_fetch_source_accepts_bounded_same_host_https_redirect(monkeypatch):
         FakeResponse(302, b"", {"location": "https://example.com/final"}),
         FakeResponse(200, b"<title>Example</title><p>ok</p>"),
     ]
-    monkeypatch.setattr(sources, "httpx", SimpleNamespace(Client=FakeClient))
+    monkeypatch.setattr(sources.httpx, "Client", FakeClient)
     monkeypatch.setattr(sources.socket, "getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 0))])
 
     result = sources.fetch_source("https://example.com/start")
