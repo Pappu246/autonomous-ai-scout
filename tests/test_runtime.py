@@ -94,11 +94,15 @@ def test_runtime_wires_workspace_connector_for_workspace_task(monkeypatch, tmp_p
         def __init__(self, *, registry):
             self.registry = registry
 
-        def prepare(self, task):
+        def prepare(self, task, *, explicitly_approved=False):
             from autonomous_agent.task_core import AutonomousTaskCore
-            return AutonomousTaskCore(registry=self.registry).prepare(task)
+            return AutonomousTaskCore(registry=self.registry).prepare(
+                task,
+                explicitly_approved=explicitly_approved,
+            )
 
         def execute(self, prepared, root, **kwargs):
+            captured["explicitly_approved"] = kwargs.get("explicitly_approved")
             captured["connector"] = kwargs.get("workspace_connector")
             captured["request"] = kwargs.get("workspace_request")
             return ExecutionResult(ExecutionState.VERIFIED, "ok", 1, (), "audit")
@@ -109,5 +113,6 @@ def test_runtime_wires_workspace_connector_for_workspace_task(monkeypatch, tmp_p
     result = run_task(task, root=tmp_path, audit_path=tmp_path / "audit.jsonl", journal_path=tmp_path / "journal.jsonl", execution_id="workspace-runtime-test")
     assert result.state is ExecutionState.VERIFIED
     assert captured["root"] == tmp_path
+    assert captured["explicitly_approved"] is False
     assert isinstance(captured["connector"], FakeConnector)
     assert captured["request"]["workspace.shell"]["argv"] == ("python", "-m", "py_compile", "autonomous_agent/runtime.py")
