@@ -37,6 +37,18 @@ def test_prepare_is_deterministic_for_same_request() -> None:
     assert first.granted == second.granted == (Capability.WEB_RESEARCH,)
 
 
+def test_explicit_approval_grants_safe_workspace_write_capability() -> None:
+    core = AutonomousTaskCore()
+
+    blocked = core.prepare("transform file config.py")
+    assert blocked.plan.executable is False
+    assert Capability.FILES_WORKSPACE not in blocked.granted
+
+    approved = core.prepare("transform file config.py", explicitly_approved=True)
+    assert approved.plan.executable is True
+    assert Capability.FILES_WORKSPACE in approved.granted
+
+
 def test_change_request_remains_blocked_by_existing_approval_boundary() -> None:
     core = AutonomousTaskCore()
 
