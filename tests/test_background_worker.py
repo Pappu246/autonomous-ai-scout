@@ -56,8 +56,11 @@ def test_worker_requeues_running_task_after_restart(tmp_path: Path):
     assert claimed is not None
     recovered = TaskQueueStore(queue.path).recover_running()
     assert recovered
-    assert recovered[0].state is QueueState.PENDING
-    assert recovered[0].last_error == "worker restarted while task was running"
+    assert recovered[0].state is QueueState.RECOVERY_REQUIRED
+    assert "explicit recovery confirmation required" in recovered[0].last_error
+    assert queue.claim_next() is None
+    confirmed = queue.confirm_recovery("task-1")
+    assert confirmed.state is QueueState.PENDING
 
 
 def test_worker_records_handler_failure(tmp_path: Path):
@@ -75,3 +78,17 @@ def test_queue_rejects_duplicate_task_id(tmp_path: Path):
     queue.enqueue("inspect repository", task_id="same", execution_id="a")
     with pytest.raises(ValueError, match="already exists"):
         queue.enqueue("inspect repository", task_id="same", execution_id="b")
+
+
+def test_queued_task_redacts_secret_like_content(tmp_path: Path):
+    path = tmp_path / "queue.json"
+    queue = TaskQueueStore(path)
+    item = queue.enqueue(
+        "research credential=SUPERSECRET and token=ABC123",
+        task_id="secret-task",
+        execution_id="exec-1",
+    )
+    raw = path.read_text(encoding="utf-8")
+    assert "SUPERSECRET" not in raw
+    assert "ABC123" not in raw
+    assert "[REDACTED]" in item.task
