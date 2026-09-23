@@ -91,7 +91,11 @@ class CodingProviderRouter(CodingModel):
                 )
                 continue
 
-            model = self.model_factory(spec.config)
+            try:
+                model = self.model_factory(spec.config)
+            except Exception as exc:
+                attempts.append(ProviderAttempt(spec.name, "failed", f"model_factory failed: {type(exc).__name__}"))
+                continue
             attempt_limit = max(1, min(spec.max_attempts, 3))
 
             for attempt_number in range(attempt_limit):
