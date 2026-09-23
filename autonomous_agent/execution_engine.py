@@ -135,7 +135,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         if readiness_report is None or production_audit is None:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="admission evidence is incomplete",event="admission_blocked")
             return ExecutionResult(ExecutionState.BLOCKED,"admission evidence is incomplete",0,(),str(audit_path))
-        admission=evaluate_admission(admission_request,actual_task_digest=task_digest,actual_authorization_digest=authorization_digest,readiness=readiness_report,production_audit=production_audit)
+        admission=evaluate_admission(admission_request,actual_task_digest=task_digest,actual_authorization_digest=authorization_digest,actual_execution_id=execution_id,actual_side_effects=any((registry.get(step.tool_name) is not None and registry.get(step.tool_name).read_write_mode.value!="read_only") for step in plan.steps),actual_explicitly_approved=explicitly_approved,readiness=readiness_report,production_audit=production_audit)
         if not admission.admitted:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=admission.reason,event="admission_blocked",admission_digest=admission.digest)
             _telemetry(telemetry,"admission_blocked",execution_id=execution_id,reason=admission.reason,admission_digest=admission.digest)
