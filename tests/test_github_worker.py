@@ -41,6 +41,9 @@ class Backend:
         self.calls.append(("branch", repository, branch, base_branch, expected_head_sha))
         return branch
 
+    def read_file_at_ref(self, repository, path, ref):
+        return "print('old')\n"
+
     def commit_files(self, repository, branch, files, message):
         self.calls.append(("commit", repository, branch))
         return "b" * 40
