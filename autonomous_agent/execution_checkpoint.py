@@ -59,8 +59,22 @@ class ExecutionCheckpointStore:
             raise ValueError("execution checkpoint has an invalid schema") from exc
         if checkpoint.schema_version != SCHEMA_VERSION:
             raise ValueError("unsupported execution checkpoint schema")
+        if not checkpoint.execution_id.strip() or len(checkpoint.execution_id) > 256:
+            raise ValueError("execution checkpoint execution id is invalid")
+        if not checkpoint.task_digest or not checkpoint.plan_digest or not checkpoint.authorization_digest:
+            raise ValueError("execution checkpoint digests are required")
+        if checkpoint.state not in {"running", "failed", "blocked", "verified", "recovery_required"}:
+            raise ValueError("execution checkpoint state is invalid")
         if checkpoint.total_attempts < 0:
             raise ValueError("execution checkpoint attempts cannot be negative")
+        if len(checkpoint.completed_step_ids) > 256 or len(set(checkpoint.completed_step_ids)) != len(checkpoint.completed_step_ids):
+            raise ValueError("execution checkpoint completed steps are invalid")
+        try:
+            updated = datetime.fromisoformat(checkpoint.updated_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("execution checkpoint timestamp is invalid") from exc
+        if updated.tzinfo is None:
+            raise ValueError("execution checkpoint timestamp must include a timezone")
         return checkpoint
 
     def save(
@@ -99,7 +113,10 @@ class ExecutionCheckpointStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            with tmp.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp, self.path)
         finally:
             try:
