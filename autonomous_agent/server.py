@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,6 +51,41 @@ class RuntimeTaskManager:
         self.max_retained = max(8, min(int(max_retained), MAX_TASKS))
         self._lock = threading.RLock()
         self._tasks: dict[str, RuntimeTask] = {}
+        self._restore_completed_tasks()
+
+    def _restore_completed_tasks(self) -> None:
+        """Hydrate completed tasks from the durable run journal after a server restart."""
+        journal = self.root / "state" / "runtime_runs.jsonl"
+        try:
+            records = read_run_records(journal, limit=self.max_retained)
+        except (OSError, ValueError):
+            return
+
+        restored: dict[str, RuntimeTask] = {}
+        for record in records:
+            try:
+                timestamp = datetime.fromisoformat(record.recorded_at.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                epoch = timestamp.timestamp()
+            except (TypeError, ValueError, OverflowError):
+                epoch = time.time()
+            restored[f"history-{record.execution_id}"] = RuntimeTask(
+                task_id=f"history-{record.execution_id}",
+                execution_id=record.execution_id,
+                task=record.task,
+                state=record.state,
+                reason=record.reason,
+                attempts=record.attempts,
+                submitted_at=epoch,
+                started_at=epoch,
+                finished_at=epoch,
+                results=[],
+            )
+
+        with self._lock:
+            self._tasks.update(restored)
+            self._trim_locked()
 
     def _active_count(self) -> int:
         return sum(item.state in {"queued", "running"} for item in self._tasks.values())
