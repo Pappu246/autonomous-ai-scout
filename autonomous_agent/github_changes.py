@@ -67,6 +67,7 @@ class GitHubChangeBackend(Protocol):
         branch: str,
         files: Mapping[str, str],
         message: str,
+        expected_parent_sha: str = "",
     ) -> str: ...
 
     def open_draft_pr(
