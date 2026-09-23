@@ -64,6 +64,8 @@ class ConsequenceAwareApprovalPolicy:
             if tool.read_write_mode is ReadWriteMode.READ_ONLY and tool.approval_requirement is ApprovalRequirement.NONE:
                 return ApprovalDecision(ApprovalMode.AUTONOMOUS, Consequence.MEDIUM, tuple(reasons))
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.MEDIUM, tuple(reasons))
+        if tool.read_write_mode is not ReadWriteMode.READ_ONLY:
+            return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.LOW, tuple(reasons))
         if tool.approval_requirement is not ApprovalRequirement.NONE:
             return ApprovalDecision(ApprovalMode.AUTONOMOUS if explicitly_approved else ApprovalMode.REQUIRE_APPROVAL, Consequence.MEDIUM, tuple(reasons))
         return ApprovalDecision(ApprovalMode.AUTONOMOUS, Consequence.NONE if tool.read_write_mode is ReadWriteMode.READ_ONLY else Consequence.LOW, tuple(reasons))
