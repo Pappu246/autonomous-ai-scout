@@ -210,3 +210,32 @@ def test_create_branch_at_sha_rejects_stale_remote_head(monkeypatch):
     else:
         raise AssertionError("stale base HEAD must be rejected")
     assert [call[0] for call in fake.calls] == ["GET"]
+
+
+def test_read_file_at_ref_returns_decoded_utf8_file(monkeypatch):
+    import base64
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{
+        "type": "file",
+        "encoding": "base64",
+        "content": base64.b64encode(b"print('old')\n").decode(),
+    }]
+    result = client(fake).read_file_at_ref("owner/repo", "app.py", "a" * 40)
+    assert result == "print('old')\n"
+    assert fake.calls[0][0] == "GET"
+    assert fake.calls[0][3] == {"ref": "a" * 40}
+
+
+def test_commit_files_rejects_changed_parent_sha(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"commit": {"sha": "b" * 40}}]
+    try:
+        client(fake).commit_files(
+            "owner/repo", "improvement/one", {"app.py": "new\n"}, "commit", "a" * 40
+        )
+    except GitHubApiError as exc:
+        assert "changed after approval" in str(exc)
+    else:
+        raise AssertionError("changed branch parent must be rejected")
