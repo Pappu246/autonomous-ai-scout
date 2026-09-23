@@ -36,6 +36,21 @@ def classify_intent(task: str) -> TaskIntent:
         return TaskIntent.WORKSPACE
     if any(term in text for term in ("research", "search web", "look up", "find information", "investigate", "browse", "browser", "web page", "read this page", "open this page")) or "http://" in text or "https://" in text:
         return TaskIntent.RESEARCH
+
+    # Inspection/audit/review tasks must not become workspace tasks merely
+    # because they mention files, especially in a negative safety clause such
+    # as "do not modify any files".
+    if any(term in text for term in ("inspect", "analyze", "analyse", "audit", "review")):
+        workspace_action = _positive_clause_contains(
+            text,
+            "read file", "read the file", "open file", "list files",
+            "list directory", "list folder", "write file", "create file",
+            "save file", "transform file", "modify file", "replace in file",
+            "run command", "shell command", "py_compile", "compile python",
+        )
+        if not workspace_action:
+            return TaskIntent.INSPECT
+
     if any(term in text for term in ("file", "files", "workspace", "directory", "folder", "read file", "write file", "transform file", "run command", "shell command", "py_compile", "compile python")):
         return TaskIntent.WORKSPACE
 
