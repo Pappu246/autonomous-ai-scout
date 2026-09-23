@@ -17,7 +17,7 @@ def test_discovery_can_filter_by_capability():
     layer = UniversalDigitalToolLayer()
     candidates = layer.discover(capability=Capability.FILES_WORKSPACE.value)
     assert {candidate.name for candidate in candidates} == {
-        "filesystem.list", "filesystem.read", "filesystem.transform", "filesystem.write", "workspace.shell"
+        "filesystem.list", "filesystem.read", "filesystem.transform", "filesystem.write"
     }
 
 
@@ -140,3 +140,9 @@ def test_invocation_rejects_missing_required_argument_when_schema_requires_it():
     )
     assert not result.success
     assert "missing required" in result.error
+
+
+def test_workspace_shell_has_dedicated_capability():
+    layer = UniversalDigitalToolLayer()
+    candidates = layer.discover(capability=Capability.WORKSPACE_SHELL.value)
+    assert {candidate.name for candidate in candidates} == {"workspace.shell"}
