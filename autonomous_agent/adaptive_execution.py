@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 from .capability_policy import Capability
+from .tool_registry import ReadWriteMode
 from .execution_engine import ExecutionResult, ExecutionState, execute_plan
 from .execution_audit import append_execution_record, verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES, SandboxResult
@@ -217,6 +218,16 @@ def execute_adaptive_plan(
         if not replacement:
             _audit(audit_path, execution_id, "TASK_FAILED", step_id=step.step_id, reason="replanner produced no replacement steps")
             return AdaptiveExecutionResult(ExecutionState.FAILED, f"replanner produced no safe replacement for {step.tool_name}", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+
+        replacement = tuple(replacement)
+        for candidate in replacement:
+            tool = registry.get(candidate.tool_name)
+            if tool is None:
+                _audit(audit_path, execution_id, "ADAPTATION_BLOCKED", step_id=step.step_id, reason=f"replacement tool is unknown: {candidate.tool_name}")
+                return AdaptiveExecutionResult(ExecutionState.BLOCKED, f"replanner selected unknown tool: {candidate.tool_name}", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
+            if tool.read_write_mode is not ReadWriteMode.READ_ONLY and not explicitly_approved:
+                _audit(audit_path, execution_id, "ADAPTATION_BLOCKED", step_id=step.step_id, reason="replanner cannot introduce write side effects without explicit approval")
+                return AdaptiveExecutionResult(ExecutionState.BLOCKED, "replanner cannot introduce write side effects without explicit approval", total_attempts, replan_count, tuple(results), tuple(observations), str(audit_path))
 
         existing_ids = {candidate.step_id for candidate in steps}
         if any(candidate.step_id in existing_ids and candidate.step_id != step.step_id for candidate in replacement):
