@@ -168,6 +168,31 @@ def test_approval_retry_requeues_blocked_task_with_explicit_approval(tmp_path, m
         _stop(server, thread)
 
 
+def test_runtime_manager_restores_completed_tasks_from_journal(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "runtime_runs.jsonl").write_text(
+        json.dumps({
+            "execution_id": "restored-1",
+            "task": "inspect repository",
+            "state": "verified",
+            "reason": "all planned actions executed and verified",
+            "attempts": 1,
+            "result_count": 1,
+            "recorded_at": "2026-09-24T00:00:00+00:00",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    manager = RuntimeTaskManager(tmp_path)
+    tasks = manager.list()
+
+    assert tasks
+    assert tasks[0]["execution_id"] == "restored-1"
+    assert tasks[0]["state"] == "verified"
+    assert tasks[0]["task"] == "inspect repository"
+
+
 def test_history_and_approval_endpoints_are_bounded(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
