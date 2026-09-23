@@ -85,3 +85,42 @@ rename to new.py
 """
     assert not review_patch(deletion).allowed
     assert not review_patch(rename).allowed
+
+
+def test_patch_must_apply_to_verified_base_contents():
+    from autonomous_agent.patch_review import validate_patch_applies_to_base
+    diff = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,3 +1,3 @@
+ line1
+-line2
++changed
+ line3
+"""
+    assert validate_patch_applies_to_base(
+        diff,
+        {"app.py": "line1\nline2\nline3\n"},
+        {"app.py": "line1\nchanged\nline3\n"},
+    )
+    assert not validate_patch_applies_to_base(
+        diff,
+        {"app.py": "line1\nline2\nline3\n"},
+        {"app.py": "line1\nchanged\nattacker\nline3\n"},
+    )
+
+
+def test_patch_base_validation_rejects_wrong_original_line():
+    from autonomous_agent.patch_review import validate_patch_applies_to_base
+    diff = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1 +1 @@
+-old
++new
+"""
+    assert not validate_patch_applies_to_base(
+        diff,
+        {"app.py": "different\n"},
+        {"app.py": "new\n"},
+    )
