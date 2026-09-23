@@ -1,7 +1,7 @@
 from __future__ import annotations
 import hashlib,json
 from typing import Iterable
-from .capability_policy import Capability
+from .capability_policy import Capability, DENIED_CAPABILITIES
 from .task_decomposer import decompose_task
 from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
@@ -34,16 +34,23 @@ def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[
     return tuple(tool.name for tool in _select_tools(registry, intent, raw))
 
 
-def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
-    """Grant only capabilities exposed by tools explicitly marked safe_autonomous."""
+def default_grants_for_task(
+    task: str | object,
+    registry: ToolRegistry = REGISTRY,
+    *,
+    explicitly_approved: bool = False,
+) -> tuple[Capability, ...]:
+    """Grant safe autonomous capabilities, plus safe registered capabilities after explicit approval."""
     raw = task.task if hasattr(task, "task") and isinstance(getattr(task, "task"), str) else str(task)
     intent = classify_intent(raw)
     values: list[Capability] = []
     seen: set[Capability] = set()
     for tool in _select_tools(registry, intent, raw):
-        if not tool.safe_autonomous:
+        if not tool.safe_autonomous and not explicitly_approved:
             continue
         capability = Capability(tool.capability)
+        if capability in DENIED_CAPABILITIES:
+            continue
         if capability not in seen:
             seen.add(capability)
             values.append(capability)
