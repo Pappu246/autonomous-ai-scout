@@ -159,12 +159,13 @@ def _run_browser(connector,request,limit):
         else:return False,"sandbox browser allowlist supports only open/click/extract",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("BROWSER",op),truncated
     except Exception as exc:return False,f"browser operation failed: {type(exc).__name__}",("BROWSER",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None):
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
     if op=="rest":
-        success,output,command,truncated=_run_rest(workspace_connector,workspace_request or {},limit,approved=bool(workspace_request.get("__approved__",False)) if isinstance(workspace_request,Mapping) else False)
+        request = rest_request or {}
+        success,output,command,truncated=_run_rest(rest_connector,request,limit,approved=bool(request.get("__approved__",False)) if isinstance(request,Mapping) else False)
         finished=datetime.now(timezone.utc).isoformat()
         return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="web_research":
