@@ -92,3 +92,10 @@ def test_queued_task_redacts_secret_like_content(tmp_path: Path):
     assert "SUPERSECRET" not in raw
     assert "ABC123" not in raw
     assert "[REDACTED]" in item.task
+
+
+def test_queue_rejects_completion_of_non_running_task(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-1", execution_id="exec-1")
+    with pytest.raises(ValueError, match="running task"):
+        queue.complete("task-1", success=True)
