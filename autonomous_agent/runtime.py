@@ -82,7 +82,7 @@ def run_task(
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
-    prepared = core.prepare(task)
+    prepared = core.prepare(task, explicitly_approved=explicitly_approved)
     if workspace_connector is None and any(
         step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
         for step in prepared.plan.steps
@@ -110,6 +110,7 @@ def run_task(
         audit_path=audit_path,
         execution_id=execution_id,
         checkpoint_path=checkpoint_path,
+        explicitly_approved=explicitly_approved,
         browser_connector=browser_connector,
         browser_request=browser_request,
         web_connector=web_connector,
