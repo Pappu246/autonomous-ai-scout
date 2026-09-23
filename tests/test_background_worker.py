@@ -99,3 +99,18 @@ def test_queue_rejects_completion_of_non_running_task(tmp_path: Path):
     queue.enqueue("inspect repository", task_id="task-1", execution_id="exec-1")
     with pytest.raises(ValueError, match="running task"):
         queue.complete("task-1", success=True)
+
+
+def test_queue_rejects_invalid_schedule(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    with pytest.raises(ValueError, match="available_at"):
+        queue.enqueue("inspect repository", task_id="task-1", execution_id="exec-1", available_at="not-a-timestamp")
+
+
+def test_queue_cannot_cancel_running_task(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-1", execution_id="exec-1")
+    claimed = queue.claim_next()
+    assert claimed is not None
+    with pytest.raises(ValueError, match="only pending"):
+        queue.cancel("task-1")
