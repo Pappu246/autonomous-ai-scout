@@ -31,6 +31,11 @@ def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
+def _is_write_capability(capability: str) -> bool:
+    tokens = set(capability.replace("-", ".").split("."))
+    return bool(tokens & {"write", "create", "update", "delete", "send", "submit", "transform", "deploy", "merge", "cancel"})
+
+
 def build_delegation(
     parent_task_id: str,
     tasks: Iterable[tuple[str, Iterable[str]]],
@@ -59,7 +64,7 @@ def build_delegation(
         requested = tuple(sorted({str(item).strip() for item in capabilities if str(item).strip()}))
         if not set(requested).issubset(allowed):
             raise DelegationError("child capability exceeds parent capability scope")
-        write = any(item.endswith(".write") or item.endswith(".send") or "change" in item for item in requested)
+        write = any(_is_write_capability(item) or "change" in item for item in requested)
         approval_required = bool(write)
         if approval_required and not parent_approved:
             raise DelegationError("write-capable delegation requires parent approval")
