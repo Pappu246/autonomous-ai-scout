@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from autonomous_agent.execution_engine import ExecutionState
+from autonomous_agent.execution_engine import ExecutionResult, ExecutionState
 from autonomous_agent.runtime import _plan_for_request, run_task
 from autonomous_agent.capability_policy import Capability
 
