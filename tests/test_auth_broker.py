@@ -86,3 +86,14 @@ def test_expired_leases_are_purged_from_broker_memory():
     broker._leases[lease.secret_handle] = ("SUPERSECRET", datetime.now(timezone.utc) - timedelta(seconds=1))
     assert broker.purge_expired() == 1
     assert lease.secret_handle not in broker._leases
+
+
+@pytest.mark.parametrize("resource", [
+    "token = SUPERSECRET",
+    "api_key: SUPERSECRET",
+    "password = SUPERSECRET",
+    "-----BEGIN PRIVATE KEY-----SECRET-----END PRIVATE KEY-----",
+])
+def test_credential_reference_rejects_secret_variants(resource):
+    with pytest.raises(ValueError, match="credential reference"):
+        CredentialRef("service", "subject", resource, ("read",))
