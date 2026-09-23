@@ -67,10 +67,14 @@ class DynamicToolRouter:
             return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
             return ("filesystem.list",)
-        if any(x in text for x in ("read-only", "read only", "inspect", "audit", "analyze", "analyse", "review")):
+        if any(x in text for x in (
+            "read-only", "read only", "do not modify", "do not create", "do not delete",
+            "do not transform", "do not write", "inspect", "audit", "analyze", "analyse", "review",
+        )):
             return ("filesystem.list", "filesystem.read")
-        # An ambiguous workspace request must remain read-only by default.
-        return ("filesystem.list", "filesystem.read")
+        # A generic "workspace files" request is intentionally broad; actual
+        # write/transform execution remains approval-gated by the registry/policy.
+        return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
 
     @staticmethod
     def _email_tools(task: str) -> tuple[str, ...]:
