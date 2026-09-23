@@ -22,7 +22,7 @@ Expected behavior:
 
 ## Safety
 
-The consequence policy does not replace the Tool Registry. It adds an independent decision layer before invocation; registry capability checks, sandbox requirements, audits and approval requirements remain authoritative.
+The consequence policy is enforced both by the universal digital-tool invocation layer and by the canonical execution engine. It does not replace the Tool Registry: registry capability checks, sandbox requirements, audits and approval requirements remain authoritative. Safe read-only medium-risk operations remain autonomous, while writes/high-risk/critical operations remain approval-gated.
 
 ## Limitations after N30
 
