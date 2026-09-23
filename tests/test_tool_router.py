@@ -48,6 +48,13 @@ def test_router_does_not_expand_capabilities():
     assert selection == ("email.send",)
     assert Capability.EMAIL.value == get_tool("email.send").capability
 
+def test_router_does_not_route_negated_shell_requests():
+    selection = DynamicToolRouter().select_names(
+        "inspect the workspace. Do not run a shell command or py_compile."
+    )
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+
+
 def test_router_defaults_ambiguous_workspace_requests_to_read_only_tools():
     selection = DynamicToolRouter().select_names(
         "inspect the repository workspace and investigate its structure"
