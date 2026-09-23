@@ -287,3 +287,28 @@ def test_workspace_shell_uses_dedicated_sandbox_operation(tmp_path: Path):
     assert result.state is ExecutionState.VERIFIED
     assert result.results[-1].operation == "workspace_shell"
     assert "safe-shell-ok" in result.results[-1].output
+
+
+def test_canonical_executor_enforces_consequence_policy(tmp_path: Path):
+    base = plan_task("inspect repository", granted=[Capability.INSPECT])
+    step = base.steps[0]
+    changed = type(step)(
+        step.step_id,
+        step.description,
+        "filesystem.write",
+        step.risk,
+        "authorized",
+        step.execution_boundary,
+        step.verification,
+    )
+    altered = TaskPlan(base.task, base.intent, (changed,), base.risk, True, base.reason, base.audit)
+    result = execute_plan(
+        altered,
+        tmp_path,
+        granted=[Capability.FILES_WORKSPACE],
+        explicitly_approved=False,
+        audit_path=tmp_path / "policy.jsonl",
+        execution_id="policy-1",
+    )
+    assert result.state is ExecutionState.BLOCKED
+    assert "consequence-aware policy" in result.reason
