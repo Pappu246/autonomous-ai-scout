@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from autonomous_agent.budget import BudgetExceededError, BudgetLedger, ResourceBudget
+from autonomous_agent.background_worker import BackgroundTaskWorker
+from autonomous_agent.task_queue import TaskQueueStore
 from autonomous_agent.concurrency import ExecutionLeaseStore
 from autonomous_agent.delegation import DelegationError, build_delegation
 from autonomous_agent.goal_loop import run_goal_loop
@@ -20,6 +22,19 @@ def test_n32_lease_prevents_duplicate_resource(tmp_path: Path):
     assert store.acquire("task:1", "worker-b") is None
     assert store.release(first.lease_id)
     assert store.acquire("task:1", "worker-b") is not None
+
+
+def test_n32_worker_uses_durable_lease(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("do work", task_id="task-1", execution_id="exec-1")
+    leases = ExecutionLeaseStore(tmp_path / "leases.json", max_active=1)
+    seen = []
+    worker = BackgroundTaskWorker(queue, lambda item: seen.append(item.task_id) or True, lease_store=leases)
+    result = worker.run_once()
+    assert result is not None
+    assert result.state.value == "succeeded"
+    assert seen == ["task-1"]
+    assert leases.active() == ()
 
 
 def test_n33_delegation_is_scope_bounded():
