@@ -185,8 +185,8 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         ):
             return ExecutionResult(ExecutionState.BLOCKED,"REST tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
         if capability is Capability.BROWSER and not _validate_browser_tool(tool):return ExecutionResult(ExecutionState.BLOCKED,"browser tool is incompatible with the safe sandbox boundary",total_attempts,tuple(results),str(audit_path))
-        if tool.read_write_mode.value!="read_only" and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,"write operation requires explicit approval",total_attempts,tuple(results),str(audit_path))
-        if not tool.safe_autonomous and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
+        if tool.read_write_mode.value!="read_only" and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR,Capability.REST_API} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,"write operation requires explicit approval",total_attempts,tuple(results),str(audit_path))
+        if not tool.safe_autonomous and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR,Capability.REST_API} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None;connector=web_connector
