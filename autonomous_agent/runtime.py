@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import shlex
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -16,6 +18,25 @@ from .tool_registry import REGISTRY, ToolRegistry
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
+
+def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] | None:
+    """Derive only a bounded local-workspace request explicitly delimited by the task."""
+    selected = tuple(step.tool_name for step in plan.steps)
+    if "workspace.shell" in selected:
+        match = re.search(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$", task.strip(), re.I)
+        if not match:
+            return None
+        command_text = match.group(1).strip().strip("`")
+        try:
+            argv = tuple(shlex.split(command_text, posix=True))
+        except ValueError:
+            return None
+        if not argv or len(argv) > 8:
+            return None
+        return {"workspace.shell": {"argv": argv}}
+    if "filesystem.list" in selected:
+        return {"filesystem.list": {"operation": "list", "path": "."}}
+    return None
 
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
@@ -46,6 +67,13 @@ def run_task(
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
     prepared = core.prepare(task)
+    if workspace_connector is None and any(
+        step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
+        for step in prepared.plan.steps
+    ):
+        workspace_connector = WorkspaceConnector(root)
+    if workspace_request is None:
+        workspace_request = _workspace_request_for_task(task, prepared.plan)
     if not prepared.plan.executable:
         result = ExecutionResult(
             ExecutionState.BLOCKED,
