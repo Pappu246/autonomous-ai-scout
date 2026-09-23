@@ -8,7 +8,7 @@ from typing import Mapping, Protocol
 
 from .action_queue import PendingAction
 from .approved_executor import ApprovalRecord, ExecutionDecision, claim_approval, validate_approval
-from .patch_review import PatchReview, review_patch, validate_patch_file_contents
+from .patch_review import PatchReview, review_patch, validate_patch_applies_to_base, validate_patch_file_contents
 
 
 PROTECTED_BASE_BRANCHES = frozenset({"main", "master", "production", "prod", "release"})
@@ -58,6 +58,8 @@ class GitHubChangeBackend(Protocol):
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str: ...
 
     def create_branch_at_sha(self, repository: str, branch: str, base_branch: str, expected_head_sha: str) -> str: ...
+
+    def read_file_at_ref(self, repository: str, path: str, ref: str) -> str: ...
 
     def commit_files(
         self,
@@ -166,6 +168,15 @@ def execute_approved_change(
         return GitHubChangeResult(False, manifest_error)
     if not validate_patch_file_contents(unified_diff, file_contents):
         return GitHubChangeResult(False, "changed file contents do not match the reviewed diff")
+    try:
+        base_files = {
+            path: backend.read_file_at_ref(request.repository, path, request.expected_head_sha)
+            for path in review.files
+        }
+    except Exception as exc:
+        return GitHubChangeResult(False, f"base file verification failed closed: {type(exc).__name__}")
+    if not validate_patch_applies_to_base(unified_diff, base_files, file_contents):
+        return GitHubChangeResult(False, "reviewed diff does not produce the supplied file contents from the verified base")
     if _contains_forbidden_term(" ".join((action.task, request.title, request.body))):
         return GitHubChangeResult(False, "change request crosses a forbidden capability boundary")
     if not request.repository:
