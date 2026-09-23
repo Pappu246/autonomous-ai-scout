@@ -260,3 +260,30 @@ def test_verified_audit_step_is_recoverable_from_audit(tmp_path: Path):
     append_execution_record(audit, {"execution_id": "audit-recover", "event": "tool_result", "step_id": "step-1", "result": "success", "verification": "verified"})
     from autonomous_agent.execution_engine import _verified_steps_from_audit
     assert _verified_steps_from_audit(audit, "audit-recover") == {"step-1"}
+
+
+def test_workspace_shell_uses_dedicated_sandbox_operation(tmp_path: Path):
+    plan = plan_task("run a shell command", granted=[Capability.WORKSPACE_SHELL])
+    assert plan.executable
+    from dataclasses import dataclass
+    @dataclass
+    class Shell:
+        def run(self, argv, *, timeout_seconds=20):
+            return type("R", (), {
+                "success": True,
+                "argv": tuple(argv),
+                "output": "safe-shell-ok",
+                "exit_status": 0,
+                "reason": "verified",
+            })()
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.WORKSPACE_SHELL],
+        audit_path=tmp_path / "shell.jsonl",
+        execution_id="shell-1",
+        workspace_connector=Shell(),
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "workspace_shell"
+    assert "safe-shell-ok" in result.results[-1].output
