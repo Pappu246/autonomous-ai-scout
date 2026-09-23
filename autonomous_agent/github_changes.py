@@ -56,7 +56,7 @@ class GitHubChangeBackend(Protocol):
 
     def create_branch(self, repository: str, branch: str, base_branch: str) -> str: ...
 
-    def create_branch_at_sha(self, repository: str, branch: str, expected_head_sha: str) -> str: ...
+    def create_branch_at_sha(self, repository: str, branch: str, base_branch: str, expected_head_sha: str) -> str: ...
 
     def commit_files(
         self,
@@ -169,6 +169,10 @@ def execute_approved_change(
         return GitHubChangeResult(False, "repository is required")
     if not request.head_branch or request.head_branch.lower() in PROTECTED_BASE_BRANCHES:
         return GitHubChangeResult(False, "head branch is protected or missing")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", request.repository.strip()):
+        return GitHubChangeResult(False, "repository must use owner/repository identity")
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", request.expected_head_sha.strip()) if request.expected_head_sha else False:
+        return GitHubChangeResult(False, "expected base HEAD SHA is invalid")
 
     approval_decision: ExecutionDecision = validate_approval(action, approval, now, audit_path)
     if not approval_decision.allowed:
