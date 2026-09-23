@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -39,6 +40,13 @@ class PendingAction:
         return cls(str(action_id), str(task), tuple(steps), str(risk), str(reason), str(status), str(created_at))
 
 
+_SECRET = re.compile(r"(?i)(?:api[_-]?key|api\s+key|access[_-]?token|access\s+token|token|password|secret|authorization|credential)\s*[:=]\s*[^\s,;]+")
+_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----.*?-----END [A-Z0-9 ]+PRIVATE KEY-----", re.S)
+
+def _safe_text(value: object, limit: int = 4096) -> str:
+    text = _PRIVATE_KEY.sub("[REDACTED]", str(value))
+    return " ".join(_SECRET.sub("[REDACTED]", text).split())[:limit]
+
 RISK_PRIORITY = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 MAX_PENDING_ACTIONS = 50
 MAX_PENDING_AGE = timedelta(days=7)
@@ -59,10 +67,12 @@ def build_action_proposal(task: str, steps: tuple[str, ...], llm_requires_approv
     task_risky = _sensitive(task)
     steps_risky = any(_sensitive(step) for step in steps)
     requires = bool(llm_requires_approval or task_risky or steps_risky)
+    safe_task = _safe_text(task)
+    safe_steps = tuple(_safe_text(step, 2048) for step in steps[:12])
     if requires:
-        return ActionProposal(task, steps[:12], True, ActionStatus.PROPOSED,
+        return ActionProposal(safe_task, safe_steps, True, ActionStatus.PROPOSED,
                               "Approval is required because the task or proposed steps cross a sensitive action boundary.")
-    return ActionProposal(task, steps[:12], False, ActionStatus.PROPOSED,
+    return ActionProposal(safe_task, safe_steps, False, ActionStatus.PROPOSED,
                           "Only bounded non-sensitive actions were proposed; no execution has occurred.")
 
 
@@ -124,8 +134,8 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     if not proposal.requires_approval:
         return None
     normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
-    action = PendingAction(_id(proposal, normalized_risk), proposal.task, proposal.steps, normalized_risk,
-                           proposal.reason, "pending", datetime.now(timezone.utc).isoformat())
+    action = PendingAction(_id(proposal, normalized_risk), _safe_text(proposal.task), tuple(_safe_text(step, 2048) for step in proposal.steps[:12]), normalized_risk,
+                           _safe_text(proposal.reason, 2048), "pending", datetime.now(timezone.utc).isoformat())
     queue = expire_stale_actions(load_queue(path))
     for item in queue:
         if item.id == action.id and item.status == "pending":
