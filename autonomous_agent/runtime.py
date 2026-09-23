@@ -38,6 +38,19 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         return {"workspace.shell": {"argv": argv}}
     if "filesystem.list" in selected:
         return {"filesystem.list": {"operation": "list", "path": "."}}
+    if "filesystem.read" in selected:
+        match = re.search(
+            r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)",
+            task.strip(),
+            re.I,
+        )
+        if match:
+            return {
+                "filesystem.read": {
+                    "operation": "read",
+                    "path": match.group(1).rstrip("."),
+                }
+            }
     return None
 
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
