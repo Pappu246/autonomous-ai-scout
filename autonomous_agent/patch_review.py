@@ -119,8 +119,15 @@ def review_patch(unified_diff: str) -> PatchReview:
     files = extract_changed_files(unified_diff)
     if not files:
         return PatchReview(False, "patch does not contain a reviewable changed-file manifest", digest, files, 0, 0)
+    diff_lines = unified_diff.splitlines()
+    if any(line.startswith(("deleted file mode", "new file mode", "rename from ", "rename to ", "copy from ", "copy to ", "GIT binary patch")) for line in diff_lines):
+        return PatchReview(False, "patch contains an unsupported file operation", digest, files, 0, 0)
+    if "--- /dev/null" in unified_diff or "+++ /dev/null" in unified_diff:
+        return PatchReview(False, "file creation/deletion diffs are unsupported by the safe mutation boundary", digest, files, 0, 0)
     if len(files) > MAX_FILES:
         return PatchReview(False, "patch touches too many files", digest, files, 0, 0)
+    if not any(line.startswith("@@ ") for line in diff_lines):
+        return PatchReview(False, "patch does not contain a reviewable diff hunk", digest, files, 0, 0)
     if any(_is_forbidden_path(path) for path in files):
         return PatchReview(False, "patch touches a forbidden path", digest, files, 0, 0)
     if "\x00" in unified_diff:
