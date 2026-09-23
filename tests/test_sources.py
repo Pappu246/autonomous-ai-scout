@@ -71,7 +71,7 @@ def test_fetch_source_rejects_cross_host_redirect(monkeypatch):
     FakeClient.responses = [
         FakeResponse(302, b"", {"location": "https://attacker.example/"}),
     ]
-    monkeypatch.setattr(sources, "httpx", SimpleNamespace(Client=FakeClient))
+    monkeypatch.setattr(sources.httpx, "Client", FakeClient)
     monkeypatch.setattr(sources.socket, "getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 0))])
 
     result = sources.fetch_source("https://example.com/start")
@@ -83,7 +83,7 @@ def test_fetch_source_rejects_oversized_response(monkeypatch):
     FakeClient.responses = [
         FakeResponse(200, b"x" * (sources._MAX_SOURCE_BYTES + 1)),
     ]
-    monkeypatch.setattr(sources, "httpx", SimpleNamespace(Client=FakeClient))
+    monkeypatch.setattr(sources.httpx, "Client", FakeClient)
     monkeypatch.setattr(sources.socket, "getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 0))])
 
     result = sources.fetch_source("https://example.com")
@@ -93,7 +93,7 @@ def test_fetch_source_rejects_oversized_response(monkeypatch):
 
 def test_fetch_source_fails_closed_on_http_error(monkeypatch):
     FakeClient.responses = [FakeResponse(503, b"unavailable")]
-    monkeypatch.setattr(sources, "httpx", SimpleNamespace(Client=FakeClient))
+    monkeypatch.setattr(sources.httpx, "Client", FakeClient)
     monkeypatch.setattr(sources.socket, "getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 0))])
 
     result = sources.fetch_source("https://example.com")
