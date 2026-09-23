@@ -184,7 +184,20 @@ def execute_dag(
         except Exception:
             ok = False
         if not ok:
-            return DAGExecutionResult(tuple(completed), tuple(blocked) + tuple(node_id_ for node_id_ in node_by_id if node_id_ not in completed), node_id)
+            failed = node_id
+            affected = []
+            descendants = {failed}
+            changed = True
+            while changed:
+                changed = False
+                for candidate in dag.nodes:
+                    if candidate.node_id in descendants:
+                        continue
+                    if any(dep in descendants for dep in candidate.depends_on):
+                        descendants.add(candidate.node_id)
+                        changed = True
+                        affected.append(candidate.node_id)
+            return DAGExecutionResult(tuple(completed), tuple(blocked) + tuple(affected), failed)
         completed.append(node_id)
     return DAGExecutionResult(tuple(completed), tuple(blocked), None)
 
