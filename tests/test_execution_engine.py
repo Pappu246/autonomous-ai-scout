@@ -313,3 +313,30 @@ def test_canonical_executor_enforces_consequence_policy(tmp_path: Path):
     )
     assert result.state is ExecutionState.BLOCKED
     assert "consequence-aware policy" in result.reason
+
+
+def test_failed_checkpoint_requires_recovery_instead_of_replay(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "failed.jsonl"
+    checkpoint = tmp_path / "failed.checkpoint.json"
+    execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="failed-replay",
+    )
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["state"] = "failed"
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="failed-replay",
+    )
+    assert result.state is ExecutionState.RECOVERY_REQUIRED
+    assert "automatic replay" in result.reason
