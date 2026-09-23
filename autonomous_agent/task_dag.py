@@ -127,6 +127,7 @@ class LongHorizonPlanner:
         sandbox_available: bool = True,
         audit_available: bool = True,
     ) -> TaskDAGPlan:
+        granted_values = tuple(granted)
         normalized = tuple(
             DAGTaskSpec(
                 " ".join(spec.node_id.strip().split()),
@@ -143,7 +144,7 @@ class LongHorizonPlanner:
         for spec in normalized:
             plan = plan_task(
                 spec.task,
-                granted=granted,
+                granted=granted_values,
                 explicitly_approved=explicitly_approved,
                 sandbox_available=sandbox_available,
                 audit_available=audit_available,
