@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from autonomous_agent.capability_policy import Capability
@@ -221,3 +222,69 @@ def test_verified_checkpoint_prevents_duplicate_execution(tmp_path: Path, monkey
     )
     assert second.state is ExecutionState.VERIFIED
     assert "already verified" in second.reason
+
+
+def test_checkpoint_resume_requires_same_authorization_context(tmp_path: Path):
+    plan = _inspect_plan()
+    audit = tmp_path / "authorization.jsonl"
+    checkpoint = tmp_path / "authorization.checkpoint.json"
+    first = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="auth-binding",
+    )
+    assert first.state is ExecutionState.VERIFIED
+
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["state"] = "running"
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+    changed_plan = plan
+    result = execute_plan(
+        changed_plan,
+        tmp_path,
+        granted=[Capability.INSPECT, Capability.READ_FILE],
+        audit_path=audit,
+        checkpoint_path=checkpoint,
+        execution_id="auth-binding",
+    )
+    assert result.state is ExecutionState.BLOCKED
+    assert "does not match" in result.reason
+
+
+def test_verified_audit_step_is_not_replayed_when_checkpoint_write_was_missed(tmp_path: Path, monkeypatch):
+    plan = _inspect_plan("run the tests")
+    audit = tmp_path / "audit.jsonl"
+    checkpoint = tmp_path / "checkpoint.json"
+    import autonomous_agent.execution_engine as engine
+    calls = []
+
+    def stop_after_result(operation, root, target=None, **kwargs):
+        calls.append(operation)
+        result = _verified_result(operation)
+        if len(calls) == 1:
+            original = engine._audit
+            original(audit, "audit-recover", ExecutionState.RUNNING, tool="github.inspect", step_id="step-1", attempt=1, result="success", verification="verified", event="tool_result")
+        return result
+
+    monkeypatch.setattr("autonomous_agent.execution_engine.run_safe_operation", stop_after_result)
+    # Initial execution is interrupted after the first verified audit record.
+    try:
+        execute_plan(plan, tmp_path, granted=[Capability.INSPECT], audit_path=audit, checkpoint_path=checkpoint, execution_id="audit-recover")
+    except Exception:
+        pass
+
+    checkpoint.write_text(json.dumps({
+        "schema_version": 2,
+        "execution_id": "audit-recover",
+        "task_digest": hashlib.sha256(plan.task.encode()).hexdigest(),
+        "plan_digest": plan.audit.plan_digest,
+        "authorization_digest": engine._authorization_digest([Capability.INSPECT], False),
+        "state": "running",
+        "completed_step_ids": [],
+        "total_attempts": 1,
+        "updated_at": "now",
+    }), encoding="utf-8")
+    assert audit.exists()
