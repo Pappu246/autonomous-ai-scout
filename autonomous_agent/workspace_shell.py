@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,9 @@ MAX_OUTPUT_BYTES = 32 * 1024
 MAX_TIMEOUT_SECONDS = 30
 
 _SAFE_HEADS = {"pwd", "ls", "dir", "cat", "type", "python"}
+_SECRET_TEXT_RE = re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|authorization|token|password|secret|cookie|session|credential)\s*[:=]\s*[^\s,;]+")
+def _redact_output(text: str) -> str:
+    return _SECRET_TEXT_RE.sub("[REDACTED]", text)
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ class ControlledWorkspaceShell:
                 return WorkspaceShellResult(False, parts, "", None, f"file read failed: {type(exc).__name__}")
             if len(raw) > MAX_OUTPUT_BYTES:
                 raw = raw[:MAX_OUTPUT_BYTES]
-            return WorkspaceShellResult(True, parts, raw.decode("utf-8", errors="replace"), 0, "verified")
+            return WorkspaceShellResult(True, parts, _redact_output(raw.decode("utf-8", errors="replace")), 0, "verified")
         if head == "python":
             if tuple(parts[1:3]) != ("-m", "py_compile") or len(parts) != 4:
                 return WorkspaceShellResult(False, parts, "", None, "python shell mode permits only python -m py_compile <file>")
@@ -107,8 +111,11 @@ class ControlledWorkspaceShell:
     def _safe_target(self, value: str) -> Path | None:
         candidate = (self.root / value).resolve()
         try:
-            candidate.relative_to(self.root)
+            relative = candidate.relative_to(self.root)
         except ValueError:
+            return None
+        sensitive_names = {'.git', '.env', '.ssh', '.npmrc', '.pypirc', '.netrc', 'credentials.json', 'service-account.json', 'id_rsa', 'id_ed25519'}
+        if any(part in sensitive_names or part.endswith(('.pem', '.key')) for part in relative.parts):
             return None
         return candidate
 

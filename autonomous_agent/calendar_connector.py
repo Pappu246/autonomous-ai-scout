@@ -3,6 +3,7 @@ import hashlib,json,re
 from dataclasses import dataclass
 from datetime import datetime,timezone
 from typing import Any,Mapping,Protocol
+from .external_side_effects import ExternalSideEffectStore, SideEffectError, canonical_request_digest
 from urllib.parse import quote
 CALENDAR_API_ROOT="https://www.googleapis.com/calendar/v3/calendars"
 MAX_QUERY=500;MAX_RESULTS=50;MAX_EVENTS=100;MAX_EVENT_BYTES=128*1024;MAX_ATTENDEES=50;MAX_RETRIES=2;MAX_TIMEOUT=30;MAX_RECURRENCE=20
@@ -29,9 +30,9 @@ def _iso(v,label):
     if dt.tzinfo is None:raise CalendarError(f"{label} must include timezone")
     return dt.astimezone(timezone.utc).isoformat()
 class CalendarConnector:
-    def __init__(self,transport:CalendarTransport,*,credential_reference="calendar:oauth:user",timeout_seconds=10):
+    def __init__(self,transport:CalendarTransport,*,credential_reference="calendar:oauth:user",timeout_seconds=10,side_effect_store:ExternalSideEffectStore|None=None):
         if not credential_reference or any(x in credential_reference.lower() for x in ("token","password","secret","key=")):raise CalendarError("credential reference must not contain credential material")
-        self.transport=transport;self.credential_reference=credential_reference;self.timeout_seconds=max(1,min(int(timeout_seconds),MAX_TIMEOUT));self._mutations=set()
+        self.transport=transport;self.credential_reference=credential_reference;self.timeout_seconds=max(1,min(int(timeout_seconds),MAX_TIMEOUT));self._mutations=set();self.side_effect_store=side_effect_store
     def _request(self,method,url,*,params=None,body=None,headers=None,retries=MAX_RETRIES):
         if not url.startswith(CALENDAR_API_ROOT+"/"):raise CalendarError("request escaped official Calendar API root")
         last=None
@@ -71,7 +72,25 @@ class CalendarConnector:
         key=_id(idempotency_key,"idempotency key");digest=_fp({"operation":operation,"path":path,"event":event,"headers":headers or {}})
         if key!=digest:raise CalendarError("idempotency key does not match operation digest")
         if key in self._mutations:raise CalendarError("duplicate calendar mutation blocked")
-        out=self._request(method,path,body=event,headers=headers,retries=0)
+        digest=canonical_request_digest(operation,{"path":path,"event":event,"headers":headers or {}})
+        if self.side_effect_store is not None:
+            try:
+                decision=self.side_effect_store.claim(key=key,operation=operation,request_digest=digest)
+            except SideEffectError as exc:
+                raise CalendarError(str(exc)) from exc
+            if not decision.allowed:
+                raise CalendarError(decision.reason)
+        try:
+            out=self._request(method,path,body=event,headers=headers,retries=0)
+            if self.side_effect_store is not None:
+                self.side_effect_store.mark_executed(key,result_digest=_fp(out))
+        except Exception as exc:
+            if self.side_effect_store is not None:
+                try:
+                    self.side_effect_store.mark_unknown(key,reason=f"{type(exc).__name__}: external calendar outcome is unresolved")
+                except SideEffectError:
+                    pass
+            raise
         self._mutations.add(key)
         return out
     def create(self,*,calendar_id="primary",event,idempotency_key,approved=False):

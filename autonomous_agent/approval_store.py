@@ -67,15 +67,23 @@ def create_approval(
     action = next((item for item in queue if item.id == safe_id), None)
     if action is None:
         raise KeyError(f"approval action not found: {action_id}")
-    updated = set_decision(queue_path, action_id, "approved", audit_path)
     token = secrets.token_urlsafe(32)
     record = ApprovalRecord.for_action(
-        updated,
+        action,
         token,
         approved_at=approved_at,
         ttl=ttl or timedelta(hours=24),
     )
-    _write_private(_approval_path(approval_dir, action_id), asdict(record))
+    approval_path = _approval_path(approval_dir, action_id)
+    _write_private(approval_path, asdict(record))
+    try:
+        set_decision(queue_path, action_id, "approved", audit_path)
+    except Exception:
+        try:
+            approval_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return record
 
 

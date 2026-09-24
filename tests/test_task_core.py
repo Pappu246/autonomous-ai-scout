@@ -37,6 +37,18 @@ def test_prepare_is_deterministic_for_same_request() -> None:
     assert first.granted == second.granted == (Capability.WEB_RESEARCH,)
 
 
+def test_explicit_approval_grants_safe_workspace_write_capability() -> None:
+    core = AutonomousTaskCore()
+
+    blocked = core.prepare("transform file config.py")
+    assert blocked.plan.executable is False
+    assert Capability.FILES_WORKSPACE not in blocked.granted
+
+    approved = core.prepare("transform file config.py", explicitly_approved=True)
+    assert approved.plan.executable is True
+    assert Capability.FILES_WORKSPACE in approved.granted
+
+
 def test_change_request_remains_blocked_by_existing_approval_boundary() -> None:
     core = AutonomousTaskCore()
 
@@ -46,6 +58,25 @@ def test_change_request_remains_blocked_by_existing_approval_boundary() -> None:
     assert prepared.plan.risk in {PlanRisk.HIGH, PlanRisk.CRITICAL}
     assert any(step.tool_name == "github.change" for step in prepared.plan.steps)
     assert Capability.SOURCE_WRITE not in prepared.granted
+
+
+def test_runtime_approved_transform_executes_through_workspace_boundary(tmp_path: Path) -> None:
+    target = tmp_path / "config.py"
+    target.write_text("old\n", encoding="utf-8")
+    audit = tmp_path / "execution.jsonl"
+    journal = tmp_path / "runs.jsonl"
+
+    result = runtime.run_task(
+        "transform file config.py: old -> new",
+        root=tmp_path,
+        audit_path=audit,
+        journal_path=journal,
+        execution_id="runtime-transform-approved",
+        explicitly_approved=True,
+    )
+
+    assert result.state is ExecutionState.VERIFIED
+    assert target.read_text(encoding="utf-8") == "new\n"
 
 
 def test_prepare_accepts_explicit_capability_grants_without_widening_them() -> None:
@@ -106,8 +137,8 @@ def test_runtime_uses_core_as_its_single_planning_entrypoint(monkeypatch, tmp_pa
         def __init__(self, *, registry):
             calls.append("init")
 
-        def prepare(self, task):
-            calls.append(f"prepare:{task}")
+        def prepare(self, task, *, explicitly_approved=False):
+            calls.append(f"prepare:{task}:{explicitly_approved}")
             return prepared
 
     monkeypatch.setattr(runtime, "AutonomousTaskCore", FakeCore)
@@ -121,4 +152,4 @@ def test_runtime_uses_core_as_its_single_planning_entrypoint(monkeypatch, tmp_pa
     )
 
     assert result.state is ExecutionState.BLOCKED
-    assert calls == ["init", "prepare:unsupported"]
+    assert calls == ["init", "prepare:unsupported:False"]

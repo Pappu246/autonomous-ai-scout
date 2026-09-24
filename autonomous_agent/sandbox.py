@@ -1,11 +1,13 @@
 from __future__ import annotations
-import ast,json,os,shutil,signal,subprocess,sys
+import ast,json,os,re,shutil,signal,subprocess,sys
 from dataclasses import dataclass
 from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
+from .project_intelligence import analyze_project
+from .dependency_security import analyze_dependencies
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","rest","filesystem_workspace","workspace_shell","gmail","calendar","browser"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -23,6 +25,19 @@ def _inside(root,target):
     try:resolved.relative_to(root)
     except ValueError as exc:raise ValueError("sandbox target escapes the project root") from exc
     return resolved
+_SENSITIVE_PATH_NAMES=frozenset({".env",".ssh",".npmrc",".pypirc",".netrc","credentials.json","service-account.json","id_rsa","id_ed25519"})
+_SECRET_TEXT_RE=re.compile(r"(?i)(?:api[_-]?key|access[_-]?token|authorization|token|password|secret|cookie|session|credential)\s*[:=]\s*[^\s,;]+")
+
+def _safe_path(root,target):
+    resolved=_inside(root,root/target)
+    relative=resolved.relative_to(root)
+    if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem",".key")) for part in relative.parts):
+        raise ValueError("sensitive workspace path is not authorized")
+    return resolved
+
+def _redact_output(text):
+    return _SECRET_TEXT_RE.sub(lambda match: re.sub(r"(?i)(?:api[_-]?key|access[_-]?token|authorization|token|password|secret|cookie|session|credential)", lambda _: "[REDACTED]", match.group(0), count=1), text)
+
 def _safe_env():return {"PATH":os.environ.get("PATH",""),"LANG":os.environ.get("LANG","C.UTF-8"),"LC_ALL":os.environ.get("LC_ALL","C.UTF-8"),"PYTHONDONTWRITEBYTECODE":"1","PYTHONHASHSEED":"0"}
 def _network_prefix():
     unshare=shutil.which("unshare");return None if not unshare or os.name!="posix" else (unshare,"--user","--map-root-user","--net","--mount-proc","--")
@@ -42,6 +57,32 @@ def _run_test(root,timeout_seconds,output_limit):
         _kill(process);stdout,_=process.communicate();text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,"timeout\n"+text,truncated,command
     except OSError as exc:return None,f"sandbox subprocess could not start: {exc}",False,command
     text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,text,truncated,command
+def _run_rest(connector, request, limit, *, approved=False):
+    if connector is None or not isinstance(request, Mapping):
+        return False, "rest requires an approved injected REST connector and structured request", (), False
+    try:
+        from .rest_connector import RestRequest
+        raw_body = request.get("body", "")
+        body = raw_body.encode("utf-8") if isinstance(raw_body, str) else bytes(raw_body)
+        rest_request = RestRequest(
+            method=str(request.get("method", "GET")),
+            url=str(request.get("url", "")),
+            headers=request.get("headers", {}) if isinstance(request.get("headers", {}), Mapping) else {},
+            body=body,
+            credential_ref=request.get("credential_ref"),
+            idempotency_key=request.get("idempotency_key"),
+        )
+        payload = connector.safe_json(rest_request, approved=approved, resolve_dns=True)
+        text, truncated = _text_limit(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str),
+            limit,
+        )
+        success = 200 <= int(payload.get("status_code", 0)) < 400
+        return success, text, ("REST", rest_request.method.upper()), truncated
+    except Exception as exc:
+        return False, f"REST operation failed: {type(exc).__name__}", ("REST", str(request.get("method", ""))), False
+
+
 def _run_web_research(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"web_research requires an approved injected connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
@@ -74,17 +115,54 @@ def _run_workspace_shell(connector,request,limit):
     except Exception as exc:
         return False,f"workspace shell failed: {type(exc).__name__}",(),False,True
 
+def _format_filesystem_evidence(payload, operation):
+    operation = str(operation or payload.get("operation", "")).strip().lower()
+    path = str(payload.get("relative_path", "")).strip()
+    if operation == "list":
+        entries = tuple(str(item) for item in payload.get("entries", ()))
+        lines = [f"LIST VERIFIED: {path or '.'}"]
+        if entries:
+            lines.append("")
+            lines.extend(f"- {item}" for item in entries)
+        else:
+            lines.append("Directory is empty.")
+        return "\n".join(lines)
+    if operation == "read":
+        header = f"READ VERIFIED: {path}"
+        content = str(payload.get("content", ""))
+        if bool(payload.get("redacted", False)):
+            header += " (sensitive values redacted)"
+        return header + "\n\n" + content
+    if operation == "write":
+        return f"WRITE VERIFIED: {path}\n\n" + str(payload.get("content", ""))
+    if operation == "transform":
+        return f"TRANSFORM VERIFIED: {path}\n\n" + str(payload.get("content", ""))
+    return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False, default=str)
+
+
 def _run_filesystem(connector,request,limit):
-    if connector is None or not isinstance(request,Mapping):return False,"filesystem_workspace requires an approved workspace connector",(),False
+    if connector is None or not isinstance(request,Mapping):
+        return False,"filesystem_workspace requires an approved workspace connector",(),False
     op=str(request.get("operation","")).strip().lower()
     try:
-        if op=="list":payload=connector.list(str(request.get("path","."))).safe_dict()
-        elif op=="read":payload=connector.read(str(request.get("path",""))).safe_dict()
-        elif op=="write":payload=connector.write(str(request.get("path","")),str(request.get("content",""))).safe_dict()
-        elif op=="transform":payload=connector.transform(str(request.get("path","")),str(request.get("find","")),str(request.get("replace",""))).safe_dict()
-        else:return False,"sandbox filesystem allowlist supports only list/read/write/transform",(),False
-        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("FILESYSTEM_WORKSPACE",op),truncated
-    except Exception as exc:return False,f"filesystem operation failed: {type(exc).__name__}",("FILESYSTEM_WORKSPACE",op),False
+        if op=="list":
+            payload=connector.list(str(request.get("path","."))).safe_dict()
+        elif op=="read":
+            payload=connector.read(str(request.get("path",""))).safe_dict()
+        elif op=="write":
+            payload=connector.write(str(request.get("path","")),str(request.get("content",""))).safe_dict()
+        elif op=="transform":
+            payload=connector.transform(
+                str(request.get("path","")),
+                str(request.get("find","")),
+                str(request.get("replace","")),
+            ).safe_dict()
+        else:
+            return False,"sandbox filesystem allowlist supports only list/read/write/transform",(),False
+        text,truncated=_text_limit(_format_filesystem_evidence(payload,op),limit)
+        return True,text,("FILESYSTEM_WORKSPACE",op),truncated
+    except Exception as exc:
+        return False,f"filesystem operation failed: {type(exc).__name__}",("FILESYSTEM_WORKSPACE",op),False
 def _run_gmail(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"gmail requires an approved injected Gmail connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
@@ -92,7 +170,7 @@ def _run_gmail(connector,request,limit):
         if op=="search":payload=connector.search(str(request.get("query","")),results=int(request.get("results",10))).safe_dict()
         elif op=="read":payload=connector.read(str(request.get("message_id",""))).safe_dict()
         elif op=="thread":payload=connector.thread(str(request.get("thread_id",""))).safe_dict()
-        elif op=="draft":payload=connector.draft(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),thread_id=request.get("thread_id")).safe_dict()
+        elif op=="draft":payload=connector.draft(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),thread_id=request.get("thread_id"),approved=bool(request.get("approved",False))).safe_dict()
         elif op=="send":payload=connector.send(to=str(request.get("to","")),subject=str(request.get("subject","")),body=str(request.get("body","")),idempotency_key=str(request.get("idempotency_key","")),approved=bool(request.get("approved",False)),thread_id=request.get("thread_id")).safe_dict()
         else:return False,"sandbox gmail allowlist supports only search/read/thread/draft/send",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("GMAIL",op),truncated
@@ -120,10 +198,15 @@ def _run_browser(connector,request,limit):
         else:return False,"sandbox browser allowlist supports only open/click/extract",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("BROWSER",op),truncated
     except Exception as exc:return False,f"browser operation failed: {type(exc).__name__}",("BROWSER",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None):
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
+    if op=="rest":
+        request = rest_request or {}
+        success,output,command,truncated=_run_rest(rest_connector,request,limit,approved=bool(request.get("__approved__",False)) if isinstance(request,Mapping) else False)
+        finished=datetime.now(timezone.utc).isoformat()
+        return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="web_research":
         success,output,command,truncated=_run_web_research(web_connector,web_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="filesystem_workspace":
@@ -137,12 +220,64 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
     if op=="browser":
         success,output,command,truncated=_run_browser(browser_connector,browser_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="inspect":
-        files=[]
-        for path in sorted(root_path.rglob("*")):
-            if ".git" in path.parts or not path.is_file():continue
-            files.append(str(path.relative_to(root_path)))
-            if len(files)>=MAX_FILES:break
-        output,truncated=_text_limit("Workspace files:\n"+"\n".join(f"- {x}" for x in files),limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,True,0,output,truncated,(),"verified",started,finished,True)
+        try:
+            findings = analyze_project(root_path, repository="local")
+            findings.extend(analyze_dependencies(root_path, repository="local"))
+            severity_rank = {"high": 0, "medium": 1, "low": 2, "info": 3}
+            findings = sorted(
+                findings,
+                key=lambda item: (
+                    severity_rank.get(str(item.severity).lower(), 3),
+                    -float(item.confidence),
+                    item.title.lower(),
+                ),
+            )
+            files = []
+            for path in sorted(root_path.rglob("*")):
+                if ".git" in path.parts or not path.is_file():
+                    continue
+                relative = path.relative_to(root_path)
+                if any(part in _SENSITIVE_PATH_NAMES or part.endswith((".pem", ".key")) for part in relative.parts):
+                    continue
+                files.append(str(relative))
+                if len(files) >= MAX_FILES:
+                    break
+
+            lines = [
+                "Repository inspection completed in read-only mode.",
+                f"Files discovered: {len(files)}",
+                f"Verified findings: {len(findings)}",
+                "",
+            ]
+            if findings:
+                lines.append("Top findings:")
+                for index, finding in enumerate(findings[:10], 1):
+                    lines.extend(
+                        [
+                            f"{index}. [{str(finding.severity).upper()}] {finding.title}",
+                            f"   Evidence: {finding.detail}",
+                            f"   Next action: {finding.recommendation}",
+                            f"   Confidence: {float(finding.confidence):.2f}",
+                        ]
+                    )
+            else:
+                lines.append("No deterministic project/dependency findings were detected by the current inspection rules.")
+            lines.extend(
+                [
+                    "",
+                    "Files inspected (bounded sample):",
+                    *[f"- {name}" for name in files[:50]],
+                    "",
+                    "Inspection scope: read-only project structure, dependency hygiene, and high-confidence secret-pattern checks.",
+                    "No source files were modified.",
+                ]
+            )
+            output, truncated = _text_limit("\n".join(lines), limit)
+            finished = datetime.now(timezone.utc).isoformat()
+            return SandboxResult(op, True, 0, output, truncated, ("repository_inspection",), "verified", started, finished, True)
+        except (OSError, UnicodeError, ValueError) as exc:
+            finished = datetime.now(timezone.utc).isoformat()
+            return SandboxResult(op, False, 1, f"repository inspection failed: {type(exc).__name__}", False, (), "failed", started, finished, True)
     if op=="metrics":
         count=0;total=0
         for path in root_path.rglob("*"):
@@ -156,10 +291,10 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         if not target:
             finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"read_file requires a target",False,(),"blocked",started,finished,True)
         try:
-            path=_inside(root_path,root_path/target)
+            path=_safe_path(root_path,target)
             if not path.is_file():raise ValueError("sandbox target is not a file")
             if path.stat().st_size>MAX_READ_BYTES:raise ValueError("sandbox read target exceeds the size limit")
-            output=path.read_text(encoding="utf-8")
+            output=_redact_output(path.read_text(encoding="utf-8"))
         except (OSError,UnicodeError,ValueError) as exc:
             finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,str(exc),False,(),"failed",started,finished,True)
         output,truncated=_text_limit(output,limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,True,0,output,truncated,(),"verified",started,finished,True)

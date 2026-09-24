@@ -187,3 +187,48 @@ def test_execute_binds_commit_to_expected_parent_and_fails_closed_on_race(tmp_pa
     assert "failed closed" in result.reason
     assert [entry[0] for entry in backend.calls] == ["branch", "commit"]
 
+
+
+def test_execute_rejects_unapproved_action_before_remote_base_read(tmp_path):
+    class Backend:
+        def __init__(self):
+            self.reads = 0
+        def read_file_at_ref(self, repository, path, ref):
+            self.reads += 1
+            return "print('old')\n"
+        def create_branch(self, *args):
+            raise AssertionError("branch mutation must not occur")
+        def commit_files(self, *args, **kwargs):
+            raise AssertionError("commit mutation must not occur")
+        def open_draft_pr(self, *args):
+            raise AssertionError("PR mutation must not occur")
+
+    act = action()
+    pending = type(act)(
+        act.id, act.task, act.steps, act.risk, act.reason, "pending", act.created_at
+    )
+    approval = ApprovalRecord.for_action(
+        pending, "single-use", datetime.now(timezone.utc), timedelta(hours=1)
+    )
+    request = build_change_request(
+        act,
+        "Pappu246/autonomous-ai-scout",
+        "main",
+        "agent/safe-change",
+        "Safe inspection",
+        "Prepared for review.",
+        DIFF,
+    )
+    backend = Backend()
+    result = execute_approved_change(
+        pending,
+        approval,
+        request,
+        DIFF,
+        {"app.py": "print('new')\n"},
+        tmp_path / "claims",
+        backend,
+    )
+    assert not result.allowed
+    assert "not explicitly approved" in result.reason
+    assert backend.reads == 0

@@ -12,7 +12,34 @@ def _workspace(tmp_path,**kwargs):return WorkspaceConnector(tmp_path,**kwargs)
 def test_valid_read_and_list(tmp_path):
     (tmp_path/"a.txt").write_text("hello",encoding="utf-8");c=_workspace(tmp_path);assert c.read("a.txt").content=="hello";assert "a.txt" in c.list().entries
 def test_valid_write_and_transform(tmp_path):
-    c=_workspace(tmp_path);c.write("a.txt","hello world");assert c.transform("a.txt","world","workspace").content=="hello workspace"
+    c=_workspace(tmp_path)
+    written=c.write("a.txt","hello world")
+    assert written.operation=="write"
+    assert written.content=="hello world"
+    assert written.fingerprint==c.read("a.txt").fingerprint
+    transformed=c.transform("a.txt","world","workspace")
+    assert transformed.operation=="transform"
+    assert transformed.content=="hello workspace"
+    assert transformed.fingerprint==c.read("a.txt").fingerprint
+
+
+def test_transform_requires_source_text_to_exist(tmp_path):
+    c = _workspace(tmp_path)
+    c.write("a.txt", "hello world")
+    with pytest.raises(WorkspaceError, match="source text was not found"):
+        c.transform("a.txt", "missing", "replacement")
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello world"
+
+
+def test_transform_returns_verified_transformed_evidence(tmp_path):
+    c = _workspace(tmp_path)
+    c.write("a.txt", "hello world")
+    evidence = c.transform("a.txt", "world", "workspace")
+    assert evidence.operation == "transform"
+    assert evidence.content == "hello workspace"
+    assert evidence.fingerprint == c.read("a.txt").fingerprint
+
+
 def test_path_traversal_absolute_and_workspace_escape(tmp_path):
     c=_workspace(tmp_path)
     for p in ("../x","/etc/passwd"):
@@ -23,11 +50,6 @@ def test_symlink_escape_is_blocked(tmp_path):
     link = tmp_path / "link"
 
     try:
-        link.symlink_to(outside)
-    except OSError as exc:
-        if getattr(exc, "winerror", None) == 1314:
-            pytest.skip("Windows symlink privilege is unavailable")
-        raise
         link.symlink_to(outside)
     except OSError as exc:
         if getattr(exc, "winerror", None) == 1314:
@@ -61,7 +83,8 @@ def test_network_is_not_available_to_filesystem():
 def test_capability_mismatch_fails_closed():
     assert not plan_task("read file",granted=[Capability.WEB_RESEARCH]).executable
 def test_workspace_planner_selects_exact_operations():
-    p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True);assert [s.tool_name for s in p.steps]==["filesystem.list","filesystem.read","filesystem.write","filesystem.transform"]
+    p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True)
+    assert [s.tool_name for s in p.steps] == ["filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform"]
 def test_end_to_end_read_list_write_transform_audit(tmp_path):
     (tmp_path/"a.txt").write_text("seed",encoding="utf-8");c=_workspace(tmp_path);p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True);req={"filesystem.list":{"operation":"list","path":"."},"filesystem.read":{"operation":"read","path":"a.txt"},"filesystem.write":{"operation":"write","path":"a.txt","content":"hello"},"filesystem.transform":{"operation":"transform","path":"a.txt","find":"hello","replace":"hello world"}}
     result=execute_plan(p,tmp_path,granted=[Capability.FILES_WORKSPACE],explicitly_approved=True,audit_path=tmp_path/"audit.jsonl",execution_id="fs-1",workspace_connector=c,workspace_request=req);assert result.state is ExecutionState.VERIFIED and verify_execution_audit(tmp_path/"audit.jsonl") and (tmp_path/"a.txt").read_text(encoding="utf-8")=="hello world"
