@@ -61,6 +61,20 @@ class WorkspaceConnector:
         evidence=self.read(relative)
         if evidence.redacted:raise WorkspaceError("transform refuses content requiring secret redaction")
         if not isinstance(find,str) or not find:raise WorkspaceError("transform find text is required")
-        updated=evidence.content.replace(find,str(replace))
-        if updated==evidence.content:return evidence
-        return self.write(relative,updated)
+        replacement=str(replace)
+        if find not in evidence.content:
+            raise WorkspaceError("transform source text was not found")
+        updated=evidence.content.replace(find,replacement)
+        if updated==evidence.content:
+            raise WorkspaceError("transform produced no change")
+        self.write(relative,updated)
+        verified=self.read(relative)
+        if verified.content!=updated:
+            raise WorkspaceError("transform verification failed: file contents differ after write")
+        return WorkspaceEvidence(
+            "transform",
+            verified.relative_path,
+            verified.fingerprint,
+            content=verified.content,
+            redacted=verified.redacted,
+        )
