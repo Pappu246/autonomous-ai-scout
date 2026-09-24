@@ -97,8 +97,14 @@ class DynamicToolRouter:
             "read-only", "read only", "do not modify", "do not create", "do not delete",
             "do not transform", "do not write", "inspect", "audit", "analyze", "analyse", "review",
         )):
-            return ("filesystem.list",)
-        return ("filesystem.list",)
+            if any(
+                re.search(r"\b(?:read|open)\s+(?:the\s+)?[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+\b", clause)
+                and not any(marker in clause for marker in negative_markers)
+                for clause in clauses
+            ):
+                return ("filesystem.read",)
+            return ("filesystem.list", "filesystem.read")
+        return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
 
     @staticmethod
     def _email_tools(task: str) -> tuple[str, ...]:
