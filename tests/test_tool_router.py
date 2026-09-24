@@ -91,3 +91,12 @@ def test_router_allows_explicit_workspace_mutation_in_positive_clause():
         "inspect the repository. Transform file config.py."
     )
     assert selection.tool_names == ("filesystem.transform",)
+
+
+def test_router_recognizes_natural_language_file_creation_request():
+    selection = DynamicToolRouter().select_names(
+        "Create a harmless test file at state/scout_approval_test.txt containing: "
+        "AUTONOMOUS_SCOUT_APPROVAL_TEST. Do not modify any other files."
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.write",)
