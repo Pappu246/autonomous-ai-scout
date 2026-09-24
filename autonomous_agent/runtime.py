@@ -73,12 +73,10 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         )
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip()
-            return {
-                "filesystem.write": {
-                    "operation": "write",
-                    "path": match.group(1).rstrip("."),
-                    "content": content,
-                }
+            requests["filesystem.write"] = {
+                "operation": "write",
+                "path": match.group(1).rstrip("."),
+                "content": content,
             }
     if "filesystem.read" in selected:
         text = task.strip()
