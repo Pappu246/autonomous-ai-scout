@@ -160,3 +160,28 @@ def test_runtime_reads_direct_readme_request_end_to_end(tmp_path: Path):
     assert result.results[-1].success is True
     assert "READ VERIFIED: README.md" in result.results[-1].output
     assert "Line one\nLine two\n│ section" in result.results[-1].output
+
+
+
+def test_runtime_builds_independent_requests_for_multiple_workspace_tools():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_plan_models import TaskPlan, TaskStep, TaskAuditRecord, TaskIntent, PlanRisk
+
+    task = "Read file README.md and inspect the workspace. Do not modify any files."
+    plan = TaskPlan(
+        task=task,
+        intent=TaskIntent.WORKSPACE,
+        steps=(
+            TaskStep("step-1", "List the workspace.", "filesystem.list", PlanRisk.LOW, "authorized", "", ""),
+            TaskStep("step-2", "Read README.md.", "filesystem.read", PlanRisk.LOW, "authorized", "", ""),
+        ),
+        risk=PlanRisk.LOW,
+        executable=True,
+        reason="test",
+        audit=TaskAuditRecord(task, TaskIntent.WORKSPACE, ("step-1", "step-2"), True, "test"),
+    )
+    request = _workspace_request_for_task(task, plan)
+    assert request == {
+        "filesystem.list": {"operation": "list", "path": "."},
+        "filesystem.read": {"operation": "read", "path": "README.md"},
+    }
