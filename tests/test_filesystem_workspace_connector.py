@@ -13,6 +13,25 @@ def test_valid_read_and_list(tmp_path):
     (tmp_path/"a.txt").write_text("hello",encoding="utf-8");c=_workspace(tmp_path);assert c.read("a.txt").content=="hello";assert "a.txt" in c.list().entries
 def test_valid_write_and_transform(tmp_path):
     c=_workspace(tmp_path);c.write("a.txt","hello world");assert c.transform("a.txt","world","workspace").content=="hello workspace"
+
+
+def test_transform_requires_source_text_to_exist(tmp_path):
+    c = _workspace(tmp_path)
+    c.write("a.txt", "hello world")
+    with pytest.raises(WorkspaceError, match="source text was not found"):
+        c.transform("a.txt", "missing", "replacement")
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello world"
+
+
+def test_transform_returns_verified_transformed_evidence(tmp_path):
+    c = _workspace(tmp_path)
+    c.write("a.txt", "hello world")
+    evidence = c.transform("a.txt", "world", "workspace")
+    assert evidence.operation == "transform"
+    assert evidence.content == "hello workspace"
+    assert evidence.fingerprint == c.read("a.txt").fingerprint
+
+
 def test_path_traversal_absolute_and_workspace_escape(tmp_path):
     c=_workspace(tmp_path)
     for p in ("../x","/etc/passwd"):
