@@ -92,7 +92,7 @@ class DynamicToolRouter:
         ):
             return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
-            return ("filesystem.list",)
+            return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
         if any(x in text for x in (
             "read-only", "read only", "do not modify", "do not create", "do not delete",
             "do not transform", "do not write", "inspect", "audit", "analyze", "analyse", "review",
