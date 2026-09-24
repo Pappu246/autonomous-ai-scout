@@ -22,6 +22,7 @@ JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] | None:
     """Derive only a bounded local-workspace request explicitly delimited by the task."""
     selected = tuple(step.tool_name for step in plan.steps)
+    requests: dict[str, Any] = {}
     if "workspace.shell" in selected:
         match = re.search(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$", task.strip(), re.I)
         if not match:
@@ -37,7 +38,7 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
             argv = (simple.group(1).lower(),)
         return {"workspace.shell": {"argv": argv}}
     if "filesystem.list" in selected:
-        return {"filesystem.list": {"operation": "list", "path": "."}}
+        requests["filesystem.list"] = {"operation": "list", "path": "."}
     if "filesystem.transform" in selected:
         match = re.search(
             r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$",
@@ -45,13 +46,11 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
             re.I,
         )
         if match:
-            return {
-                "filesystem.transform": {
-                    "operation": "transform",
-                    "path": match.group(1).rstrip("."),
-                    "find": match.group(2),
-                    "replace": match.group(3),
-                }
+            requests["filesystem.transform"] = {
+                "operation": "transform",
+                "path": match.group(1).rstrip("."),
+                "find": match.group(2),
+                "replace": match.group(3),
             }
     if "filesystem.write" in selected:
         text = task.strip()
@@ -62,12 +61,10 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         )
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip()
-            return {
-                "filesystem.write": {
-                    "operation": "write",
-                    "path": match.group(1).rstrip("."),
-                    "content": content,
-                }
+            requests["filesystem.write"] = {
+                "operation": "write",
+                "path": match.group(1).rstrip("."),
+                "content": content,
             }
         match = re.search(
             r"(?:write|create|save)\s+(?:a|an|the)\s+.+?\s+file\s+(?:at|named|called)\s+([A-Za-z0-9_./\\-]+)\s+(?:containing|with(?:\s+contents?)?)\s*:?\s*(.*)$",
@@ -97,13 +94,11 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
                 re.I,
             )
         if match:
-            return {
-                "filesystem.read": {
-                    "operation": "read",
-                    "path": match.group(1).rstrip("."),
-                }
+            requests["filesystem.read"] = {
+                "operation": "read",
+                "path": match.group(1).rstrip("."),
             }
-    return None
+    return requests or None
 
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
