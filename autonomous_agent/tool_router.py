@@ -79,7 +79,11 @@ class DynamicToolRouter:
             return ("workspace.shell",)
         if positive_clause_contains("transform file", "replace in file", "modify file"):
             return ("filesystem.transform",)
-        if positive_clause_contains("write file", "create file", "save file"):
+        if positive_clause_contains("write file", "create file", "save file") or any(
+            re.search(r"\b(?:write|create|save)\b.*\bfile\b", clause) is not None
+            and not any(marker in clause for marker in negative_markers)
+            for clause in clauses
+        ):
             return ("filesystem.write",)
         if any(x in text for x in ("read file", "read the file", "open file")):
             return ("filesystem.read",)
