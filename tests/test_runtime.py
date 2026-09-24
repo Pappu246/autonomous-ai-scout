@@ -116,3 +116,22 @@ def test_runtime_wires_workspace_connector_for_workspace_task(monkeypatch, tmp_p
     assert captured["explicitly_approved"] is False
     assert isinstance(captured["connector"], FakeConnector)
     assert captured["request"]["workspace.shell"]["argv"] == ("python", "-m", "py_compile", "autonomous_agent/runtime.py")
+
+
+def test_runtime_parses_natural_language_file_creation_request():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_core import AutonomousTaskCore
+
+    task = (
+        "Create a harmless test file at state/scout_approval_test.txt containing: "
+        "AUTONOMOUS_SCOUT_APPROVAL_TEST. Do not modify any other files."
+    )
+    prepared = AutonomousTaskCore().prepare(task, explicitly_approved=True)
+    request = _workspace_request_for_task(task, prepared.plan)
+    assert request == {
+        "filesystem.write": {
+            "operation": "write",
+            "path": "state/scout_approval_test.txt",
+            "content": "AUTONOMOUS_SCOUT_APPROVAL_TEST",
+        }
+    }
