@@ -135,3 +135,28 @@ def test_runtime_parses_natural_language_file_creation_request():
             "content": "AUTONOMOUS_SCOUT_APPROVAL_TEST",
         }
     }
+
+
+def test_runtime_parses_direct_readme_request():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_core import AutonomousTaskCore
+
+    task = "Read README.md and give me a human-readable summary. Do not modify any files."
+    prepared = AutonomousTaskCore().prepare(task)
+    request = _workspace_request_for_task(task, prepared.plan)
+    assert request == {"filesystem.read": {"operation": "read", "path": "README.md"}}
+
+
+def test_runtime_reads_direct_readme_request_end_to_end(tmp_path: Path):
+    (tmp_path / "README.md").write_text("Line one\nLine two\n│ section", encoding="utf-8")
+    result = run_task(
+        "Read README.md and give me a human-readable summary. Do not modify any files.",
+        root=tmp_path,
+        audit_path=tmp_path / "direct-read-runtime.jsonl",
+        journal_path=tmp_path / "direct-read-journal.jsonl",
+        execution_id="direct-read-runtime",
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].success is True
+    assert "READ VERIFIED: README.md" in result.results[-1].output
+    assert "Line one\nLine two\n│ section" in result.results[-1].output
