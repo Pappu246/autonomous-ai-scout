@@ -22,7 +22,8 @@ foreach ($process in $existing) {
 Start-Sleep -Milliseconds 500
 
 $python = (Get-Command python -ErrorAction Stop).Source
-Write-Host "Starting latest Scout server on http://127.0.0.1:8000" -ForegroundColor Green
+$expectedRevision = (git rev-parse --short HEAD).Trim()
+Write-Host ("Starting Scout server revision {0} on http://127.0.0.1:8000" -f $expectedRevision) -ForegroundColor Green
 Start-Process -FilePath $python -ArgumentList @(
   "-m", "autonomous_agent.server",
   "--host", "127.0.0.1",
@@ -31,4 +32,22 @@ Start-Process -FilePath $python -ArgumentList @(
   "--open"
 ) -WorkingDirectory $repoRoot
 
-Write-Host "Scout restarted. Refresh the browser after it opens." -ForegroundColor Green
+$ready = $false
+for ($attempt = 1; $attempt -le 15; $attempt++) {
+  Start-Sleep -Milliseconds 500
+  try {
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 2
+    if ($health.status -eq "ok" -and $health.build_revision -eq $expectedRevision) {
+      $ready = $true
+      Write-Host ("Scout online and serving revision {0}" -f $health.build_revision) -ForegroundColor Green
+      break
+    }
+  } catch {
+    # Server is still starting.
+  }
+}
+if (-not $ready) {
+  throw "Scout server did not become healthy on revision $expectedRevision"
+}
+
+Write-Host "Scout restarted and revision verified. Refresh the browser." -ForegroundColor Green
