@@ -50,4 +50,22 @@ if (-not $ready) {
   throw "Scout server did not become healthy on revision $expectedRevision"
 }
 
-Write-Host "Scout restarted and revision verified. Refresh the browser." -ForegroundColor Green
+$smoke = @'
+from autonomous_agent.task_intent import classify_intent
+from autonomous_agent.task_plan_models import TaskIntent
+from autonomous_agent.tool_router import DynamicToolRouter
+
+task = "Read README.md and give me a human-readable summary. Do not modify any files."
+intent = classify_intent(task)
+selection = DynamicToolRouter().select_names(task)
+assert intent is TaskIntent.WORKSPACE, intent
+assert selection.tool_names == ("filesystem.read",), selection.tool_names
+print("README smoke test: WORKSPACE -> filesystem.read")
+'@
+$smokeOutput = & $python -c $smoke
+if ($LASTEXITCODE -ne 0) {
+  throw "Local Scout smoke test failed for direct README read"
+}
+$smokeOutput | ForEach-Object { Write-Host $_ -ForegroundColor Green }
+
+Write-Host "Scout restarted, revision verified, and README smoke test passed. Refresh the browser." -ForegroundColor Green
