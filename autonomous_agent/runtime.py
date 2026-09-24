@@ -54,17 +54,33 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
                 }
             }
     if "filesystem.write" in selected:
+        text = task.strip()
         match = re.search(
             r"(?:write|create|save)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*)$",
-            task.strip(),
+            text,
             re.I,
         )
         if match:
+            content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip()
             return {
                 "filesystem.write": {
                     "operation": "write",
                     "path": match.group(1).rstrip("."),
-                    "content": match.group(2),
+                    "content": content,
+                }
+            }
+        match = re.search(
+            r"(?:write|create|save)\s+(?:a|an|the)\s+.+?\s+file\s+(?:at|named|called)\s+([A-Za-z0-9_./\\-]+)\s+(?:containing|with(?:\s+contents?)?)\s*:?\s*(.*)$",
+            text,
+            re.I,
+        )
+        if match:
+            content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip()
+            return {
+                "filesystem.write": {
+                    "operation": "write",
+                    "path": match.group(1).rstrip("."),
+                    "content": content,
                 }
             }
     if "filesystem.read" in selected:
