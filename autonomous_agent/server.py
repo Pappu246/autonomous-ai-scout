@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import threading
+import subprocess
 import time
 import webbrowser
 from datetime import datetime, timezone
@@ -218,6 +219,21 @@ class RuntimeTaskManager:
 _DEFAULT_MANAGER = RuntimeTaskManager(Path.cwd())
 
 
+
+def _build_revision(root: Path) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        return completed.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
 class RuntimeHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -271,7 +287,15 @@ class RuntimeHandler(BaseHTTPRequestHandler):
 
         if path in {"/health", "/api/health"}:
             manager = self._manager()
-            self._json(200, {"status": "ok", "service": "autonomous-ai-scout", "root_label": manager.root.name or str(manager.root)})
+            self._json(
+                200,
+                {
+                    "status": "ok",
+                    "service": "autonomous-ai-scout",
+                    "root_label": manager.root.name or str(manager.root),
+                    "build_revision": _build_revision(manager.root),
+                },
+            )
             return
 
         if path == "/api/tasks":
