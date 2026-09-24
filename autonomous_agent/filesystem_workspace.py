@@ -55,8 +55,20 @@ class WorkspaceConnector:
         if path.exists() and path.is_dir():raise WorkspaceError("workspace target is a directory")
         if not isinstance(content,str) or len(content.encode())>=self.max_file_bytes:raise WorkspaceError("write content exceeds workspace size limit")
         if _SECRET.search(content):raise WorkspaceError("secret-like content is not permitted")
-        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8",newline="")
-        return WorkspaceEvidence("write",str(path.relative_to(self.root)),_digest({"path":str(path.relative_to(self.root)),"content":content}),content=content)
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(content,encoding="utf-8",newline="")
+        try:
+            written=path.read_text(encoding="utf-8")
+        except (OSError,UnicodeError) as exc:
+            raise WorkspaceError("write verification failed: file could not be re-read") from exc
+        if written!=content:
+            raise WorkspaceError("write verification failed: file contents differ after write")
+        return WorkspaceEvidence(
+            "write",
+            str(path.relative_to(self.root)),
+            _digest({"path":str(path.relative_to(self.root)),"content":written}),
+            content=written,
+        )
     def transform(self,relative,find,replace):
         evidence=self.read(relative)
         if evidence.redacted:raise WorkspaceError("transform refuses content requiring secret redaction")
