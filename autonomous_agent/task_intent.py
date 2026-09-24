@@ -45,7 +45,7 @@ def classify_intent(task: str) -> TaskIntent:
     # Direct local-file reads are workspace operations even when the request
     # asks for a summary or explicitly forbids modifications.
     if re.search(
-        r"\\b(?:read|open)\\s+(?:the\\s+)?[A-Za-z0-9_./\\-]+\\.[A-Za-z0-9_-]+\\b",
+        r"\b(?:read|open)\s+(?:the\s+)?[A-Za-z0-9_./\-]+\.[A-Za-z0-9_-]+\b",
         text,
     ):
         return TaskIntent.WORKSPACE
