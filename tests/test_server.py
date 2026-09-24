@@ -151,6 +151,8 @@ def test_approval_retry_requeues_blocked_task_with_explicit_approval(tmp_path, m
         assert response.status == 202
         assert approved_payload["explicitly_approved"] is True
 
+        assert approved_payload["task_id"] == task_id
+        assert approved_payload["execution_id"] == blocked["execution_id"]
         approved_id = approved_payload["task_id"]
         deadline = time.time() + 3
         final = None
