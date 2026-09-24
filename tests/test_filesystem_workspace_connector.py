@@ -12,7 +12,15 @@ def _workspace(tmp_path,**kwargs):return WorkspaceConnector(tmp_path,**kwargs)
 def test_valid_read_and_list(tmp_path):
     (tmp_path/"a.txt").write_text("hello",encoding="utf-8");c=_workspace(tmp_path);assert c.read("a.txt").content=="hello";assert "a.txt" in c.list().entries
 def test_valid_write_and_transform(tmp_path):
-    c=_workspace(tmp_path);c.write("a.txt","hello world");assert c.transform("a.txt","world","workspace").content=="hello workspace"
+    c=_workspace(tmp_path)
+    written=c.write("a.txt","hello world")
+    assert written.operation=="write"
+    assert written.content=="hello world"
+    assert written.fingerprint==c.read("a.txt").fingerprint
+    transformed=c.transform("a.txt","world","workspace")
+    assert transformed.operation=="transform"
+    assert transformed.content=="hello workspace"
+    assert transformed.fingerprint==c.read("a.txt").fingerprint
 
 
 def test_transform_requires_source_text_to_exist(tmp_path):
