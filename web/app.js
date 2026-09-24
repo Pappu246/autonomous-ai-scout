@@ -38,7 +38,7 @@
         body: "{}"
       });
       state.currentTaskId = data.task_id;
-      showToast("Approval accepted. Task re-queued for execution.");
+      showToast("Approval accepted. Task resumed from its execution checkpoint.");
       await refresh();
     } catch (err) {
       showToast(err.message);
