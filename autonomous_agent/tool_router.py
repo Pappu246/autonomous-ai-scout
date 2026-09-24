@@ -97,10 +97,8 @@ class DynamicToolRouter:
             "read-only", "read only", "do not modify", "do not create", "do not delete",
             "do not transform", "do not write", "inspect", "audit", "analyze", "analyse", "review",
         )):
-            return ("filesystem.list", "filesystem.read")
-        # A generic "workspace files" request is intentionally broad; actual
-        # write/transform execution remains approval-gated by the registry/policy.
-        return ("filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform")
+            return ("filesystem.list",)
+        return ("filesystem.list",)
 
     @staticmethod
     def _email_tools(task: str) -> tuple[str, ...]:
