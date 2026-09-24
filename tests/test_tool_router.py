@@ -67,7 +67,8 @@ def test_router_defaults_ambiguous_workspace_requests_to_read_only_tools():
         "inspect the repository workspace and investigate its structure"
     )
     assert selection.intent is TaskIntent.WORKSPACE
-    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+    assert selection.tool_names == ("filesystem.list",)
+    assert "filesystem.read" not in selection.tool_names
     assert "filesystem.write" not in selection.tool_names
     assert "filesystem.transform" not in selection.tool_names
 
