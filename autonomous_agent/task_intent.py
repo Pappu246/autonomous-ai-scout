@@ -8,8 +8,13 @@ from .task_plan_models import TaskIntent
 def _positive_clause_contains(text: str, *terms: str) -> bool:
     clauses = re.split(r"[.;!?\n]+", text)
     negative_markers = ("do not", "don't", "never", "without")
+
+    def contains_term(clause: str, term: str) -> bool:
+        pattern = r"(?<!\\w)" + re.escape(term) + r"(?!\\w)"
+        return re.search(pattern, clause) is not None
+
     return any(
-        any(term in clause for term in terms)
+        any(contains_term(clause, term) for term in terms)
         and not any(marker in clause for marker in negative_markers)
         for clause in clauses
     )
