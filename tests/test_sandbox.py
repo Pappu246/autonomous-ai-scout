@@ -24,6 +24,45 @@ def test_sandbox_read_file_blocks_escape(tmp_path: Path):
     finally:outside.unlink(missing_ok=True)
 def test_sandbox_read_file_works_for_small_target(tmp_path: Path):
     (tmp_path/"hello.txt").write_text("hello",encoding="utf-8");r=run_safe_operation("read_file",tmp_path,"hello.txt");assert r.success and r.output=="hello"
+def test_sandbox_filesystem_read_output_is_human_readable(tmp_path: Path):
+    (tmp_path / "README.md").write_text("Line one\nLine two\n│ tree", encoding="utf-8")
+    from autonomous_agent.filesystem_workspace import WorkspaceConnector
+
+    result = run_safe_operation(
+        "filesystem_workspace",
+        tmp_path,
+        workspace_connector=WorkspaceConnector(tmp_path),
+        workspace_request={"operation": "read", "path": "README.md"},
+    )
+    assert result.success
+    assert result.output.startswith("READ VERIFIED: README.md")
+    assert "Line one\nLine two\n│ tree" in result.output
+    assert "\\n" not in result.output
+    assert "\\u2502" not in result.output
+
+
+def test_sandbox_filesystem_transform_output_is_human_readable(tmp_path: Path):
+    (tmp_path / "README.md").write_text("old text\n│ section", encoding="utf-8")
+    from autonomous_agent.filesystem_workspace import WorkspaceConnector
+
+    result = run_safe_operation(
+        "filesystem_workspace",
+        tmp_path,
+        workspace_connector=WorkspaceConnector(tmp_path),
+        workspace_request={
+            "operation": "transform",
+            "path": "README.md",
+            "find": "old text",
+            "replace": "new text",
+        },
+    )
+    assert result.success
+    assert result.output.startswith("TRANSFORM VERIFIED: README.md")
+    assert "new text\n│ section" in result.output
+    assert "\\n" not in result.output
+    assert "\\u2502" not in result.output
+
+
 def test_sandbox_inspect_and_read_file_hide_sensitive_paths(tmp_path: Path):
     (tmp_path / ".env").write_text("TOKEN=supersecret", encoding="utf-8")
     (tmp_path / "safe.txt").write_text("safe", encoding="utf-8")
