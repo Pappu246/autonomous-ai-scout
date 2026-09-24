@@ -369,10 +369,17 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return self._json(404, {"error": "task not found"})
             if not current.get("approval_required"):
                 return self._json(409, {"error": "task is not awaiting approval"})
-            try:
-                item = self._manager().submit(current["task"], explicitly_approved=True)
-            except RuntimeError as exc:
-                return self._json(429, {"error": str(exc)})
+            manager = self._manager()
+            with manager._lock:
+                record = manager._tasks.get(task_id)
+                if record is None:
+                    return self._json(404, {"error": "task not found"})
+                record.explicitly_approved = True
+                record.state = "queued"
+                record.reason = "approval accepted; resuming from the persisted execution checkpoint"
+                record.finished_at = None
+                item = manager._copy(record)
+                threading.Thread(target=manager._run, args=(task_id,), daemon=True).start()
             self._json(
                 202,
                 {
@@ -380,7 +387,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     "execution_id": item.execution_id,
                     "state": item.state,
                     "explicitly_approved": True,
-                    "message": "approval accepted; task was re-queued for bounded execution",
+                    "message": "approval accepted; task resumed with its existing execution identity and checkpoint",
                 },
             )
             return
