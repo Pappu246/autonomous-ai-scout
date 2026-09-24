@@ -115,17 +115,54 @@ def _run_workspace_shell(connector,request,limit):
     except Exception as exc:
         return False,f"workspace shell failed: {type(exc).__name__}",(),False,True
 
+def _format_filesystem_evidence(payload, operation):
+    operation = str(operation or payload.get("operation", "")).strip().lower()
+    path = str(payload.get("relative_path", "")).strip()
+    if operation == "list":
+        entries = tuple(str(item) for item in payload.get("entries", ()))
+        lines = [f"LIST VERIFIED: {path or '.'}"]
+        if entries:
+            lines.append("")
+            lines.extend(f"- {item}" for item in entries)
+        else:
+            lines.append("Directory is empty.")
+        return "\n".join(lines)
+    if operation == "read":
+        header = f"READ VERIFIED: {path}"
+        content = str(payload.get("content", ""))
+        if bool(payload.get("redacted", False)):
+            header += " (sensitive values redacted)"
+        return header + "\n\n" + content
+    if operation == "write":
+        return f"WRITE VERIFIED: {path}\n\n" + str(payload.get("content", ""))
+    if operation == "transform":
+        return f"TRANSFORM VERIFIED: {path}\n\n" + str(payload.get("content", ""))
+    return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False, default=str)
+
+
 def _run_filesystem(connector,request,limit):
-    if connector is None or not isinstance(request,Mapping):return False,"filesystem_workspace requires an approved workspace connector",(),False
+    if connector is None or not isinstance(request,Mapping):
+        return False,"filesystem_workspace requires an approved workspace connector",(),False
     op=str(request.get("operation","")).strip().lower()
     try:
-        if op=="list":payload=connector.list(str(request.get("path","."))).safe_dict()
-        elif op=="read":payload=connector.read(str(request.get("path",""))).safe_dict()
-        elif op=="write":payload=connector.write(str(request.get("path","")),str(request.get("content",""))).safe_dict()
-        elif op=="transform":payload=connector.transform(str(request.get("path","")),str(request.get("find","")),str(request.get("replace",""))).safe_dict()
-        else:return False,"sandbox filesystem allowlist supports only list/read/write/transform",(),False
-        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("FILESYSTEM_WORKSPACE",op),truncated
-    except Exception as exc:return False,f"filesystem operation failed: {type(exc).__name__}",("FILESYSTEM_WORKSPACE",op),False
+        if op=="list":
+            payload=connector.list(str(request.get("path","."))).safe_dict()
+        elif op=="read":
+            payload=connector.read(str(request.get("path",""))).safe_dict()
+        elif op=="write":
+            payload=connector.write(str(request.get("path","")),str(request.get("content",""))).safe_dict()
+        elif op=="transform":
+            payload=connector.transform(
+                str(request.get("path","")),
+                str(request.get("find","")),
+                str(request.get("replace","")),
+            ).safe_dict()
+        else:
+            return False,"sandbox filesystem allowlist supports only list/read/write/transform",(),False
+        text,truncated=_text_limit(_format_filesystem_evidence(payload,op),limit)
+        return True,text,("FILESYSTEM_WORKSPACE",op),truncated
+    except Exception as exc:
+        return False,f"filesystem operation failed: {type(exc).__name__}",("FILESYSTEM_WORKSPACE",op),False
 def _run_gmail(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"gmail requires an approved injected Gmail connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
