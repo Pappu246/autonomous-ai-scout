@@ -60,7 +60,7 @@ task = "Read README.md and give me a human-readable summary. Do not modify any f
 intent = classify_intent(task)
 selection = DynamicToolRouter().select_names(task)
 assert intent is TaskIntent.WORKSPACE, intent
-assert selection.tool_names == ("filesystem.read",), selection.tool_names
+assert selection.tool_names == ("filesystem.list", "filesystem.read"), selection.tool_names
 print("README smoke test: WORKSPACE -> filesystem.read")
 '@ | Set-Content -Path $smokePath -Encoding UTF8
 
