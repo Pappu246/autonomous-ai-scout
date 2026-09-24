@@ -85,7 +85,11 @@ class DynamicToolRouter:
             for clause in clauses
         ):
             return ("filesystem.write",)
-        if any(x in text for x in ("read file", "read the file", "open file")):
+        if any(x in text for x in ("read file", "read the file", "open file")) or any(
+            re.search(r"\b(?:read|open)\s+(?:the\s+)?[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+\b", clause) is not None
+            and not any(marker in clause for marker in negative_markers)
+            for clause in clauses
+        ):
             return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
             return ("filesystem.list",)
