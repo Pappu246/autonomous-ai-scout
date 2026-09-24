@@ -108,7 +108,7 @@ def test_router_routes_direct_readme_request_to_read_only_filesystem():
         "Read README.md and give me a human-readable summary. Do not modify any files."
     )
     assert selection.intent is TaskIntent.WORKSPACE
-    assert selection.tool_names == ("filesystem.read",)
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
 
 def test_router_keeps_read_only_inspection_without_file_target_bounded():
     selection = DynamicToolRouter().select_names(
