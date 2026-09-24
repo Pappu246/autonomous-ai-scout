@@ -190,7 +190,7 @@
     }
   }
 
-  $(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+  $$(".nav-item").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".approve-task-button");
     if (button) approveTask(button.dataset.taskId);
