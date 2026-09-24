@@ -100,3 +100,11 @@ def test_router_recognizes_natural_language_file_creation_request():
     )
     assert selection.intent is TaskIntent.WORKSPACE
     assert selection.tool_names == ("filesystem.write",)
+
+
+def test_router_routes_direct_readme_request_to_read_only_filesystem():
+    selection = DynamicToolRouter().select_names(
+        "Read README.md and give me a human-readable summary. Do not modify any files."
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.read",)
