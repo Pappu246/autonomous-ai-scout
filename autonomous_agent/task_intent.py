@@ -42,6 +42,14 @@ def classify_intent(task: str) -> TaskIntent:
     if any(term in text for term in ("research", "search web", "look up", "find information", "investigate", "browse", "browser", "web page", "read this page", "open this page")) or "http://" in text or "https://" in text:
         return TaskIntent.RESEARCH
 
+    # Direct local-file reads are workspace operations even when the request
+    # asks for a summary or explicitly forbids modifications.
+    if re.search(
+        r"\\b(?:read|open)\\s+(?:the\\s+)?[A-Za-z0-9_./\\-]+\\.[A-Za-z0-9_-]+\\b",
+        text,
+    ):
+        return TaskIntent.WORKSPACE
+
     # Inspection/audit/review tasks must not become workspace tasks merely
     # because they mention files, especially in a negative safety clause such
     # as "do not modify any files". An explicit workspace target still takes
