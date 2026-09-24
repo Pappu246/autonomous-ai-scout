@@ -10,7 +10,7 @@ def _positive_clause_contains(text: str, *terms: str) -> bool:
     negative_markers = ("do not", "don't", "never", "without")
 
     def contains_term(clause: str, term: str) -> bool:
-        pattern = r"(?<!\\w)" + re.escape(term) + r"(?!\\w)"
+        pattern = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
         return re.search(pattern, clause) is not None
 
     return any(
