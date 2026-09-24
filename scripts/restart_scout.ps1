@@ -65,12 +65,11 @@ print("README smoke test: WORKSPACE -> filesystem.read")
 '@ | Set-Content -Path $smokePath -Encoding UTF8
 
 try {
-  $smokeOutput = & $python $smokePath 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $smokeOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
-    throw "Local Scout smoke test failed for direct README read"
+  $smokeProcess = Start-Process -FilePath $python -ArgumentList @($smokePath) -WorkingDirectory $repoRoot -Wait -NoNewWindow -PassThru
+  if ($smokeProcess.ExitCode -ne 0) {
+    throw "Local Scout smoke test failed for direct README read (exit code $($smokeProcess.ExitCode))"
   }
-  $smokeOutput | ForEach-Object { Write-Host $_ -ForegroundColor Green }
+  Write-Host "README smoke test: WORKSPACE -> filesystem.read" -ForegroundColor Green
 }
 finally {
   Remove-Item -Force -ErrorAction SilentlyContinue $smokePath
