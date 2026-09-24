@@ -83,7 +83,8 @@ def test_network_is_not_available_to_filesystem():
 def test_capability_mismatch_fails_closed():
     assert not plan_task("read file",granted=[Capability.WEB_RESEARCH]).executable
 def test_workspace_planner_selects_exact_operations():
-    p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True);assert [s.tool_name for s in p.steps]==["filesystem.list","filesystem.read","filesystem.write","filesystem.transform"]
+    p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True)
+    assert [s.tool_name for s in p.steps] == ["filesystem.list", "filesystem.read", "filesystem.write", "filesystem.transform"]
 def test_end_to_end_read_list_write_transform_audit(tmp_path):
     (tmp_path/"a.txt").write_text("seed",encoding="utf-8");c=_workspace(tmp_path);p=plan_task("workspace files",granted=[Capability.FILES_WORKSPACE],explicitly_approved=True);req={"filesystem.list":{"operation":"list","path":"."},"filesystem.read":{"operation":"read","path":"a.txt"},"filesystem.write":{"operation":"write","path":"a.txt","content":"hello"},"filesystem.transform":{"operation":"transform","path":"a.txt","find":"hello","replace":"hello world"}}
     result=execute_plan(p,tmp_path,granted=[Capability.FILES_WORKSPACE],explicitly_approved=True,audit_path=tmp_path/"audit.jsonl",execution_id="fs-1",workspace_connector=c,workspace_request=req);assert result.state is ExecutionState.VERIFIED and verify_execution_audit(tmp_path/"audit.jsonl") and (tmp_path/"a.txt").read_text(encoding="utf-8")=="hello world"
