@@ -60,3 +60,8 @@ def test_read_only_repository_inspection_with_file_mentions_stays_inspect_intent
     assert plan.intent is TaskIntent.INSPECT
     assert [step.tool_name for step in plan.steps] == ["github.inspect"]
     assert plan.executable is True
+
+
+def test_direct_local_file_read_classifies_as_workspace():
+    task = "Read README.md and give me a human-readable summary. Do not modify any files."
+    assert classify_intent(task) is TaskIntent.WORKSPACE
