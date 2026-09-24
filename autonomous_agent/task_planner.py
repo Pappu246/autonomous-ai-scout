@@ -71,10 +71,7 @@ def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved
                 and Capability(tool.capability) not in DENIED_CAPABILITIES
                 and tool.approval_requirement.value != "none"
             ):
-                # Keep the overall plan executable so safe/read-only steps can
-                # complete first. The execution engine stops exactly at the
-                # approval-gated step and persists its checkpoint for resume.
-                reason = f"Explicit approval required for {tool.name}: {decision.reason}"
+                executable, reason = False, f"Explicit approval required for {tool.name}: {decision.reason}"
             else:
                 executable, reason = False, f"Authorization blocked for {tool.name}: {decision.reason}"
         steps.append(TaskStep(f"step-{index}",description,tool.name,PlanRisk(tool.risk_level.value),"authorized" if decision.allowed else "blocked","execute only through the existing registered capability/sandbox/lifecycle boundary","verify tool result before proceeding and retain audit record"))
