@@ -84,11 +84,18 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
                 }
             }
     if "filesystem.read" in selected:
+        text = task.strip()
         match = re.search(
             r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)",
-            task.strip(),
+            text,
             re.I,
         )
+        if not match:
+            match = re.search(
+                r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b",
+                text,
+                re.I,
+            )
         if match:
             return {
                 "filesystem.read": {
