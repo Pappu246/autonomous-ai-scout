@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
 SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer"}
+# Advanced bounded browser operations dispatched to the injected browser connector.
+# Legacy open/click/extract are handled explicitly; these 12 are the canonical
+# Phase 3 capabilities. Anything not listed here is refused by the sandbox.
+_BROWSER_ADVANCED_OPS={"session_open","navigate","back","forward","reload","page_observe","element_find","element_click","element_type","element_select","download_start","file_extract"}
 @dataclass(frozen=True)
 class SandboxResult:
     operation:str;success:bool;exit_status:int|None;output:str;output_truncated:bool;command:tuple[str,...];verification_status:str;started_at:str;finished_at:str;network_disabled:bool
@@ -117,7 +121,13 @@ def _run_browser(connector,request,limit):
         if op=="open":payload=connector.open(str(request.get("url","")),timeout_seconds=int(request.get("timeout_seconds",20))).safe_dict()
         elif op=="click":payload=connector.click(str(request.get("url","")),str(request.get("selector","")),timeout_seconds=int(request.get("timeout_seconds",20))).safe_dict()
         elif op=="extract":payload=connector.extract(str(request.get("url","")),tuple(str(x) for x in request.get("fields",()))).safe_dict()
-        else:return False,"sandbox browser allowlist supports only open/click/extract",(),False
+        elif op in _BROWSER_ADVANCED_OPS:
+            method=getattr(connector,op,None)
+            if method is None or not callable(method):return False,f"sandbox browser allowlist cannot dispatch operation: {op}",(),False
+            args={k:v for k,v in request.items() if k!="operation"}
+            res=method(**args)
+            payload=res.safe_dict() if hasattr(res,"safe_dict") else res
+        else:return False,"sandbox browser allowlist supports only the bounded browser operations",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("BROWSER",op),truncated
     except Exception as exc:return False,f"browser operation failed: {type(exc).__name__}",("BROWSER",op),False
 def _run_computer(connector,request,limit):

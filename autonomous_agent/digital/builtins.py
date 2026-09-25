@@ -259,6 +259,107 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         signals=("extract", "read page", "collect text", "scrape"),
         stage=30,
     ),
+    # -- advanced bounded browser agent (Phase 3) -------------------------
+    CapabilityDeclaration(
+        "browser:session.open",
+        CapabilityDomain.BROWSER,
+        "browser.session.open",
+        "browser",
+        signals=("open a browser session", "start a browser session", "browser session", "browsing session"),
+        stage=5,
+        notes="Opens a stateful bounded session with an explicit host allowlist.",
+    ),
+    CapabilityDeclaration(
+        "browser:navigate",
+        CapabilityDomain.BROWSER,
+        "browser.navigate",
+        "browser",
+        signals=("navigate to", "go to the page", "open the url", "load the page", "visit the site"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "browser:back",
+        CapabilityDomain.BROWSER,
+        "browser.back",
+        "browser",
+        signals=("go back", "navigate back", "previous page", "back button"),
+        stage=10,
+    ),
+    CapabilityDeclaration(
+        "browser:forward",
+        CapabilityDomain.BROWSER,
+        "browser.forward",
+        "browser",
+        signals=("go forward", "navigate forward", "next page", "forward button"),
+        stage=10,
+    ),
+    CapabilityDeclaration(
+        "browser:reload",
+        CapabilityDomain.BROWSER,
+        "browser.reload",
+        "browser",
+        signals=("reload the page", "refresh the page", "reload page", "refresh page"),
+        stage=10,
+    ),
+    CapabilityDeclaration(
+        "browser:page.observe",
+        CapabilityDomain.BROWSER,
+        "browser.page.observe",
+        "browser",
+        signals=("observe the page", "read the page", "what is on the page", "page contents", "inspect the page"),
+        stage=15,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "browser:element.find",
+        CapabilityDomain.BROWSER,
+        "browser.element.find",
+        "browser",
+        signals=("find the element", "find the button", "find the link", "locate the field", "find element"),
+        stage=20,
+    ),
+    CapabilityDeclaration(
+        "browser:element.click",
+        CapabilityDomain.BROWSER,
+        "browser.element.click",
+        "browser",
+        signals=("click the button", "click the link", "press the button", "click element", "tap the"),
+        stage=40,
+    ),
+    CapabilityDeclaration(
+        "browser:element.type",
+        CapabilityDomain.BROWSER,
+        "browser.element.type",
+        "browser",
+        signals=("type into", "enter text into", "fill in the field", "type in the", "enter into the field"),
+        stage=50,
+    ),
+    CapabilityDeclaration(
+        "browser:element.select",
+        CapabilityDomain.BROWSER,
+        "browser.element.select",
+        "browser",
+        signals=("select the option", "choose from the dropdown", "select from", "pick the option"),
+        stage=45,
+    ),
+    CapabilityDeclaration(
+        "browser:download.start",
+        CapabilityDomain.BROWSER,
+        "browser.download.start",
+        "browser",
+        signals=("download the file", "download this", "save the file", "download the pdf", "download file"),
+        stage=60,
+    ),
+    CapabilityDeclaration(
+        "browser:file.extract",
+        CapabilityDomain.BROWSER,
+        "browser.file.extract",
+        "browser",
+        signals=("extract from the downloaded", "read the downloaded file", "checksum the file", "extract text from the file"),
+        stage=30,
+        notes="Bounded read of a workspace file previously downloaded; no document parsing.",
+    ),
     # -- computer control -------------------------------------------------
     CapabilityDeclaration(
         "computer:screen.capture",
@@ -467,6 +568,97 @@ class FilesystemPostConditionObserver:
         )
 
 
+class BrowserPostConditionObserver:
+    """Independently confirm a real, observable browser post-condition.
+
+    Input dispatch is never treated as verification. For mutating steps the
+    observer re-observes the page (or re-reads the downloaded file and checks its
+    checksum) and only reports observed=True when the independent read matches
+    the claimed result. A bare "clicked/typed" success flag is not enough.
+    """
+
+    _READ_ONLY = {
+        "browser:session.open",
+        "browser:navigate",
+        "browser:back",
+        "browser:forward",
+        "browser:reload",
+        "browser:page.observe",
+        "browser:element.find",
+    }
+
+    def __init__(self, connector) -> None:
+        self._connector = connector
+
+    def observe(self, request: CapabilityRequest, execution: CapabilityExecution) -> CapabilityObservation:
+        cap = request.capability_id
+        evidence = execution.evidence or {}
+        if cap in self._READ_ONLY:
+            observed = bool(evidence.get("url") or evidence.get("opened") or evidence.get("found"))
+            return CapabilityObservation(
+                cap,
+                observed,
+                evidence,
+                "bounded read evidence collected" if observed else "read produced no observable evidence",
+            )
+
+        if cap == "browser:element.click":
+            try:
+                page = self._connector.page_observe()
+            except Exception as exc:  # noqa: BLE001 - observation must fail closed
+                return CapabilityObservation(cap, False, detail=f"post-click re-observe failed: {exc}")
+            if page.get("url"):
+                return CapabilityObservation(
+                    cap, True, {"url": page.get("url"), "reported_url": evidence.get("url")},
+                    "post-click page re-observed",
+                )
+            return CapabilityObservation(cap, False, detail="post-click page is not observable")
+
+        if cap in {"browser:element.type", "browser:element.select"}:
+            selector = str((evidence.get("target") or {}).get("selector", ""))
+            expected = request.arguments.get("text") if cap.endswith("type") else request.arguments.get("value")
+            try:
+                page = self._connector.page_observe()
+            except Exception as exc:  # noqa: BLE001
+                return CapabilityObservation(cap, False, detail=f"post-input re-observe failed: {exc}")
+            for element in page.get("elements", []):
+                if element.get("selector") == selector:
+                    if element.get("value") == expected:
+                        return CapabilityObservation(
+                            cap, True, {"selector": selector, "value": element.get("value")},
+                            "input post-condition confirmed by independent re-observation",
+                        )
+                    return CapabilityObservation(
+                        cap, False, {"selector": selector, "value": element.get("value")},
+                        "field value does not reflect the requested input",
+                    )
+            return CapabilityObservation(cap, False, detail="target field not found on re-observation")
+
+        if cap == "browser:download.start":
+            relative = str(evidence.get("relative_path", ""))
+            digest = str(evidence.get("sha256", ""))
+            try:
+                recheck = self._connector.file_extract(path=relative, max_bytes=1)
+            except Exception as exc:  # noqa: BLE001
+                return CapabilityObservation(cap, False, detail=f"download re-read failed: {exc}")
+            if recheck.get("sha256") == digest:
+                return CapabilityObservation(
+                    cap, True, {"sha256": digest, "relative_path": relative},
+                    "download confirmed by independent checksum re-read",
+                )
+            return CapabilityObservation(
+                cap, False, {"expected": digest, "actual": recheck.get("sha256")},
+                "download checksum does not match",
+            )
+
+        if cap == "browser:file.extract":
+            if evidence.get("extracted") and evidence.get("sha256"):
+                return CapabilityObservation(cap, True, evidence, "file extract evidence present")
+            return CapabilityObservation(cap, False, detail="file extract produced no evidence")
+
+        return CapabilityObservation(cap, execution.has_evidence, evidence)
+
+
 def build_capabilities(
     *,
     root: Path | str,
@@ -486,6 +678,7 @@ def build_capabilities(
     )
     workspace_connector = (connectors or {}).get("workspace")
     computer_connector = (connectors or {}).get("computer")
+    browser_connector = (connectors or {}).get("browser")
     built: list[RegisteredToolCapability] = []
     for declaration in declarations:
         if tool_registry.get(declaration.tool_name) is None:
@@ -494,6 +687,9 @@ def build_capabilities(
         availability = CapabilityAvailability.AVAILABLE
         if declaration.domain is CapabilityDomain.FILESYSTEM and workspace_connector is not None:
             observer = FilesystemPostConditionObserver(workspace_connector)
+        elif declaration.domain is CapabilityDomain.BROWSER:
+            if browser_connector is not None:
+                observer = BrowserPostConditionObserver(browser_connector)
         elif declaration.domain is CapabilityDomain.COMPUTER:
             if computer_connector is not None:
                 observer = ComputerPostConditionObserver(computer_connector)
