@@ -307,6 +307,27 @@ def confine_download_path(workspace_root: Path | str, filename: str) -> tuple[Pa
     return destination, safe_name
 
 
+def confine_workspace_path(workspace_root: Path | str, relative_path: str) -> tuple[Path, str]:
+    """Resolve a *read* path strictly inside the workspace root.
+
+    Unlike downloads this permits nested relative paths (e.g. ``downloads/a``),
+    but still rejects absolute paths, parent traversal and symlink escapes.
+    Returns ``(absolute_path, normalized_relative_path)``.
+    """
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        raise BrowserSecurityError("a workspace-relative path is required")
+    root = Path(workspace_root).resolve()
+    candidate = PurePosixPath(relative_path.replace("\\", "/"))
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise BrowserSecurityError("path traversal is not permitted")
+    destination = (root / candidate).resolve()
+    try:
+        destination.relative_to(root)
+    except ValueError as exc:
+        raise BrowserSecurityError("path escapes the workspace root") from exc
+    return destination, str(candidate)
+
+
 # --------------------------------------------------------------------------
 # Selector / typed text bounds
 # --------------------------------------------------------------------------
@@ -367,6 +388,7 @@ __all__ = [
     "bound_download_size",
     "bound_response_size",
     "confine_download_path",
+    "confine_workspace_path",
     "is_blocked_host",
     "normalize_host",
     "sanitize_filename",

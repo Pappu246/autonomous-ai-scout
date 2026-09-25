@@ -26,6 +26,13 @@ replay protection and bounded workflow.
 
 from __future__ import annotations
 
+from .backend import (
+    BaseBrowserBackend,
+    MockBrowserBackend,
+    UnsupportedBrowserBackend,
+    checksum,
+)
+from .connector import BoundedBrowserConnector
 from .models import (
     ActionBudget,
     BackendUnavailableError,
@@ -59,6 +66,7 @@ from .policy import (
     bound_download_size,
     bound_response_size,
     confine_download_path,
+    confine_workspace_path,
     is_blocked_host,
     normalize_host,
     sanitize_filename,
@@ -69,6 +77,9 @@ from .policy import (
     validate_selector,
     validate_typed_text,
 )
+from .replay import BrowserReplayProtector
+from .session import BrowserSession
+from .target import SemanticTargetResolver
 
 __all__ = [
     "ALLOWED_PORTS",
@@ -79,24 +90,33 @@ __all__ = [
     "METADATA_ADDRESSES",
     "ActionBudget",
     "BackendUnavailableError",
+    "BaseBrowserBackend",
+    "BoundedBrowserConnector",
     "BrowserError",
     "BrowserReplayError",
+    "BrowserReplayProtector",
     "BrowserSecurityError",
+    "BrowserSession",
     "DownloadError",
     "DownloadRecord",
     "ElementTarget",
+    "MockBrowserBackend",
     "NavigationError",
     "NavigationRecord",
     "PageElement",
     "PageObservation",
+    "SemanticTargetResolver",
     "SessionError",
     "SessionSnapshot",
     "SessionState",
     "TargetResolutionError",
+    "UnsupportedBrowserBackend",
     "assert_not_credential_field",
     "bound_download_size",
     "bound_response_size",
+    "checksum",
     "confine_download_path",
+    "confine_workspace_path",
     "consequential_signal",
     "is_blocked_host",
     "is_credential_field",
