@@ -55,6 +55,7 @@ from .models import (
     looks_like_secret,
     redact_secret,
 )
+from .observer import BrowserPostConditionObserver
 from .policy import (
     ALLOWED_PORTS,
     ALLOWED_SCHEMES,
@@ -95,6 +96,7 @@ __all__ = [
     "BoundedBrowserConnector",
     "BoundedBrowserWorkflow",
     "BrowserError",
+    "BrowserPostConditionObserver",
     "BrowserReplayError",
     "BrowserReplayProtector",
     "BrowserSecurityError",
