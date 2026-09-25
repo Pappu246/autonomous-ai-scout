@@ -27,6 +27,7 @@ env/
 # Local state
 *.sqlite3
 *.db
+state/runtime_runs.jsonl
 
 # Tool caches
 .ruff_cache/

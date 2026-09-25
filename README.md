@@ -1,15 +1,103 @@
 # Autonomous AI Scout
 
-> A free-first autonomous engineering agent for discovery, repository auditing, controlled execution, AI-assisted coding, and human-approved GitHub changes.
+> **A bounded general-purpose digital agent.** Give it a digital job in natural language; it works out which capabilities the job needs, executes through safe registered adapters, verifies the real result, and asks a human only when the action has meaningful side effects.
 
 [![CI](https://github.com/Pappu246/autonomous-ai-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/Pappu246/autonomous-ai-scout/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Version](https://img.shields.io/badge/version-0.2.3-black)](https://github.com/Pappu246/autonomous-ai-scout)
 [![License](https://img.shields.io/badge/license-see%20repository-lightgrey)](https://github.com/Pappu246/autonomous-ai-scout)
 
-Autonomous AI Scout is built around a simple idea: **let software agents do useful engineering work without giving them unrestricted control of the repository or infrastructure.**
+This project started as an autonomous repository/engineering scout. It is no longer
+defined that way. **GitHub is one capability domain inside the system, not the product.**
 
-It can discover opportunities, inspect projects, plan bounded work, execute approved actions, generate patch candidates, validate them, and prepare GitHub changes. Sensitive transitions remain explicit and human-controlled.
+The organising idea is unchanged: **let software agents do useful work without giving them
+unrestricted control of the machine, the account or the infrastructure.**
+
+You say:
+
+```text
+organize today's downloaded PDFs
+```
+
+You do **not** say:
+
+```text
+use filesystem.list then filesystem.read then filesystem.write ...
+```
+
+The agent determines which registered capabilities the goal requires, plans them, checks
+authorization and risk, executes through the existing sandbox boundary, observes the result,
+verifies it with real evidence, and only then reports success.
+
+---
+
+## Universal digital agent
+
+The canonical lifecycle every goal walks:
+
+```text
+User Goal
+   → Intent Understanding
+   → Task Planning
+   → Capability / Tool Selection
+   → Authorization + Risk Evaluation
+   → Execution
+   → Observation
+   → Verification
+   → Recovery / Retry / Resume
+   → Final Result
+```
+
+Capability domains are **peers**:
+
+| Domain | Status | Notes |
+|---|---|---|
+| `filesystem` | active | Root-bound list/read; approval-gated write/transform |
+| `os_shell` | active | Allowlisted, root-bound, **read-only** — never general shell access |
+| `web` | active | Bounded public search / read / extract / compare |
+| `browser` | active | Bounded open / click / extract over a controlled transport |
+| `email` | active | Read-only by default; draft and send stay gated |
+| `calendar` | active | Read-only by default; create/update/cancel need human review |
+| `github` | active | One connector among many |
+| `testing` | active | Tests, lint, deterministic metrics |
+| `computer` | **reserved** | Declared, unimplemented — goals needing it fail closed |
+| `application` | **reserved** | Declared, unimplemented |
+| `documents` | **reserved** | Declared, unimplemented |
+
+Reserved domains are honest. There is no stub behind them: the catalog reports them as
+unusable, routing reports them as required-but-unavailable, and the run ends `BLOCKED`.
+A goal is never reported as done when the capability that would have done it does not exist.
+
+Every capability implements the same contract:
+
+```text
+discover() · validate_input() · authorize() · execute()
+observe() · verify() · bounded_retry() · audit()
+```
+
+Adding a future adapter (computer control, an application, a document processor) means
+registering a tool, declaring its sandbox binding and adding a capability declaration.
+**The planner, the runtime and the authorization broker are never edited.**
+
+```python
+from pathlib import Path
+from autonomous_agent.digital import build_agent
+from autonomous_agent.filesystem_workspace import WorkspaceConnector
+
+root = Path(".").resolve()
+agent = build_agent(root=root, connectors={"workspace": WorkspaceConnector(root)})
+
+result = agent.run(
+    "list the files in the docs folder",
+    root=root,
+    audit_path="state/digital_audit.jsonl",
+    execution_id="run-1",
+    requests={"filesystem:list": {"path": "docs"}},
+)
+print(result.state, result.reason)
+```
+
+Full design, guarantees and limitations: [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md).
 
 ---
 
@@ -92,9 +180,10 @@ The agent does **not** jump directly from a model response to a merge or deploym
 
 ---
 
-## From N9 to N16
+## Layer history
 
-The current engineering stack is the result of six bounded layers added on top of the earlier scout and execution system.
+The current stack is the result of bounded layers added on top of the earlier scout and
+execution system, ending in the Phase 1 general-purpose digital agent foundation.
 
 | Layer | Capability | What it adds |
 |---|---|---|
@@ -120,6 +209,7 @@ The current engineering stack is the result of six bounded layers added on top o
 | **N28** | Auth / Credential / Permission Broker | Uses non-secret credential references, explicit scopes, and short-lived access without persisting raw secrets |
 | **N29** | Security + Prompt-Injection Defense | Separates untrusted data from authoritative instructions and blocks untrusted content from silently authorizing writes |
 | **N30** | Consequence-Aware Approval | Derives approval mode from risk, side effects, high-impact capabilities, audit requirements, and origin trust |
+| **Phase 1** | Universal Digital Agent Foundation | Peer capability domains, a canonical goal → intent → plan → authorize → execute → observe → verify → resume lifecycle, a uniform adapter contract, and data-driven routing so new adapters need no core changes |
 
 ### N9 → N14 flow
 
@@ -158,6 +248,19 @@ These are implementation boundaries, not claims that every possible autonomous w
 ---
 
 ## What it can do
+
+### Digital work through registered capabilities
+
+- Turn a natural-language goal into a bounded plan over registered capabilities.
+- Enumerate, read, and (with explicit approval) write or transform workspace files.
+- Run allowlisted, root-bound, read-only workspace commands.
+- Perform bounded public web research with provenance and source comparison.
+- Drive bounded browser open/click/extract workflows.
+- Read mail and calendars; draft, send and mutate only behind approval gates.
+- Run project tests, configured static checks and deterministic metrics.
+- Inspect repositories and prepare approved source changes.
+- Refuse goals that need a capability which is not registered, rather than
+  approximating them and reporting success.
 
 ### Discovery & scouting
 
@@ -264,7 +367,12 @@ The project treats autonomy as a set of permissions, not a single switch.
 | Deployment | Outside the worker |
 | Billing / payment | Blocked |
 | Authentication bypass | Blocked |
-| Destructive actions | Policy / approval gated |
+| Destructive actions | Policy / approval gated; mass-destruction phrasing fails closed at routing |
+| Unregistered capability | Fails closed; never approximated, never defaulted |
+| Capability self-authorization | Impossible; the tool registry is re-consulted before every step |
+| Unverified / no-op result | Never reported as `VERIFIED` |
+| Resume | Never replays already-verified work |
+| Unrestricted shell | Not introduced; the only shell capability is read-only and allowlisted |
 
 ### AI coding boundary
 
@@ -348,28 +456,43 @@ The scheduled scout and the engineering execution stack share the same conservat
 ```text
 autonomous-ai-scout/
 ├── autonomous_agent/
+│   ├── digital/                 # universal digital agent (Phase 1)
+│   │   ├── domains.py           # peer capability domains + routing vocabulary
+│   │   ├── contract.py          # the 8-method capability contract
+│   │   ├── provider.py          # adapters bound to the existing sandbox
+│   │   ├── builtins.py          # real capability declarations
+│   │   ├── catalog.py           # discovery, routing, documentation
+│   │   ├── intent.py            # goal -> intent understanding
+│   │   ├── planner.py           # capability selection + plan
+│   │   ├── authorization.py     # narrowing grants, approval evaluation
+│   │   └── runtime.py           # the canonical lifecycle
+│   │
+│   ├── tool_registry.py         # sole authorization authority
+│   ├── capability_policy.py     # safe vs permanently denied capabilities
+│   ├── consequence_policy.py    # consequence-aware approval
+│   ├── sandbox.py               # the only execution boundary
+│   ├── execution_audit.py       # hash-chained audit
+│   ├── execution_checkpoint.py  # durable resume
 │   ├── task_core.py
-│   ├── execution_checkpoint.py
-│   ├── tool_router.py
 │   ├── runtime.py
-│   ├── main.py
-│   ├── provider_router.py
-│   ├── coding_provider.py
-│   ├── ai_coding_brain.py
-│   ├── sandbox_runner.py
-│   ├── github_worker.py
-│   ├── self_improvement.py
+│   ├── github_worker.py         # GitHub: one connector among many
 │   └── ...
 │
+├── examples/
+│   └── phase1_digital_agent_demo.py
+│
 ├── tests/
-│   ├── test_provider_router.py
+│   ├── test_digital_capability_discovery.py
+│   ├── test_digital_task_routing.py
+│   ├── test_digital_authorization.py
+│   ├── test_digital_runtime.py
 │   └── ...
 │
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
 │
-├── N14_PROVIDER_ROUTER.md
+├── PHASE1_UNIVERSAL_DIGITAL_AGENT.md
 ├── pyproject.toml
 └── README.md
 ```
@@ -542,16 +665,30 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Implemented through N29; N30 is on the phase branch and awaiting its consequence-aware approval verification gate.**
+**Implemented through N30, plus the Phase 1 universal digital agent foundation.**
+
+Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
+single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
+planned, authorized, executed, observed and verified result. Computer control, application
+adapters and document processing are declared as reserved domains and deliberately
+unimplemented; goals that need them fail closed instead of being approximated.
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
 
-N15 introduced the unified task-core boundary. N16 adds durable, non-secret execution checkpoints and resume semantics. N17 adds deterministic dynamic tool selection over the existing Tool Registry. N18 adds bounded observe/verify/retry/adapt execution without bypassing policy. N19 adds bounded dependency-DAG planning and deterministic topological execution. N20 adds a durable background queue and single-worker scheduler with restart recovery. N21 adds a common discovery/validation/authorization/invocation contract over registered digital tools. N22 adds bounded browser workflows over the existing controlled browser transport. N23 adds a root-bound, allowlisted workspace shell for local inspection and validation. N24 adds structured source-backed web knowledge acquisition with provenance and conflict preservation. N25 adds a higher-level Gmail/Calendar communication workflow that preserves existing write/send approvals. N26 adds durable sanitized episodic/fact memory with bounded relevance recall across restarts. N27 adds bounded working-context assembly over live task state and relevant durable memory. N28 adds scoped credential/permission brokering without persisting raw credential material. N29 adds structural prompt-injection trust boundaries and write-sink protection for untrusted content. N30 adds consequence-aware approval decisions before the existing registry authorization boundary. Later autonomy features remain intentionally unimplemented until their respective phases are defined, implemented, tested, and verified.
+N15–N30 contributed the unified task core, durable checkpoints and resume, deterministic tool
+selection, the bounded observe/verify/retry/adapt loop, DAG planning, the background queue, the
+universal digital tool layer, browser and workspace-shell boundaries, web knowledge acquisition,
+communication workflows, persistent and working-context memory, credential brokering,
+prompt-injection trust boundaries, and consequence-aware approval. Phase 1 composes those
+primitives into one general-purpose digital agent surface without weakening any of them. Later
+autonomy features remain intentionally unimplemented until their respective phases are defined,
+implemented, tested, and verified.
 
 ---
 
 ## Documentation
 
+- [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [N14 Provider Router](N14_PROVIDER_ROUTER.md)
 - [N16 Durable Checkpoint & Resume](N16_DURABLE_CHECKPOINT_RESUME.md)
 - [N17 Dynamic Tool Router](N17_DYNAMIC_TOOL_ROUTER.md)
