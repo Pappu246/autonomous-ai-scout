@@ -1,6 +1,6 @@
 [project]
 name = "autonomous-ai-scout"
-version = "0.2.3"
+version = "0.3.0"
 description = "Free-first autonomous AI scout, project auditor, benchmarker and opportunity agent"
 requires-python = ">=3.11"
 dependencies = [

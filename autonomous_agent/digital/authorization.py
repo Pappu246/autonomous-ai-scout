@@ -181,6 +181,8 @@ class CapabilityAuthorizationBroker:
     ) -> StepAuthorization:
         capability = self._catalog.get(capability_id)
         if capability is None:
+            capability = self._catalog.by_tool(capability_id)
+        if capability is None:
             # Unknown capabilities fail closed: never inferred, never defaulted.
             return StepAuthorization(
                 capability_id,

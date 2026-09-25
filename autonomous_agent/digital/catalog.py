@@ -279,7 +279,7 @@ class CapabilityCatalog:
                 "title": descriptor.title,
                 "phase": descriptor.phase.value,
                 "registered_capabilities": len(self.capabilities(domain=descriptor.domain)),
-                "usable": bool(self.capabilities(domain=descriptor.domain)),
+                "usable": self._domain_is_usable(descriptor.domain),
             }
             for descriptor in DOMAIN_DESCRIPTORS
         )

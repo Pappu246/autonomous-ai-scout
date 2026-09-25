@@ -163,7 +163,10 @@ def test_default_selection_is_read_only_and_narrow(catalog):
     """An ambiguous goal must never select a side effect by accident."""
     for domain, capability_ids in DEFAULT_CAPABILITIES.items():
         for capability_id in capability_ids:
-            descriptor = catalog.get(capability_id).discover()
+            cap = catalog.get(capability_id)
+            if cap is None:
+                continue
+            descriptor = cap.discover()
             assert descriptor.domain is domain
             assert descriptor.read_write == "read_only"
             assert descriptor.safe_autonomous

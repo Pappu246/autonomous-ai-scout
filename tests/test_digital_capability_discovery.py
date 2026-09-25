@@ -62,7 +62,6 @@ def test_github_is_a_single_domain_not_the_product():
 def test_reserved_domains_are_declared_but_unimplemented():
     reserved = {item.domain for item in reserved_domains()}
     assert reserved == {
-        CapabilityDomain.COMPUTER,
         CapabilityDomain.APPLICATION,
         CapabilityDomain.DOCUMENTS,
     }
@@ -162,7 +161,7 @@ def test_documentation_model_covers_every_declared_domain():
     assert "filesystem:list" in docs.to_json()
     # Reserved domains appear with zero capabilities rather than being hidden.
     reserved = {item.domain for item in docs.domains if item.phase == "reserved"}
-    assert reserved == {"computer", "application", "documents"}
+    assert reserved == {"application", "documents"}
     for entry in docs.domains:
         if entry.domain in reserved:
             assert entry.capability_ids == ()
