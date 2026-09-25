@@ -80,6 +80,7 @@ from .policy import (
 from .replay import BrowserReplayProtector
 from .session import BrowserSession
 from .target import SemanticTargetResolver
+from .workflow import BoundedBrowserWorkflow, WorkflowResult, WorkflowStep, WorkflowStepResult
 
 __all__ = [
     "ALLOWED_PORTS",
@@ -92,6 +93,7 @@ __all__ = [
     "BackendUnavailableError",
     "BaseBrowserBackend",
     "BoundedBrowserConnector",
+    "BoundedBrowserWorkflow",
     "BrowserError",
     "BrowserReplayError",
     "BrowserReplayProtector",
@@ -111,6 +113,9 @@ __all__ = [
     "SessionState",
     "TargetResolutionError",
     "UnsupportedBrowserBackend",
+    "WorkflowResult",
+    "WorkflowStep",
+    "WorkflowStepResult",
     "assert_not_credential_field",
     "bound_download_size",
     "bound_response_size",
