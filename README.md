@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Pappu246/autonomous-ai-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/Pappu246/autonomous-ai-scout/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.2.3-black)](https://github.com/Pappu246/autonomous-ai-scout)
+[![Version](https://img.shields.io/badge/version-0.3.0-black)](https://github.com/Pappu246/autonomous-ai-scout)
 [![License](https://img.shields.io/badge/license-see%20repository-lightgrey)](https://github.com/Pappu246/autonomous-ai-scout)
 
 This project started as an autonomous repository/engineering scout. It is no longer
@@ -60,7 +60,7 @@ Capability domains are **peers**:
 | `calendar` | active | Read-only by default; create/update/cancel need human review |
 | `github` | active | One connector among many |
 | `testing` | active | Tests, lint, deterministic metrics |
-| `computer` | **reserved** | Declared, unimplemented — goals needing it fail closed |
+| `computer` | **active** | Bounded Windows desktop control: screen, window, mouse, keyboard, clipboard |
 | `application` | **reserved** | Declared, unimplemented |
 | `documents` | **reserved** | Declared, unimplemented |
 
@@ -97,7 +97,9 @@ result = agent.run(
 print(result.state, result.reason)
 ```
 
-Full design, guarantees and limitations: [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md).
+Full design, guarantees and limitations:
+- [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
+- [Phase 2 — Bounded Windows Computer Control](PHASE2_WINDOWS_COMPUTER_CONTROL.md)
 
 ---
 
