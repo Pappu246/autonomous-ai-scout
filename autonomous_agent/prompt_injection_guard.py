@@ -24,7 +24,7 @@ class GuardResult:
 
 
 _PATTERNS = (
-    (re.compile(r"ignore\s+(all|any|the|previous|prior)\s+instructions?", re.I), "instruction_override"),
+    (re.compile(r"(?:ignore|disregard|forget|bypass)\s+(?:(?:all|any|the|all\s+the|your)\s+)?(?:previous|prior|above|earlier|system)?\s*instructions?", re.I), "instruction_override"),
     (re.compile(r"system\s+prompt|developer\s+message|hidden\s+instructions?", re.I), "privilege_escalation"),
     (re.compile(r"reveal|exfiltrate|leak|show\s+me\s+(?:the\s+)?(?:password|api\s*key|token|secret)", re.I), "secret_exfiltration"),
     (re.compile(r"send\s+(?:this|it|the\s+data)\s+to\s+|upload\s+(?:this|it)\s+to\s+", re.I), "data_exfiltration"),

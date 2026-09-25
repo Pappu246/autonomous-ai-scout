@@ -16,6 +16,9 @@ from typing import Any, Iterable, Mapping
 
 from ..filesystem_workspace import WorkspaceConnector
 from ..tool_registry import REGISTRY, ToolRegistry
+from ..computer.backend import UnsupportedPlatformBackend
+from ..computer.policy import is_windows
+from ..computer.observer import ComputerPostConditionObserver
 from .contract import (
     CapabilityAvailability,
     CapabilityExecution,
@@ -256,6 +259,100 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         signals=("extract", "read page", "collect text", "scrape"),
         stage=30,
     ),
+    # -- computer control -------------------------------------------------
+    CapabilityDeclaration(
+        "computer:screen.capture",
+        CapabilityDomain.COMPUTER,
+        "computer.screen.capture",
+        "computer",
+        signals=("capture screen", "screenshot", "screen capture", "take screenshot", "capture the screen", "grab screen", "display capture", "screen image"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:window.list",
+        CapabilityDomain.COMPUTER,
+        "computer.window.list",
+        "computer",
+        signals=("list windows", "list window", "enumerate windows", "open windows", "all windows", "show windows", "find windows", "get windows", "running windows"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:window.active",
+        CapabilityDomain.COMPUTER,
+        "computer.window.active",
+        "computer",
+        signals=("active window", "current window", "foreground window", "focused window", "get active window", "which window is active"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:window.focus",
+        CapabilityDomain.COMPUTER,
+        "computer.window.focus",
+        "computer",
+        signals=("focus window", "switch to window", "bring window to front", "activate window", "switch window", "focus application"),
+        stage=30,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:app.launch",
+        CapabilityDomain.COMPUTER,
+        "computer.app.launch",
+        "computer",
+        signals=("launch app", "launch application", "open app", "open application", "open an application", "open the application", "open the app", "open an app", "start application", "start app", "run application"),
+        stage=60,
+    ),
+    CapabilityDeclaration(
+        "computer:mouse.move",
+        CapabilityDomain.COMPUTER,
+        "computer.mouse.move",
+        "computer",
+        signals=("move mouse", "pointer move", "mouse position", "move cursor", "hover"),
+        stage=20,
+    ),
+    CapabilityDeclaration(
+        "computer:mouse.click",
+        CapabilityDomain.COMPUTER,
+        "computer.mouse.click",
+        "computer",
+        signals=("mouse click", "click mouse", "click at", "double click", "right click", "click button"),
+        stage=40,
+    ),
+    CapabilityDeclaration(
+        "computer:keyboard.type",
+        CapabilityDomain.COMPUTER,
+        "computer.keyboard.type",
+        "computer",
+        signals=("type text", "keyboard type", "enter text", "type input", "write text in window"),
+        stage=50,
+    ),
+    CapabilityDeclaration(
+        "computer:keyboard.hotkey",
+        CapabilityDomain.COMPUTER,
+        "computer.keyboard.hotkey",
+        "computer",
+        signals=("keyboard shortcut", "hotkey", "press keys", "shortcut combination", "key combination"),
+        stage=40,
+    ),
+    CapabilityDeclaration(
+        "computer:clipboard.read",
+        CapabilityDomain.COMPUTER,
+        "computer.clipboard.read",
+        "computer",
+        signals=("read clipboard", "get clipboard", "paste from clipboard", "clipboard content"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:clipboard.write",
+        CapabilityDomain.COMPUTER,
+        "computer.clipboard.write",
+        "computer",
+        signals=("write clipboard", "set clipboard", "copy to clipboard", "update clipboard"),
+        stage=50,
+    ),
     # -- GitHub (one domain among many) -----------------------------------
     CapabilityDeclaration(
         "github:inspect",
@@ -310,6 +407,7 @@ DEFAULT_CAPABILITIES: Mapping[CapabilityDomain, tuple[str, ...]] = {
     CapabilityDomain.EMAIL: ("email:search",),
     CapabilityDomain.CALENDAR: ("calendar:list",),
     CapabilityDomain.BROWSER: ("browser:open",),
+    CapabilityDomain.COMPUTER: ("computer:window.active",),
     CapabilityDomain.GITHUB: ("github:inspect",),
     CapabilityDomain.TESTING: ("testing:run",),
 }
@@ -387,16 +485,26 @@ def build_capabilities(
         root, connectors=connectors, timeout_seconds=timeout_seconds
     )
     workspace_connector = (connectors or {}).get("workspace")
+    computer_connector = (connectors or {}).get("computer")
     built: list[RegisteredToolCapability] = []
     for declaration in declarations:
         if tool_registry.get(declaration.tool_name) is None:
             continue
-        observer = (
-            FilesystemPostConditionObserver(workspace_connector)
-            if declaration.domain is CapabilityDomain.FILESYSTEM
-            and workspace_connector is not None
-            else None
-        )
+        observer = None
+        availability = CapabilityAvailability.AVAILABLE
+        if declaration.domain is CapabilityDomain.FILESYSTEM and workspace_connector is not None:
+            observer = FilesystemPostConditionObserver(workspace_connector)
+        elif declaration.domain is CapabilityDomain.COMPUTER:
+            if computer_connector is not None:
+                observer = ComputerPostConditionObserver(computer_connector)
+            is_mock = (
+                computer_connector is not None
+                and hasattr(computer_connector, "backend")
+                and not isinstance(getattr(computer_connector, "backend", None), UnsupportedPlatformBackend)
+            )
+            if not is_windows() and not is_mock:
+                availability = CapabilityAvailability.DISABLED
+
         built.append(
             RegisteredToolCapability.from_tool(
                 declaration.tool_name,
@@ -405,6 +513,7 @@ def build_capabilities(
                 signals=declaration.signals,
                 stage=declaration.stage,
                 retry_policy=declaration.retry_policy,
+                availability=availability,
                 credential_handling=declaration.credential_handling,
                 executor=executor,
                 tool_registry=tool_registry,

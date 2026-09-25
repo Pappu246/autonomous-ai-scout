@@ -37,8 +37,8 @@ from .domains import CapabilityDomain
 
 
 _SECRET_MATERIAL = re.compile(
-    r"(?i)(?:api[_-]?key|access[_-]?token|authorization|password|passwd|secret|"
-    r"private[_-]?key|client[_-]?secret)\s*[:=]\s*\S+"
+    r"(?i)((?:api[_-]?key|access[_-]?token|authorization|password|passwd|secret|"
+    r"private[_-]?key|client[_-]?secret)\s*[:=]\s*)\S+"
 )
 
 REDACTED = "[REDACTED]"
@@ -52,7 +52,7 @@ def redact_secret_material(value: Any) -> Any:
     context or an audit record.
     """
     if isinstance(value, str):
-        return _SECRET_MATERIAL.sub(lambda match: match.group(1) + "=" + REDACTED, value)
+        return _SECRET_MATERIAL.sub(r"\1" + REDACTED, value)
     if isinstance(value, Mapping):
         return {str(key): redact_secret_material(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -106,6 +106,17 @@ TOOL_SANDBOX_BINDINGS: Mapping[str, tuple[str, str | None, str | None]] = {
     "browser.open": ("browser", "browser", "open"),
     "browser.click": ("browser", "browser", "click"),
     "browser.extract": ("browser", "browser", "extract"),
+    "computer.screen.capture": ("computer", "computer", "screen_capture"),
+    "computer.window.list": ("computer", "computer", "window_list"),
+    "computer.window.active": ("computer", "computer", "window_active"),
+    "computer.window.focus": ("computer", "computer", "window_focus"),
+    "computer.app.launch": ("computer", "computer", "app_launch"),
+    "computer.mouse.move": ("computer", "computer", "mouse_move"),
+    "computer.mouse.click": ("computer", "computer", "mouse_click"),
+    "computer.keyboard.type": ("computer", "computer", "keyboard_type"),
+    "computer.keyboard.hotkey": ("computer", "computer", "keyboard_hotkey"),
+    "computer.clipboard.read": ("computer", "computer", "clipboard_read"),
+    "computer.clipboard.write": ("computer", "computer", "clipboard_write"),
     "github.inspect": ("inspect", None, None),
     "tests.run": ("test", None, None),
     "lint.run": ("lint", None, None),
