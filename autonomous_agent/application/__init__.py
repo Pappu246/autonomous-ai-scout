@@ -1,6 +1,7 @@
 """Bounded application adapter domain (Phase 4).
 
 Provides bounded, safe application adapter architecture, data models,
+backend implementations, sessions, target resolution, replay protection,
 and platform-independent security policy.
 
 Guarantees:
@@ -10,11 +11,18 @@ Guarantees:
 - Workspace path confinement and path traversal protection.
 - Credential detection and redaction.
 - Bounded payload sizes, argument lengths, and action budgets.
+- Replay protection preventing repeated mutations upon resume.
 - Approval gating for consequential operations.
 """
 
 from __future__ import annotations
 
+from .backend import (
+    BaseApplicationBackend,
+    MockApplicationBackend,
+    UnsupportedApplicationBackend,
+)
+from .connector import BoundedApplicationConnector
 from .models import (
     ActionBudget,
     ActionBudgetExceededError,
@@ -31,6 +39,7 @@ from .models import (
     ApplicationSessionSnapshot,
     ApplicationState,
     ApplicationTarget,
+    BackendUnavailableError,
     MAX_ACTION_BUDGET,
     MAX_APP_NAME_LENGTH,
     MAX_ARGV_COUNT,
@@ -41,6 +50,7 @@ from .models import (
     MAX_TEXT_PAYLOAD_LENGTH,
     MAX_WORKFLOW_STEPS,
     REDACTED,
+    TargetResolutionError,
     consequential_signal,
     looks_like_secret,
     redact_secret,
@@ -61,6 +71,9 @@ from .policy import (
     validate_command_arguments,
     validate_text_payload,
 )
+from .replay import ApplicationReplayProtector
+from .session import ApplicationSession
+from .target import ApplicationSemanticTargetResolver
 
 __all__ = [
     "ALLOWED_ADAPTER_COMMANDS",
@@ -74,11 +87,17 @@ __all__ = [
     "ApplicationNotFoundError",
     "ApplicationObservation",
     "ApplicationReplayError",
+    "ApplicationReplayProtector",
     "ApplicationSecurityError",
+    "ApplicationSemanticTargetResolver",
+    "ApplicationSession",
     "ApplicationSessionError",
     "ApplicationSessionSnapshot",
     "ApplicationState",
     "ApplicationTarget",
+    "BackendUnavailableError",
+    "BaseApplicationBackend",
+    "BoundedApplicationConnector",
     "DANGEROUS_FLAGS",
     "DENYLISTED_EXECUTABLES",
     "FORBIDDEN_METACHARS",
@@ -91,7 +110,10 @@ __all__ = [
     "MAX_SESSIONS",
     "MAX_TEXT_PAYLOAD_LENGTH",
     "MAX_WORKFLOW_STEPS",
+    "MockApplicationBackend",
     "REDACTED",
+    "TargetResolutionError",
+    "UnsupportedApplicationBackend",
     "assert_not_denylisted",
     "assert_safe_flag",
     "confine_document_path",

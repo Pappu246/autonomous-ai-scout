@@ -40,8 +40,24 @@ class DocumentTransformError(DocumentError):
     """Raised when a document transformation operation fails."""
 
 
+class DocumentSessionError(DocumentError):
+    """Raised when an operation requires an open, valid documents session."""
+
+
+class DocumentReplayError(DocumentError):
+    """Raised when a resume would blindly repeat a completed mutating document action."""
+
+
+class TargetResolutionError(DocumentError):
+    """Raised when a semantic document target cannot be resolved or is stale."""
+
+
 class ActionBudgetExceededError(DocumentError):
     """Raised when an operation attempts to exceed the allocated document action budget."""
+
+
+class BackendUnavailableError(DocumentError):
+    """Raised when no real document backend is available in this environment."""
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +325,7 @@ class ActionBudget:
 __all__ = [
     "ActionBudget",
     "ActionBudgetExceededError",
+    "BackendUnavailableError",
     "DocumentError",
     "DocumentExtractionError",
     "DocumentFormatError",
@@ -317,7 +334,9 @@ __all__ = [
     "DocumentObservation",
     "DocumentOperationType",
     "DocumentPage",
+    "DocumentReplayError",
     "DocumentSecurityError",
+    "DocumentSessionError",
     "DocumentTable",
     "DocumentTransformError",
     "DocumentTransformRequest",
@@ -333,6 +352,7 @@ __all__ = [
     "MAX_TABLE_COLUMNS",
     "MAX_TABLE_ROWS",
     "REDACTED",
+    "TargetResolutionError",
     "consequential_signal",
     "looks_like_secret",
     "redact_secret",

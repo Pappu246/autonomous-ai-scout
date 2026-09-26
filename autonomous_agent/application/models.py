@@ -37,12 +37,20 @@ class ApplicationReplayError(ApplicationError):
     """Raised when a resume would blindly repeat a completed mutating action."""
 
 
+class TargetResolutionError(ApplicationError):
+    """Raised when a semantic application target cannot be resolved or is stale."""
+
+
 class ActionBudgetExceededError(ApplicationError):
     """Raised when an operation attempts to exceed the allocated action budget."""
 
 
-class AdapterUnavailableError(ApplicationError):
+class BackendUnavailableError(ApplicationError):
     """Raised when no real application adapter backend is available in this environment."""
+
+
+class AdapterUnavailableError(BackendUnavailableError):
+    """Alias for backwards compatibility with M1."""
 
 
 # --------------------------------------------------------------------------
@@ -168,6 +176,7 @@ class ApplicationTarget:
     app_id: str
     document_path: str = ""
     view_name: str = ""
+    control_id: str = ""
     epoch: int = 0
 
     def safe_dict(self) -> dict[str, Any]:
@@ -176,6 +185,7 @@ class ApplicationTarget:
             "app_id": self.app_id,
             "document_path": redact_secret(self.document_path)[:MAX_DOCUMENT_PATH_LENGTH],
             "view_name": redact_secret(self.view_name)[:128],
+            "control_id": redact_secret(self.control_id)[:128],
             "epoch": self.epoch,
         }
 
@@ -293,6 +303,7 @@ __all__ = [
     "ApplicationSessionSnapshot",
     "ApplicationState",
     "ApplicationTarget",
+    "BackendUnavailableError",
     "MAX_ACTION_BUDGET",
     "MAX_APP_NAME_LENGTH",
     "MAX_ARGV_COUNT",
@@ -303,6 +314,7 @@ __all__ = [
     "MAX_TEXT_PAYLOAD_LENGTH",
     "MAX_WORKFLOW_STEPS",
     "REDACTED",
+    "TargetResolutionError",
     "consequential_signal",
     "looks_like_secret",
     "redact_secret",

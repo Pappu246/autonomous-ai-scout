@@ -1,6 +1,7 @@
 """Bounded document processing domain (Phase 4).
 
 Provides bounded, safe document processing architecture, data models,
+backend implementations, sessions, target resolution, replay protection,
 and platform-independent security policy.
 
 Guarantees:
@@ -11,14 +12,24 @@ Guarantees:
 - Credential detection and redaction.
 - Bounded document size, page counts, extracted text, and action budgets.
 - Untrusted document content wrapping to guard against prompt injection.
+- Replay protection preventing repeated mutations upon resume.
 - Approval gating for consequential operations.
 """
 
 from __future__ import annotations
 
+from .backend import (
+    BaseDocumentsBackend,
+    MockDocumentsBackend,
+    UnsupportedDocumentsBackend,
+    _MockDocument,
+    checksum,
+)
+from .connector import BoundedDocumentsConnector
 from .models import (
     ActionBudget,
     ActionBudgetExceededError,
+    BackendUnavailableError,
     DocumentError,
     DocumentExtractionError,
     DocumentFormatError,
@@ -27,7 +38,9 @@ from .models import (
     DocumentObservation,
     DocumentOperationType,
     DocumentPage,
+    DocumentReplayError,
     DocumentSecurityError,
+    DocumentSessionError,
     DocumentTable,
     DocumentTransformError,
     DocumentTransformRequest,
@@ -43,6 +56,7 @@ from .models import (
     MAX_TABLE_COLUMNS,
     MAX_TABLE_ROWS,
     REDACTED,
+    TargetResolutionError,
     consequential_signal,
     looks_like_secret,
     redact_secret,
@@ -65,12 +79,18 @@ from .policy import (
     validate_document_extension,
     validate_page_range,
 )
+from .replay import DocumentsReplayProtector
+from .session import DocumentsSession, DocumentsSessionSnapshot, SessionState
+from .target import DocumentTarget, SemanticDocumentTargetResolver
 
 __all__ = [
     "ALLOWED_EXTENSIONS_MAP",
     "ActionBudget",
     "ActionBudgetExceededError",
     "BLOCKED_DOCUMENT_EXTENSIONS",
+    "BackendUnavailableError",
+    "BaseDocumentsBackend",
+    "BoundedDocumentsConnector",
     "DANGEROUS_PDF_TOKENS",
     "DocumentError",
     "DocumentExtractionError",
@@ -80,12 +100,18 @@ __all__ = [
     "DocumentObservation",
     "DocumentOperationType",
     "DocumentPage",
+    "DocumentReplayError",
     "DocumentSecurityError",
+    "DocumentSessionError",
     "DocumentTable",
+    "DocumentTarget",
     "DocumentTransformError",
     "DocumentTransformRequest",
     "DocumentTransformResult",
     "DocumentType",
+    "DocumentsReplayProtector",
+    "DocumentsSession",
+    "DocumentsSessionSnapshot",
     "MAX_ACTION_BUDGET",
     "MAX_DOCUMENT_BYTES",
     "MAX_EXTRACTED_TEXT_LENGTH",
@@ -95,12 +121,19 @@ __all__ = [
     "MAX_PAGE_TEXT_LENGTH",
     "MAX_TABLE_COLUMNS",
     "MAX_TABLE_ROWS",
+    "MockDocumentsBackend",
     "REDACTED",
+    "SemanticDocumentTargetResolver",
+    "SessionState",
+    "TargetResolutionError",
+    "UnsupportedDocumentsBackend",
+    "_MockDocument",
     "assert_not_blocked_extension",
     "assert_safe_pdf_bytes",
     "bound_document_size",
     "bound_extracted_text",
     "bound_page_count",
+    "checksum",
     "confine_document_output_path",
     "confine_workspace_path",
     "consequential_signal",
