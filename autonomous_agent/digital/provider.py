@@ -36,25 +36,41 @@ from .contract import (
 from .domains import CapabilityDomain
 
 
-_SECRET_MATERIAL = re.compile(
-    r"(?i)((?:api[_-]?key|access[_-]?token|authorization|password|passwd|secret|"
-    r"private[_-]?key|client[_-]?secret)\s*[:=]\s*)\S+"
+_SECRET_KEY = re.compile(
+    r"(?i)^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization|"
+    r"password|passwd|secret|private[_-]?key|client[_-]?secret|credentials?)$"
 )
+
+_SECRET_MATERIAL = re.compile(
+    r"(?i)((?:\b|[_-])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
+    r"authorization|password|passwd|secret|private[_-]?key|"
+    r"client[_-]?secret|credentials?)\s*[:=]\s*)\S+"
+)
+
+_BEARER_MATERIAL = re.compile(r"(?i)(bearer\s+)\S+")
 
 REDACTED = "[REDACTED]"
 
 
 def redact_secret_material(value: Any) -> Any:
-    """Recursively strip credential-looking ``key=value`` pairs from evidence.
+    """Recursively strip credential-looking ``key=value`` pairs and sensitive dictionary fields from evidence.
 
     Connectors already redact their own payloads; this is the second, layer-wide
     guarantee so capability evidence can never smuggle a secret into model
     context or an audit record.
     """
     if isinstance(value, str):
-        return _SECRET_MATERIAL.sub(r"\1" + REDACTED, value)
+        stripped = _BEARER_MATERIAL.sub(r"\1" + REDACTED, value)
+        return _SECRET_MATERIAL.sub(r"\1" + REDACTED, stripped)
     if isinstance(value, Mapping):
-        return {str(key): redact_secret_material(item) for key, item in value.items()}
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            str_key = str(key)
+            if _SECRET_KEY.match(str_key):
+                cleaned[str_key] = REDACTED
+            else:
+                cleaned[str_key] = redact_secret_material(item)
+        return cleaned
     if isinstance(value, (list, tuple)):
         return type(value)(redact_secret_material(item) for item in value)  # type: ignore[call-arg]
     return value

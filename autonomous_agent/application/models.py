@@ -71,9 +71,9 @@ MAX_WORKFLOW_STEPS = 25
 # Credential material -- detection and redaction
 # --------------------------------------------------------------------------
 _CREDENTIAL_MATERIAL = re.compile(
-    r"(?i)((?:\bapi[_-]?key\b|\baccess[_-]?token\b|\brefresh[_-]?token\b|\btoken\b|"
-    r"\bauthorization\b|\bpassword\b|\bpasswd\b|\bsecret\b|\bprivate[_-]?key\b|"
-    r"\bclient[_-]?secret\b|\bcredentials?\b)\s*[:=]\s*)\S+"
+    r"(?i)((?:\b|[_-])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
+    r"authorization|password|passwd|secret|private[_-]?key|"
+    r"client[_-]?secret|credentials?)\s*[:=]\s*)\S+"
 )
 _BEARER_MATERIAL = re.compile(r"(?i)(bearer\s+)\S+")
 REDACTED = "[REDACTED]"

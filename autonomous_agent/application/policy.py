@@ -255,8 +255,15 @@ def confine_workspace_path(workspace_root: Path | str, relative_path: str) -> tu
     """Resolve a path strictly inside workspace root, rejecting path traversal."""
     if not isinstance(relative_path, str) or not relative_path.strip():
         raise ApplicationSecurityError("a workspace-relative path is required")
+    cleaned = relative_path.strip()
+    if len(cleaned) > MAX_DOCUMENT_PATH_LENGTH:
+        raise ApplicationSecurityError(
+            f"path exceeds maximum allowed length: {len(cleaned)} > {MAX_DOCUMENT_PATH_LENGTH}"
+        )
+    if re.match(r"^[a-zA-Z]:", cleaned) or cleaned.startswith(("\\\\", "//")):
+        raise ApplicationSecurityError("absolute or drive-letter paths are not permitted")
     root = Path(workspace_root).resolve()
-    candidate = PurePosixPath(relative_path.replace("\\", "/"))
+    candidate = PurePosixPath(cleaned.replace("\\", "/"))
     if candidate.is_absolute() or ".." in candidate.parts:
         raise ApplicationSecurityError("path traversal is not permitted")
     destination = (root / candidate).resolve()

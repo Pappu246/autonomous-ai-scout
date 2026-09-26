@@ -22,6 +22,7 @@ from .models import (
     DocumentSecurityError,
     DocumentSessionError,
     DocumentTable,
+    DocumentTransformError,
     DocumentTransformRequest,
     DocumentTransformResult,
     consequential_signal,
@@ -30,6 +31,7 @@ from .models import (
     wrap_untrusted_document_content,
 )
 from .policy import (
+    assert_not_blocked_extension,
     confine_workspace_path,
 )
 from .replay import DocumentsReplayProtector
@@ -163,6 +165,14 @@ class BoundedDocumentsConnector:
 
     def transform(self, request: DocumentTransformRequest) -> DocumentTransformResult:
         self._session.ensure_open()
+        if not request.input_paths:
+            raise DocumentTransformError("at least one input path is required for transformation")
+        for in_path in request.input_paths:
+            confine_workspace_path(self._workspace_root, in_path)
+            assert_not_blocked_extension(in_path)
+        confine_workspace_path(self._workspace_root, request.output_path)
+        assert_not_blocked_extension(request.output_path)
+
         # Consequential check
         conseq = consequential_signal(str(request.operation), request.output_path)
         if conseq:

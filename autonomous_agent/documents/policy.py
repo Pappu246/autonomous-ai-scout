@@ -50,7 +50,7 @@ BLOCKED_DOCUMENT_EXTENSIONS: frozenset[str] = frozenset({
     ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppam", ".ppsm", ".sldm",
     # Executable / script formats
     ".exe", ".dll", ".so", ".dylib", ".bin", ".com", ".scr", ".msi", ".bat", ".cmd",
-    ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".jar", ".py", ".sh",
+    ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".jar", ".py", ".sh", ".pif",
 })
 
 DANGEROUS_PDF_TOKENS: tuple[bytes, ...] = (
@@ -234,8 +234,13 @@ def confine_workspace_path(workspace_root: Path | str, relative_path: str) -> tu
     """Resolve a path strictly inside workspace root, rejecting path traversal."""
     if not isinstance(relative_path, str) or not relative_path.strip():
         raise DocumentSecurityError("a workspace-relative path is required")
+    cleaned = relative_path.strip()
+    if len(cleaned) > 1024:
+        raise DocumentSecurityError(f"path exceeds maximum allowed length: {len(cleaned)} > 1024")
+    if re.match(r"^[a-zA-Z]:", cleaned) or cleaned.startswith(("\\\\", "//")):
+        raise DocumentSecurityError("absolute or drive-letter paths are not permitted")
     root = Path(workspace_root).resolve()
-    candidate = PurePosixPath(relative_path.replace("\\", "/"))
+    candidate = PurePosixPath(cleaned.replace("\\", "/"))
     if candidate.is_absolute() or ".." in candidate.parts:
         raise DocumentSecurityError("path traversal is not permitted")
     destination = (root / candidate).resolve()
