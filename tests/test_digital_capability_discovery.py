@@ -15,6 +15,7 @@ from autonomous_agent.digital.domains import (
     CapabilityDomain,
     DomainPhase,
     active_domains,
+    domain_descriptor,
     reserved_domains,
 )
 from autonomous_agent.tool_registry import REGISTRY
@@ -59,16 +60,18 @@ def test_github_is_a_single_domain_not_the_product():
     assert CapabilityDomain.GITHUB in {item.domain for item in active_domains()}
 
 
-def test_reserved_domains_are_declared_but_unimplemented():
-    reserved = {item.domain for item in reserved_domains()}
-    assert reserved == {
-        CapabilityDomain.APPLICATION,
-        CapabilityDomain.DOCUMENTS,
-    }
-    for descriptor in reserved_domains():
-        assert descriptor.phase is DomainPhase.RESERVED
-        assert not descriptor.registered
-        assert descriptor.notes
+def test_application_and_documents_are_active_without_fake_capabilities():
+    assert domain_descriptor(CapabilityDomain.APPLICATION).phase is DomainPhase.ACTIVE
+    assert domain_descriptor(CapabilityDomain.DOCUMENTS).phase is DomainPhase.ACTIVE
+    assert domain_descriptor(CapabilityDomain.APPLICATION).registered
+    assert domain_descriptor(CapabilityDomain.DOCUMENTS).registered
+
+
+def test_no_active_m1_domain_has_a_fake_capability():
+    # M1 adds architecture only; adapters remain absent.
+    for descriptor in DOMAIN_DESCRIPTORS:
+        if descriptor.domain in {CapabilityDomain.APPLICATION, CapabilityDomain.DOCUMENTS}:
+            assert descriptor.domain not in {item.domain for item in reserved_domains()}
 
 
 def test_no_reserved_domain_has_a_fake_capability():
@@ -159,15 +162,14 @@ def test_documentation_model_covers_every_declared_domain():
     }
     assert docs.digest
     assert "filesystem:list" in docs.to_json()
-    # Reserved domains appear with zero capabilities rather than being hidden.
-    reserved = {item.domain for item in docs.domains if item.phase == "reserved"}
-    assert reserved == {"application", "documents"}
-    for entry in docs.domains:
-        if entry.domain in reserved:
-            assert entry.capability_ids == ()
+    # Active architecture domains appear even before their later adapters exist.
+    for domain in {"application", "documents"}:
+        entry = next(item for item in docs.domains if item.domain == domain)
+        assert entry.phase == "active"
+        assert entry.capability_ids == ()
 
 
-def test_domain_status_marks_reserved_domains_unusable(tmp_path: Path):
+def test_domain_status_marks_unimplemented_active_domains_unusable(tmp_path: Path):
     agent = build_agent(root=tmp_path)
     status = {item["domain"]: item for item in agent.domain_status()}
     assert status["computer"]["usable"] is False

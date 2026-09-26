@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 class Capability(str,Enum):
-    INSPECT="inspect";TEST="test";LINT="lint";METRICS="metrics";READ_FILE="read_file";BENCHMARK="benchmark";WEB_RESEARCH="web_research";FILES_WORKSPACE="files_workspace";WORKSPACE_SHELL="workspace_shell";EMAIL="email";CALENDAR="calendar";BROWSER="browser";COMPUTER="computer";REST_API="rest_api";NETWORK="network";SECRETS="secrets";BILLING="billing";SOURCE_WRITE="source_write";MERGE="merge";DEPLOY="deploy";DESTRUCTIVE="destructive"
-SAFE_CAPABILITIES=frozenset({Capability.INSPECT,Capability.TEST,Capability.LINT,Capability.METRICS,Capability.READ_FILE,Capability.BENCHMARK,Capability.WEB_RESEARCH,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL,Capability.EMAIL,Capability.CALENDAR,Capability.BROWSER,Capability.COMPUTER,Capability.REST_API})
+    INSPECT="inspect";TEST="test";LINT="lint";METRICS="metrics";READ_FILE="read_file";BENCHMARK="benchmark";WEB_RESEARCH="web_research";FILES_WORKSPACE="files_workspace";WORKSPACE_SHELL="workspace_shell";EMAIL="email";CALENDAR="calendar";BROWSER="browser";COMPUTER="computer";APPLICATION="application";DOCUMENTS="documents";REST_API="rest_api";NETWORK="network";SECRETS="secrets";BILLING="billing";SOURCE_WRITE="source_write";MERGE="merge";DEPLOY="deploy";DESTRUCTIVE="destructive"
+SAFE_CAPABILITIES=frozenset({Capability.INSPECT,Capability.TEST,Capability.LINT,Capability.METRICS,Capability.READ_FILE,Capability.BENCHMARK,Capability.WEB_RESEARCH,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL,Capability.EMAIL,Capability.CALENDAR,Capability.BROWSER,Capability.COMPUTER,Capability.APPLICATION,Capability.DOCUMENTS,Capability.REST_API})
 DENIED_CAPABILITIES=frozenset(set(Capability)-SAFE_CAPABILITIES)
 @dataclass(frozen=True)
 class CapabilityDecision: allowed:bool;reason:str;capability:str

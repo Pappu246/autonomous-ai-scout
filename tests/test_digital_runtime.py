@@ -259,11 +259,11 @@ def test_capability_that_disappears_before_execution_blocks_the_run(tmp_path: Pa
     assert executor.calls == []
 
 
-def test_reserved_domain_goal_is_blocked_not_faked(tmp_path: Path):
+def test_active_document_domain_without_adapter_is_blocked_not_faked(tmp_path: Path):
     runtime, _ = build_runtime(("filesystem:list",), RecordingExecutor())
     result = run(runtime, "extract text from the pdf report", tmp_path)
     assert result.state is DigitalResultState.BLOCKED
-    assert "not yet registered" in result.reason
+    assert "no usable capability" in result.reason
 
 
 def test_computer_control_goal_is_blocked(tmp_path: Path):

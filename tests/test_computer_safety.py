@@ -637,20 +637,17 @@ def test_unsupported_platform_clipboard_write_fails_closed(unsupported_connector
         unsupported_connector.clipboard_write("data")
 
 
-def test_application_domain_remains_reserved():
+def test_application_and_documents_are_active_domains_without_backends():
     reserved = {d.domain for d in reserved_domains()}
-    assert CapabilityDomain.APPLICATION in reserved
+    assert CapabilityDomain.APPLICATION not in reserved
+    assert CapabilityDomain.DOCUMENTS not in reserved
 
 
-def test_documents_domain_remains_reserved():
-    reserved = {d.domain for d in reserved_domains()}
-    assert CapabilityDomain.DOCUMENTS in reserved
-
-
-def test_route_to_application_domain_fails_closed(catalog):
+def test_route_to_application_domain_fails_closed_without_registered_adapter(catalog):
     res = catalog.route("open this in visual studio code")
-    assert CapabilityDomain.APPLICATION in res.reserved_required
+    assert res.reserved_required == ()
     assert not res.routed
+    assert "no usable capability" in res.reason
 
 
 def test_unknown_computer_capability_fails_closed(broker):

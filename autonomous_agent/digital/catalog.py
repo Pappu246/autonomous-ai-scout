@@ -329,9 +329,9 @@ class CapabilityCatalog:
         2. Within each matched active domain, prefer capabilities whose own
            signals matched; otherwise fall back to that domain's declared
            read-only defaults.
-        3. A matched *reserved* domain (computer control, application adapter,
-           document processing) is reported as required but unavailable, so the
-           caller fails closed instead of pretending to have done the work.
+        3. A matched *reserved* domain is reported as required but unavailable; an
+           active domain without a registered capability also fails closed
+           instead of pretending to have done the work.
         4. Write/side-effect capabilities are only ever selected by an explicit
            capability-level signal match, never by a domain fallback.
         """
@@ -367,7 +367,7 @@ class CapabilityCatalog:
                     descriptor.domain,
                     sum(len(signal) for signal in hit),
                     hit,
-                    self._domain_is_usable(descriptor.domain),
+                    descriptor.registered,
                 )
             )
         matches.sort(key=lambda item: (-item.score, item.domain.value))

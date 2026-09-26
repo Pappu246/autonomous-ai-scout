@@ -25,9 +25,9 @@ Design rules that hold across the package:
 * Unknown capabilities and unregistered domains fail closed.
 * Success is only reported as ``VERIFIED`` when observable evidence exists, so
   no-op and failed operations can never be presented as verified.
-* Reserved domains (computer control, application adapters, document
-  processing) are declared but deliberately unimplemented; they block rather
-  than pretend.
+* Domains may be active at the architecture level before adapters exist;
+  unimplemented application and document adapters still block rather than
+  pretend.
 """
 
 from __future__ import annotations

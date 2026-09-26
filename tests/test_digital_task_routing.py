@@ -96,17 +96,18 @@ def test_empty_goal_fails_closed(catalog):
     assert not routing.routed
 
 
-def test_reserved_domain_makes_routing_fail_closed(catalog):
+def test_document_domain_without_adapter_makes_routing_fail_closed(catalog):
     routing = catalog.route("extract text from the pdf report")
-    assert routing.reserved_required == (CapabilityDomain.DOCUMENTS,)
+    assert routing.reserved_required == ()
     assert not routing.routed
-    assert "not registered" in routing.reason
+    assert "no usable capability" in routing.reason
 
 
 def test_computer_control_goal_is_honest_about_being_unavailable(catalog):
     routing = catalog.route("open an application called the calculator")
-    assert CapabilityDomain.COMPUTER in routing.reserved_required
+    assert routing.reserved_required == ()
     assert not routing.routed
+    assert "no usable capability" in routing.reason
 
 
 def test_file_level_organization_stays_in_the_filesystem_domain(catalog):
@@ -253,12 +254,13 @@ def test_a_new_domain_is_purely_declarative():
     assert CapabilityPlanner(catalog).plan("activate the desktop icon to start").executable
 
 
-def test_understand_goal_reports_reserved_requirements():
+def test_understand_goal_reports_active_domain_without_adapter():
     catalog = build_catalog(("filesystem:list",), RecordingExecutor())
     profile = understand_goal("extract text from the pdf report", catalog)
     assert not profile.understood
-    assert profile.requires_unregistered_capability
-    assert profile.reserved_domains == (CapabilityDomain.DOCUMENTS,)
+    assert not profile.requires_unregistered_capability
+    assert profile.reserved_domains == ()
+    assert profile.domains == (CapabilityDomain.DOCUMENTS,)
 
 
 def test_understand_goal_never_exposes_credentials():
