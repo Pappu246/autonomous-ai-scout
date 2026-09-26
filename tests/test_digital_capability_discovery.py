@@ -59,20 +59,16 @@ def test_github_is_a_single_domain_not_the_product():
     assert CapabilityDomain.GITHUB in {item.domain for item in active_domains()}
 
 
-def test_reserved_domains_are_declared_but_unimplemented():
-    reserved = {item.domain for item in reserved_domains()}
-    assert reserved == {
-        CapabilityDomain.APPLICATION,
-        CapabilityDomain.DOCUMENTS,
-    }
-    for descriptor in reserved_domains():
-        assert descriptor.phase is DomainPhase.RESERVED
-        assert not descriptor.registered
-        assert descriptor.notes
+def test_all_capability_domains_are_active_in_phase4():
+    assert len(active_domains()) == len(DOMAIN_DESCRIPTORS)
+    assert reserved_domains() == ()
+    for descriptor in active_domains():
+        assert descriptor.phase is DomainPhase.ACTIVE
+        assert descriptor.registered
 
 
 def test_no_reserved_domain_has_a_fake_capability():
-    """Reserved domains must not be satisfied by placeholder executors."""
+    """No domain without registered capabilities has fake builtins."""
     for declaration in BUILTIN_DECLARATIONS:
         assert declaration.domain not in {item.domain for item in reserved_domains()}
 
@@ -159,11 +155,11 @@ def test_documentation_model_covers_every_declared_domain():
     }
     assert docs.digest
     assert "filesystem:list" in docs.to_json()
-    # Reserved domains appear with zero capabilities rather than being hidden.
-    reserved = {item.domain for item in docs.domains if item.phase == "reserved"}
-    assert reserved == {"application", "documents"}
+    # In Phase 4 all domains are active; application and documents appear with zero capabilities in M1.
+    active = {item.domain for item in docs.domains if item.phase == "active"}
+    assert len(active) == len(DOMAIN_DESCRIPTORS)
     for entry in docs.domains:
-        if entry.domain in reserved:
+        if entry.domain in {"application", "documents"}:
             assert entry.capability_ids == ()
 
 

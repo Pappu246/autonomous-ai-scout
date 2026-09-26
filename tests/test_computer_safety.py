@@ -41,7 +41,7 @@ from autonomous_agent.digital.contract import (
     CapabilityExecution,
     CapabilityRequest,
 )
-from autonomous_agent.digital.domains import CapabilityDomain, reserved_domains
+from autonomous_agent.digital.domains import CapabilityDomain, active_domains, reserved_domains
 from autonomous_agent.prompt_injection_guard import PromptInjectionGuard, TrustLevel
 from autonomous_agent.tool_registry import REGISTRY
 
@@ -637,14 +637,14 @@ def test_unsupported_platform_clipboard_write_fails_closed(unsupported_connector
         unsupported_connector.clipboard_write("data")
 
 
-def test_application_domain_remains_reserved():
-    reserved = {d.domain for d in reserved_domains()}
-    assert CapabilityDomain.APPLICATION in reserved
+def test_application_domain_is_active():
+    active = {d.domain for d in active_domains()}
+    assert CapabilityDomain.APPLICATION in active
 
 
-def test_documents_domain_remains_reserved():
-    reserved = {d.domain for d in reserved_domains()}
-    assert CapabilityDomain.DOCUMENTS in reserved
+def test_documents_domain_is_active():
+    active = {d.domain for d in active_domains()}
+    assert CapabilityDomain.DOCUMENTS in active
 
 
 def test_route_to_application_domain_fails_closed(catalog):

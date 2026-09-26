@@ -134,7 +134,7 @@ DOMAIN_DESCRIPTORS: tuple[DomainDescriptor, ...] = (
         "Application adapters",
         "Drive a specific third-party application through a bounded adapter "
         "(editor, office suite, IDE).",
-        DomainPhase.RESERVED,
+        DomainPhase.ACTIVE,
         signals=(
             "vs code",
             "visual studio code",
@@ -145,14 +145,14 @@ DOMAIN_DESCRIPTORS: tuple[DomainDescriptor, ...] = (
             "slack app",
             "inside the app",
         ),
-        notes="Reserved; application adapters must be registered explicitly.",
+        notes="Bounded application adapter domain.",
     ),
     DomainDescriptor(
         CapabilityDomain.DOCUMENTS,
         "Document processing",
         "Inspect, transform and produce rich documents such as PDFs, "
         "spreadsheets and slide decks.",
-        DomainPhase.RESERVED,
+        DomainPhase.ACTIVE,
         signals=(
             "read the pdf",
             "read pdf",
@@ -170,11 +170,7 @@ DOMAIN_DESCRIPTORS: tuple[DomainDescriptor, ...] = (
             "slide deck content",
             "rewrite the document",
         ),
-        notes="Reserved. Signals are deliberately content-oriented: moving, "
-        "renaming or listing files by extension is filesystem work and stays "
-        "with the filesystem domain, while reading or rewriting document "
-        "content needs a registered document capability that does not exist "
-        "in this phase.",
+        notes="Bounded document processing domain.",
     ),
     DomainDescriptor(
         CapabilityDomain.EMAIL,
