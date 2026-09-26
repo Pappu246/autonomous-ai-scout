@@ -26,6 +26,7 @@ from .backend import (
     checksum,
 )
 from .connector import BoundedDocumentsConnector
+from .observer import DocumentsPostConditionObserver
 from .models import (
     ActionBudget,
     ActionBudgetExceededError,
@@ -109,6 +110,7 @@ __all__ = [
     "DocumentTransformRequest",
     "DocumentTransformResult",
     "DocumentType",
+    "DocumentsPostConditionObserver",
     "DocumentsReplayProtector",
     "DocumentsSession",
     "DocumentsSessionSnapshot",

@@ -465,6 +465,87 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         retry_policy=RetryPolicy(2, 1),
         credential_handling="reference_only",
     ),
+    # -- documents (Phase 4) ----------------------------------------------
+    CapabilityDeclaration(
+        "documents:inspect",
+        CapabilityDomain.DOCUMENTS,
+        "documents.inspect",
+        "documents",
+        signals=("inspect document", "document info", "document metadata", "pdf info", "check document", "document details"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "documents:extract.text",
+        CapabilityDomain.DOCUMENTS,
+        "documents.extract.text",
+        "documents",
+        signals=("extract text from", "read the pdf", "read pdf", "pdf content", "pdf pages", "document text", "extract text"),
+        stage=20,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "documents:extract.tables",
+        CapabilityDomain.DOCUMENTS,
+        "documents.extract.tables",
+        "documents",
+        signals=("extract table", "extract tables", "table in pdf", "spreadsheet cells", "read table", "document table"),
+        stage=20,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "documents:page.read",
+        CapabilityDomain.DOCUMENTS,
+        "documents.page.read",
+        "documents",
+        signals=("read page", "page content", "view page", "read the page"),
+        stage=20,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "documents:transform",
+        CapabilityDomain.DOCUMENTS,
+        "documents.transform",
+        "documents",
+        signals=("merge pdf", "merge the pdf", "split pdf", "edit the pdf", "convert pdf", "fill in the form fields", "transform document", "convert document", "edit the spreadsheet", "rewrite the document"),
+        stage=60,
+    ),
+    # -- application adapters (Phase 4) ----------------------------------
+    CapabilityDeclaration(
+        "application:list",
+        CapabilityDomain.APPLICATION,
+        "application.list",
+        "application",
+        signals=("list applications", "available applications", "supported apps", "list apps", "show apps"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "application:inspect",
+        CapabilityDomain.APPLICATION,
+        "application.inspect",
+        "application",
+        signals=("inspect application", "app details", "application info", "inspect app"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "application:observe",
+        CapabilityDomain.APPLICATION,
+        "application.observe",
+        "application",
+        signals=("inside the app", "app status", "active document in app", "observe application", "observe app"),
+        stage=20,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "application:command.execute",
+        CapabilityDomain.APPLICATION,
+        "application.command.execute",
+        "application",
+        signals=("vs code", "visual studio code", "in excel", "in word", "photoshop", "figma", "slack app", "execute command in app", "run command in application", "app command"),
+        stage=60,
+    ),
     # -- testing / validation --------------------------------------------
     CapabilityDeclaration(
         "testing:run",
@@ -511,6 +592,8 @@ DEFAULT_CAPABILITIES: Mapping[CapabilityDomain, tuple[str, ...]] = {
     CapabilityDomain.COMPUTER: ("computer:window.active",),
     CapabilityDomain.GITHUB: ("github:inspect",),
     CapabilityDomain.TESTING: ("testing:run",),
+    CapabilityDomain.DOCUMENTS: ("documents:inspect",),
+    CapabilityDomain.APPLICATION: ("application:list",),
 }
 
 
@@ -569,6 +652,8 @@ class FilesystemPostConditionObserver:
 
 
 from ..browser.observer import BrowserPostConditionObserver  # noqa: E402,F401
+from ..documents.observer import DocumentsPostConditionObserver  # noqa: E402,F401
+from ..application.observer import ApplicationPostConditionObserver  # noqa: E402,F401
 
 
 def build_capabilities(
@@ -591,6 +676,8 @@ def build_capabilities(
     workspace_connector = (connectors or {}).get("workspace")
     computer_connector = (connectors or {}).get("computer")
     browser_connector = (connectors or {}).get("browser")
+    documents_connector = (connectors or {}).get("documents")
+    application_connector = (connectors or {}).get("application")
     built: list[RegisteredToolCapability] = []
     for declaration in declarations:
         if tool_registry.get(declaration.tool_name) is None:
@@ -611,6 +698,16 @@ def build_capabilities(
                 and not isinstance(getattr(computer_connector, "backend", None), UnsupportedPlatformBackend)
             )
             if not is_windows() and not is_mock:
+                availability = CapabilityAvailability.DISABLED
+        elif declaration.domain is CapabilityDomain.DOCUMENTS:
+            if documents_connector is not None:
+                observer = DocumentsPostConditionObserver(documents_connector)
+            if documents_connector is None or not getattr(documents_connector, "is_live", lambda: True)():
+                availability = CapabilityAvailability.DISABLED
+        elif declaration.domain is CapabilityDomain.APPLICATION:
+            if application_connector is not None:
+                observer = ApplicationPostConditionObserver(application_connector)
+            if application_connector is None or not getattr(application_connector, "is_live", lambda: True)():
                 availability = CapabilityAvailability.DISABLED
 
         built.append(
@@ -654,9 +751,11 @@ def availability_report(tool_registry: ToolRegistry = REGISTRY) -> tuple[dict[st
 
 
 __all__ = [
+    "ApplicationPostConditionObserver",
     "BUILTIN_DECLARATIONS",
     "DEFAULT_CAPABILITIES",
     "CapabilityDeclaration",
+    "DocumentsPostConditionObserver",
     "FilesystemPostConditionObserver",
     "availability_report",
     "build_capabilities",

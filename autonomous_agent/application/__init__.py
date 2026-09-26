@@ -23,6 +23,7 @@ from .backend import (
     UnsupportedApplicationBackend,
 )
 from .connector import BoundedApplicationConnector
+from .observer import ApplicationPostConditionObserver
 from .models import (
     ActionBudget,
     ActionBudgetExceededError,
@@ -86,6 +87,7 @@ __all__ = [
     "ApplicationError",
     "ApplicationNotFoundError",
     "ApplicationObservation",
+    "ApplicationPostConditionObserver",
     "ApplicationReplayError",
     "ApplicationReplayProtector",
     "ApplicationSecurityError",
