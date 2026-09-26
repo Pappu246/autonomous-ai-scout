@@ -8,6 +8,21 @@ def test_safe_capability_requires_explicit_grant():
     assert granted.allowed
 
 
+def test_application_and_documents_capabilities_are_safe_and_grantable():
+    assert Capability.APPLICATION.value == "application"
+    assert Capability.DOCUMENTS.value == "documents"
+
+    denied_app = check_capability(Capability.APPLICATION)
+    assert not denied_app.allowed
+    granted_app = check_capability(Capability.APPLICATION, {Capability.APPLICATION})
+    assert granted_app.allowed
+
+    denied_doc = check_capability(Capability.DOCUMENTS)
+    assert not denied_doc.allowed
+    granted_doc = check_capability(Capability.DOCUMENTS, {Capability.DOCUMENTS})
+    assert granted_doc.allowed
+
+
 def test_high_risk_capabilities_are_permanently_denied():
     for capability in (
         Capability.NETWORK,

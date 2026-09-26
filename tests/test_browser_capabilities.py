@@ -222,7 +222,7 @@ def test_read_only_capabilities_are_autonomous(tmp_path):
 # --------------------------------------------------------------------------
 # Reserved domains
 # --------------------------------------------------------------------------
-def test_application_and_documents_remain_reserved():
-    assert domain_descriptor(CapabilityDomain.APPLICATION).reserved is True
-    assert domain_descriptor(CapabilityDomain.DOCUMENTS).reserved is True
+def test_application_and_documents_active_in_phase4():
+    assert domain_descriptor(CapabilityDomain.APPLICATION).registered is True
+    assert domain_descriptor(CapabilityDomain.DOCUMENTS).registered is True
     assert domain_descriptor(CapabilityDomain.BROWSER).registered is True
