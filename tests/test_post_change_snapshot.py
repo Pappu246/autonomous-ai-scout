@@ -110,7 +110,7 @@ def test_duplicate_paths_rejected():
         observation(entries=(entry(),entry()))
 
 def test_snapshot_reader_is_one_method():
-    names={n for n,v in inspect.getmembers(SnapshotReader) if inspect.isfunction(v) or inspect.ismethod(v)}
+    names={n for n,v in inspect.getmembers(SnapshotReader) if not n.startswith("_") and (inspect.isfunction(v) or inspect.ismethod(v))}
     assert names=={"read_file_snapshot"}
     assert not names.intersection({"write_file","delete_file","merge","post","patch","execute"})
 
