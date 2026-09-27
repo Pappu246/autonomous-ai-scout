@@ -1,6 +1,6 @@
 # Phase 6 — Controlled Real Workflow Execution
 
-Status: **M2 IMPLEMENTED — M3 PENDING**
+Status: **M3 IMPLEMENTED — M4 PENDING**
 
 Phase 5 established bounded cross-domain workflow orchestration, deterministic mock execution, fail-closed unsupported execution, post-condition observation, replay protection, checkpoint/resume, approval gates, and auditability.
 
@@ -71,6 +71,38 @@ The provider result is therefore real adapter execution over the bounded workspa
 while the existing observation/verification chain remains authoritative.
 
 Latest CI validation: 1994 passed, 6 skipped.
+### M3 implementation status
+
+M3 is implemented as exactly one approval-gated real write vertical slice over
+the existing filesystem:write capability:
+
+- adapter: WorkspaceRealWorkflowWriteAdapter
+- network policy: none
+- effect: mutating
+- approval: required; the existing BoundedWorkflowConnector.grant_approval()
+  path remains the only approval source
+- precondition: the workflow must declare the current file SHA-256 fingerprint;
+  ControlledRealWorkflowBackend hashes that declaration into the
+  ExecutionEnvelope.precondition_digest and idempotency identity
+- execution: the adapter calls the existing bounded WorkspaceConnector.write()
+  and exposes no shell, subprocess, browser, credential or arbitrary network path
+- postcondition: the adapter re-reads the same file after the write and only
+  reports observable success when the resulting content matches the requested
+  content
+- verification: the existing Phase 5 connector independently re-derives and
+  compares the observed artifact digest
+- stale state: a fingerprint mismatch fails closed before any write
+- ambiguous mutation: the connector records the mutation replay identity before
+  verification, so an uncertain post-write outcome cannot be blindly retried
+- idempotency: the execution envelope and Phase 5 replay protector both bind the
+  operation to the workflow, step, inputs and precondition
+
+The M3 tests cover approval gating, real workspace mutation, stale-precondition
+failure, precondition-bound idempotency, ambiguous post-write non-retry, and
+secret rejection.
+
+Latest M3 CI validation will be recorded only after the branch check completes.
+
 ## 2. Non-goals
 
 Phase 6 does **not**:

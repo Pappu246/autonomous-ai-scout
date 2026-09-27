@@ -1,8 +1,7 @@
-"""Concrete Phase 6 M2 adapter over the existing bounded workspace connector.
+"""Concrete Phase 6 adapters over the existing bounded workspace connector.
 
-This is the first real, read-only vertical slice. It wraps the already-existing
-WorkspaceConnector and presents its bounded read operation through the Phase 6
-real-backend contract.
+M2 provides the read-only slice; M3 provides one approval-gated, preconditioned
+write slice. Both reuse the existing bounded WorkspaceConnector.
 
 Properties:
 - root-bound path validation is delegated to WorkspaceConnector;
@@ -56,6 +55,12 @@ def _provider_safe_payload(evidence: Any) -> dict[str, Any]:
 @dataclass(frozen=True)
 class _WorkspaceReadState:
     relative_path: str
+
+
+@dataclass(frozen=True)
+class _WorkspaceWriteState:
+    relative_path: str
+    expected_content: str
 
 
 class WorkspaceRealWorkflowAdapter:
@@ -194,4 +199,220 @@ class WorkspaceRealWorkflowAdapter:
         )
 
 
-__all__ = ["WorkspaceRealWorkflowAdapter"]
+
+class WorkspaceRealWorkflowWriteAdapter:
+    """Expose one bounded filesystem:write operation with a precondition.
+
+    The write slice is deliberately narrow: path + UTF-8 content only, an
+    exact current-file fingerprint precondition, explicit human approval,
+    deterministic idempotency, and an independent post-write re-read.
+    """
+
+    name = "workspace-write"
+
+    def __init__(self, workspace: WorkspaceConnector) -> None:
+        if not isinstance(workspace, WorkspaceConnector):
+            raise RealBackendContractError(
+                "WorkspaceRealWorkflowWriteAdapter requires an existing WorkspaceConnector"
+            )
+        self._workspace = workspace
+        self._states: dict[str, _WorkspaceWriteState] = {}
+
+    @property
+    def workspace(self) -> WorkspaceConnector:
+        return self._workspace
+
+    def describe(self, capability_id: str, operation: str) -> ProviderOperationDescriptor:
+        if capability_id != "filesystem:write" or operation != "write":
+            raise RealBackendContractError(
+                f"workspace write adapter does not expose {capability_id}:{operation}"
+            )
+        return ProviderOperationDescriptor(
+            capability_id="filesystem:write",
+            operation="write",
+            provider=self.name,
+            network_policy=RealNetworkPolicy.NONE,
+            required_scopes=("workspace.write",),
+            effect=StepEffect.MUTATING,
+            requires_approval=True,
+            observable=True,
+            idempotent=True,
+        )
+
+    @staticmethod
+    def _parameters_from_step(step: Any) -> tuple[str, str, str]:
+        parameters = getattr(step, "parameters", {})
+        if not isinstance(parameters, Mapping):
+            raise WorkflowValidationError("filesystem:write parameters must be a mapping")
+        unknown = set(parameters) - {"path", "content", "precondition"}
+        if unknown:
+            raise WorkflowValidationError(
+                f"filesystem:write received unsupported parameters: {sorted(unknown)}"
+            )
+
+        path = parameters.get("path")
+        content = parameters.get("content")
+        precondition = parameters.get("precondition")
+        if not isinstance(path, str) or not path.strip():
+            raise WorkflowValidationError(
+                "filesystem:write requires a non-empty relative path"
+            )
+        if not isinstance(content, str):
+            raise WorkflowValidationError("filesystem:write content must be a string")
+        if not isinstance(precondition, Mapping):
+            raise WorkflowValidationError("filesystem:write requires a mapping precondition")
+        if set(precondition) != {"fingerprint"}:
+            raise WorkflowValidationError(
+                "filesystem:write precondition must contain exactly fingerprint"
+            )
+        expected_fingerprint = precondition.get("fingerprint")
+        if (
+            not isinstance(expected_fingerprint, str)
+            or len(expected_fingerprint) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected_fingerprint.lower())
+        ):
+            raise WorkflowValidationError(
+                "filesystem:write precondition fingerprint must be a SHA-256 hex digest"
+            )
+        return path.strip(), content, expected_fingerprint.lower()
+
+    @staticmethod
+    def _precondition_digest(expected_fingerprint: str) -> str:
+        return artifact_digest({"fingerprint": expected_fingerprint})
+
+    @staticmethod
+    def _artifact(evidence: Any) -> dict[str, Any]:
+        return _provider_safe_payload(evidence)
+
+    def execute(
+        self,
+        envelope: ExecutionEnvelope,
+        step: Any,
+        inbound: Mapping[str, WorkflowArtifact],
+    ) -> ProviderResult:
+        if inbound:
+            raise WorkflowValidationError(
+                "filesystem:write M3 vertical slice does not accept inbound artifacts"
+            )
+
+        relative_path, content, expected_fingerprint = self._parameters_from_step(step)
+        expected_precondition = self._precondition_digest(expected_fingerprint)
+        if envelope.precondition_digest != expected_precondition:
+            raise RealBackendContractError(
+                "execution precondition digest does not match the declared write precondition"
+            )
+
+        try:
+            current = self._workspace.read(relative_path)
+        except WorkspaceError as exc:
+            return ProviderResult(
+                accepted=False,
+                artifacts={},
+                evidence={
+                    "operation": "filesystem:write",
+                    "relative_path": relative_path,
+                    "precondition_met": False,
+                    "error": type(exc).__name__,
+                },
+                detail="write precondition could not be read from the bounded workspace",
+            )
+
+        if current.fingerprint.lower() != expected_fingerprint:
+            return ProviderResult(
+                accepted=False,
+                artifacts={},
+                evidence={
+                    "operation": "filesystem:write",
+                    "relative_path": relative_path,
+                    "precondition_met": False,
+                    "expected_fingerprint": expected_fingerprint,
+                    "actual_fingerprint": current.fingerprint.lower(),
+                },
+                detail="write precondition fingerprint is stale",
+            )
+
+        try:
+            evidence = self._workspace.write(relative_path, content)
+        except WorkspaceError as exc:
+            return ProviderResult(
+                accepted=False,
+                artifacts={},
+                evidence={
+                    "operation": "filesystem:write",
+                    "relative_path": relative_path,
+                    "precondition_met": True,
+                    "error": type(exc).__name__,
+                },
+                detail="workspace write was rejected by the bounded workspace connector",
+            )
+
+        payload = self._artifact(evidence)
+        self._states[envelope.idempotency_key] = _WorkspaceWriteState(
+            relative_path=evidence.relative_path,
+            expected_content=content,
+        )
+        return ProviderResult(
+            accepted=True,
+            artifacts={"result": payload},
+            evidence={
+                "operation": "filesystem:write",
+                "relative_path": evidence.relative_path,
+                "precondition_met": True,
+                "postcondition_expected": True,
+                "fingerprint": evidence.fingerprint,
+            },
+            detail="bounded workspace write accepted; independent post-write observation required",
+        )
+
+    def observe(self, envelope: ExecutionEnvelope) -> ObservationEnvelope:
+        state = self._states.get(envelope.idempotency_key)
+        if state is None:
+            raise RealBackendContractError(
+                "workspace write observation requested for an unknown execution envelope"
+            )
+
+        try:
+            evidence = self._workspace.read(state.relative_path)
+        except WorkspaceError as exc:
+            return ObservationEnvelope(
+                observed=False,
+                evidence={
+                    "operation": "filesystem:write",
+                    "relative_path": state.relative_path,
+                    "error": type(exc).__name__,
+                },
+                detail="workspace write postcondition could not be observed",
+            )
+
+        if evidence.content != state.expected_content:
+            return ObservationEnvelope(
+                observed=False,
+                evidence={
+                    "operation": "filesystem:write",
+                    "relative_path": evidence.relative_path,
+                    "postcondition_match": False,
+                    "observed_fingerprint": evidence.fingerprint,
+                },
+                detail="independent postcondition observation does not match the requested content",
+            )
+
+        payload = self._artifact(evidence)
+        payload_digest = artifact_digest(payload)
+        return ObservationEnvelope(
+            observed=True,
+            state_digest=payload_digest,
+            artifact_digests={"result": payload_digest},
+            evidence={
+                "operation": "filesystem:write",
+                "relative_path": evidence.relative_path,
+                "postcondition_match": True,
+                "re_read": True,
+            },
+            detail="workspace write independently re-read and postcondition matched",
+        )
+
+
+__all__ = [
+    "WorkspaceRealWorkflowAdapter",
+    "WorkspaceRealWorkflowWriteAdapter",
+]

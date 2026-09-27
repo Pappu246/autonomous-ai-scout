@@ -475,6 +475,18 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
         epoch: int = 0,
     ) -> StepExecution:
         descriptor = self._descriptor_for(step)
+
+        # Mutating real operations are bound to an explicit precondition
+        # declared by the workflow. The digest travels in the execution
+        # envelope and therefore becomes part of the idempotency identity.
+        precondition_digest = ""
+        if step.mutating:
+            raw_precondition = step.parameters.get("precondition")
+            if raw_precondition is None:
+                raise WorkflowSecurityError(
+                    f"real mutating step '{step.step_id}' requires an explicit precondition"
+                )
+            precondition_digest = artifact_digest(raw_precondition)
         if step.requires_approval and not approved:
             raise WorkflowSecurityError(
                 f"real step '{step.step_id}' requires an explicit human approval"
@@ -489,6 +501,7 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
             required_scopes=descriptor.required_scopes,
             inbound=inbound,
             approved=approved,
+            precondition_digest=precondition_digest,
         )
 
         if envelope.idempotency_key in self._envelopes:

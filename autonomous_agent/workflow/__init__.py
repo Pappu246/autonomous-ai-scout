@@ -68,7 +68,10 @@ from .integration import (
     step_from_mapping,
 )
 from .observer import WorkflowPostConditionObserver
-from .real_adapters import WorkspaceRealWorkflowAdapter
+from .real_adapters import (
+    WorkspaceRealWorkflowAdapter,
+    WorkspaceRealWorkflowWriteAdapter,
+)
 from .real_backend import (
     ControlledRealWorkflowBackend,
     ExecutionEnvelope,
@@ -238,6 +241,7 @@ __all__ = [
     "WorkflowObservation",
     "WorkflowPostConditionObserver",
     "WorkspaceRealWorkflowAdapter",
+    "WorkspaceRealWorkflowWriteAdapter",
     "ControlledRealWorkflowBackend",
     "ExecutionEnvelope",
     "ObservationEnvelope",
