@@ -546,6 +546,56 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         signals=("vs code", "visual studio code", "in excel", "in word", "photoshop", "figma", "slack app", "execute command in app", "run command in application", "app command"),
         stage=60,
     ),
+    # -- cross-domain workflow orchestration (Phase 5) -------------------
+    CapabilityDeclaration(
+        "workflow:pipeline.plan",
+        CapabilityDomain.WORKFLOW,
+        "workflow.pipeline.plan",
+        "workflow",
+        signals=("cross-domain workflow", "cross domain workflow", "workflow pipeline", "multi-step workflow", "multi step workflow", "orchestrate workflow", "plan the pipeline", "pipeline plan"),
+        stage=10,
+        retry_policy=RetryPolicy(2, 1),
+        notes="Validation and planning only; no step is executed.",
+    ),
+    CapabilityDeclaration(
+        "workflow:data.handoff",
+        CapabilityDomain.WORKFLOW,
+        "workflow.data.handoff",
+        "workflow",
+        signals=("hand off the data", "data handoff", "pass the results to", "carry the findings into"),
+        stage=30,
+        retry_policy=RetryPolicy(2, 1),
+        notes="Moves one declared artifact across a validated boundary with its trust marker intact.",
+    ),
+    CapabilityDeclaration(
+        "workflow:pipeline.execute",
+        CapabilityDomain.WORKFLOW,
+        "workflow.pipeline.execute",
+        "workflow",
+        signals=("execute the pipeline", "run the workflow", "run the pipeline", "execute the workflow step"),
+        stage=60,
+        notes="Controlled write. Each step keeps its own domain approval gate.",
+    ),
+    # -- bounded communication (Phase 5) ---------------------------------
+    CapabilityDeclaration(
+        "communication:meeting.coordinate",
+        CapabilityDomain.COMMUNICATION,
+        "communication.meeting.coordinate",
+        "workflow",
+        signals=("coordinate a meeting", "coordinate the meeting", "meeting coordination", "propose meeting times"),
+        stage=20,
+        retry_policy=RetryPolicy(2, 1),
+        notes="Read-only. Proposes coordination; schedules and sends nothing.",
+    ),
+    CapabilityDeclaration(
+        "communication:draft.prepare",
+        CapabilityDomain.COMMUNICATION,
+        "communication.draft.prepare",
+        "workflow",
+        signals=("prepare a draft", "prepare the draft", "draft for review", "communication draft"),
+        stage=60,
+        notes="draft != send. There is no autonomous delivery capability in this product.",
+    ),
     # -- testing / validation --------------------------------------------
     CapabilityDeclaration(
         "testing:run",
@@ -594,6 +644,8 @@ DEFAULT_CAPABILITIES: Mapping[CapabilityDomain, tuple[str, ...]] = {
     CapabilityDomain.TESTING: ("testing:run",),
     CapabilityDomain.DOCUMENTS: ("documents:inspect",),
     CapabilityDomain.APPLICATION: ("application:list",),
+    CapabilityDomain.WORKFLOW: ("workflow:pipeline.plan",),
+    CapabilityDomain.COMMUNICATION: ("communication:meeting.coordinate",),
 }
 
 
@@ -654,6 +706,7 @@ class FilesystemPostConditionObserver:
 from ..browser.observer import BrowserPostConditionObserver  # noqa: E402,F401
 from ..documents.observer import DocumentsPostConditionObserver  # noqa: E402,F401
 from ..application.observer import ApplicationPostConditionObserver  # noqa: E402,F401
+from ..workflow.observer import WorkflowPostConditionObserver  # noqa: E402,F401
 
 
 def build_capabilities(
@@ -678,6 +731,7 @@ def build_capabilities(
     browser_connector = (connectors or {}).get("browser")
     documents_connector = (connectors or {}).get("documents")
     application_connector = (connectors or {}).get("application")
+    workflow_connector = (connectors or {}).get("workflow")
     built: list[RegisteredToolCapability] = []
     for declaration in declarations:
         if tool_registry.get(declaration.tool_name) is None:
@@ -708,6 +762,11 @@ def build_capabilities(
             if application_connector is not None:
                 observer = ApplicationPostConditionObserver(application_connector)
             if application_connector is None or not getattr(application_connector, "is_live", lambda: True)():
+                availability = CapabilityAvailability.DISABLED
+        elif declaration.domain in {CapabilityDomain.WORKFLOW, CapabilityDomain.COMMUNICATION}:
+            if workflow_connector is not None:
+                observer = WorkflowPostConditionObserver(workflow_connector)
+            if workflow_connector is None or not getattr(workflow_connector, "is_live", lambda: True)():
                 availability = CapabilityAvailability.DISABLED
 
         built.append(
@@ -757,6 +816,7 @@ __all__ = [
     "CapabilityDeclaration",
     "DocumentsPostConditionObserver",
     "FilesystemPostConditionObserver",
+    "WorkflowPostConditionObserver",
     "availability_report",
     "build_capabilities",
     "declared_capability_ids",

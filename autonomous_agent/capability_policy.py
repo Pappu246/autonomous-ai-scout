@@ -20,6 +20,8 @@ class Capability(str, Enum):
     COMPUTER = "computer"
     APPLICATION = "application"
     DOCUMENTS = "documents"
+    WORKFLOW = "workflow"
+    COMMUNICATION = "communication"
     REST_API = "rest_api"
     NETWORK = "network"
     SECRETS = "secrets"
@@ -47,6 +49,8 @@ SAFE_CAPABILITIES = frozenset(
         Capability.COMPUTER,
         Capability.APPLICATION,
         Capability.DOCUMENTS,
+        Capability.WORKFLOW,
+        Capability.COMMUNICATION,
         Capability.REST_API,
     }
 )

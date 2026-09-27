@@ -189,6 +189,10 @@ DOMAIN_TRUST: Mapping[CapabilityDomain, TrustLevel] = {
     CapabilityDomain.COMPUTER: TrustLevel.TOOL_RESULT,
     CapabilityDomain.OS_SHELL: TrustLevel.TOOL_RESULT,
     CapabilityDomain.TESTING: TrustLevel.TOOL_RESULT,
+    # Orchestration metadata is produced by this deterministic layer itself.
+    CapabilityDomain.WORKFLOW: TrustLevel.TOOL_RESULT,
+    # Message content is shaped by whatever fed it, so it stays untrusted.
+    CapabilityDomain.COMMUNICATION: TrustLevel.EXTERNAL,
 }
 
 #: Domains whose produced content must be treated as untrusted external data.
@@ -201,6 +205,7 @@ UNTRUSTED_SOURCE_DOMAINS: frozenset[CapabilityDomain] = frozenset(
 SENSITIVE_SINK_DOMAINS: frozenset[CapabilityDomain] = frozenset({
     CapabilityDomain.APPLICATION,
     CapabilityDomain.CALENDAR,
+    CapabilityDomain.COMMUNICATION,
     CapabilityDomain.COMPUTER,
     CapabilityDomain.DOCUMENTS,
     CapabilityDomain.EMAIL,
