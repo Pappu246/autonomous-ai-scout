@@ -596,13 +596,16 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
                 "adapter.observe() must return ObservationEnvelope"
             )
 
+        # The shared Phase 5 connector verifies against the "artifacts" field.
+        # For controlled-real execution that field must represent independently
+        # observed state, not the provider's original acceptance payload.
+        observed_artifacts = (
+            dict(observation.artifact_digests) if observation.observed else {}
+        )
         return {
             "step_id": step_id,
             "accepted": execution.accepted,
-            "artifacts": {
-                artifact.artifact_key: artifact.sha256
-                for artifact in execution.artifacts
-            },
+            "artifacts": observed_artifacts,
             "observed": observation.observed,
             "state_digest": observation.state_digest,
             "observed_artifacts": dict(observation.artifact_digests),

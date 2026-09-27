@@ -351,15 +351,6 @@ class BoundedWorkflowConnector:
                 detail=f"independent observation failed: {redact_secret(str(exc))[:120]}",
             )
 
-        if not bool((observed or {}).get("observed")):
-            return replace(
-                execution,
-                status=VerificationStatus.ACCEPTED,
-                observed=False,
-                verified=False,
-                detail="independent observation did not establish provider state",
-            )
-
         observed_artifacts = dict((observed or {}).get("artifacts", {}) or {})
         declared = set(step.produces)
         produced = {artifact.artifact_key: artifact.sha256 for artifact in execution.artifacts}
