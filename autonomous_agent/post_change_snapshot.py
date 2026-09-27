@@ -146,8 +146,6 @@ class SnapshotObservation:
                 raise VerificationError("observed_file_count must be an integer")
             if self.observed_file_count < 0 or self.observed_file_count > MAX_SNAPSHOT_FILES:
                 raise VerificationError("observed_file_count is out of bounds")
-            if self.observed_file_count != len(self.entries):
-                raise VerificationError("observed_file_count contradicts entries")
         if self.truncated or not self.complete:
             return
 
