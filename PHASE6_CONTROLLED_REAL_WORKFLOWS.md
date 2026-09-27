@@ -1,6 +1,6 @@
 # Phase 6 — Controlled Real Workflow Execution
 
-Status: **M4 IMPLEMENTED — M5 PENDING**
+Status: **M6 RELEASE GATE COMPLETE — MERGE PENDING**
 
 Phase 5 established bounded cross-domain workflow orchestration, deterministic mock execution, fail-closed unsupported execution, post-condition observation, replay protection, checkpoint/resume, approval gates, and auditability.
 
@@ -116,6 +116,34 @@ M4 hardens durable recovery and idempotency without adding a new execution path:
 - M4 adversarial tests cover checkpoint secrecy, rehydration, duplicate mutation refusal, tampered identity, mutation-journal persistence, fresh-adapter recovery, and bounded/non-authoritative recovery context.
 
 M4 CI validation is still being checked on the branch. M5 security review tests are added in parallel and will be finalized only after green CI.
+
+### M5 security review and evaluation
+
+M5 adds a static security review over the Phase 6 real-execution source and targeted contract tests:
+
+- AST scan rejects process/shell, socket, SMTP, HTTP-client, browser-automation and dynamic-code escape hatches in the Phase 6 real backend/adapters.
+- Real provider descriptors must remain observable and idempotent; mutating operations must require explicit approval.
+- Implemented M2/M3 workspace adapters explicitly use network policy none.
+- Autonomous delivery operations remain rejected by the provider descriptor contract.
+- The default controlled-real backend remains fail-closed when no explicit adapter is injected.
+
+Final Phase 6 validation on the branch head: 2013 passed, 6 skipped in 11.70s.
+
+### M6 release gate
+
+Phase 6 release gate is complete for this branch:
+
+- M1 real-backend contract: green
+- M2 controlled real read: green
+- M3 approval-gated controlled real write: green
+- M4 durable recovery and mutation replay hardening: green
+- M5 static security review/evaluation: green
+- Full repository CI: green
+- Production main remains unchanged at cc10592ddb7e6553142142e7453ab95527a1648b
+- PR #170 remains open and unmerged
+- No Phase 7 functionality is included
+
+Merge is intentionally left as a separate human-controlled release action.
 
 ## 2. Non-goals
 
