@@ -115,7 +115,7 @@ M4 hardens durable recovery and idempotency without adding a new execution path:
 - Mutation replay identities are included in WorkflowSessionSnapshot, so a resumed session can reconstruct replay protection for mutations that landed before verification.
 - M4 adversarial tests cover checkpoint secrecy, rehydration, duplicate mutation refusal, tampered identity, mutation-journal persistence, fresh-adapter recovery, and bounded/non-authoritative recovery context.
 
-M4 CI validation will be recorded only after the branch check completes.
+M4 CI validation is still being checked on the branch. M5 security review tests are added in parallel and will be finalized only after green CI.
 
 ## 2. Non-goals
 
