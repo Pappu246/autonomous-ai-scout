@@ -101,7 +101,7 @@ The M3 tests cover approval gating, real workspace mutation, stale-precondition
 failure, precondition-bound idempotency, ambiguous post-write non-retry, and
 secret rejection.
 
-Latest M3 CI validation: the first implementation run reached 1998 passed, 6 skipped and exposed two test-contract issues; a localized follow-up keeps the shared Phase 5 connector contract unchanged and is under validation.
+Initial M3 implementation run: 1998 passed, 2 failed, 6 skipped; the two failures were test-contract issues. A follow-up hardening attempt initially exposed 90 legacy regressions, so that shared connector change was reverted/localized. Final M3 CI validation: 2000 passed, 6 skipped in 13.20s.
 
 ## 2. Non-goals
 
