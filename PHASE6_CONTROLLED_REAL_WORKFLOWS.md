@@ -1,6 +1,6 @@
 # Phase 6 — Controlled Real Workflow Execution
 
-Status: **M1 IMPLEMENTED — M2 PENDING**
+Status: **M2 IMPLEMENTED — M3 PENDING**
 
 Phase 5 established bounded cross-domain workflow orchestration, deterministic mock execution, fail-closed unsupported execution, post-condition observation, replay protection, checkpoint/resume, approval gates, and auditability.
 
@@ -47,6 +47,30 @@ M1 intentionally adds no concrete network/provider client. The real backend is o
 live when an adapter is injected explicitly; the existing Phase 5 connector still
 owns independent verification.
 
+### M2 implementation status
+
+M2 is implemented as a real, read-only vertical slice over the existing
+filesystem:read capability:
+
+- capability: filesystem:read
+- existing connector: WorkspaceConnector
+- Phase 6 adapter: WorkspaceRealWorkflowAdapter
+- network policy: none
+- effect: read_only
+- approval: not required
+- observation: the same bounded workspace file is re-read after provider acceptance
+- verification: the Phase 5 connector independently re-derives the artifact digest and
+  compares it with the second read
+- secret handling: workspace content is redacted; credential-looking labels are
+  neutralized again at the provider boundary
+- path safety: the existing root-bound WorkspaceConnector blocks traversal and
+  credential/VCS paths
+
+The M2 tests exercise an actual temporary workspace rather than a mock backend.
+The provider result is therefore real adapter execution over the bounded workspace,
+while the existing observation/verification chain remains authoritative.
+
+Latest CI validation: 1994 passed, 6 skipped.
 ## 2. Non-goals
 
 Phase 6 does **not**:
