@@ -28,12 +28,35 @@ Guarantees:
 - Workflow action budgets: declared step costs can never exceed the bounded
   workflow budget.
 
-This milestone (Phase 5 M1) is declarative only. It starts no session, calls
-no backend and executes no step.
+Phase 5 M2 adds the bounded execution layer on top of that contract:
+
+- Deterministic backends (`MockWorkflowBackend`) plus a fail-closed default
+  (`UnsupportedWorkflowBackend`) that never fabricates live success.
+- A bounded `WorkflowSession` with OPEN/CLOSED/SUSPENDED/RESUMED lifecycle,
+  budget, execution depth and secret-free snapshots that store digests rather
+  than payloads.
+- Semantic `WorkflowTarget` resolution that rejects stale, foreign, unknown
+  and coordinate-like references.
+- `WorkflowReplayProtector`, which refuses to repeat completed steps,
+  handoffs, mutations and verified artifacts across a resume.
+- `BoundedWorkflowConnector`, which composes all of the above and enforces
+  that authority never travels with data, that acceptance is never mistaken
+  for verification, and that drafting is never sending.
+
+Registry, sandbox, provider, builtins and runtime integration are deliberately
+out of scope here; they belong to a later milestone.
 """
 
 from __future__ import annotations
 
+from .backend import (
+    DELIVERY_OPERATIONS,
+    DRAFT_CHANNELS,
+    BaseWorkflowBackend,
+    MockWorkflowBackend,
+    UnsupportedWorkflowBackend,
+)
+from .connector import BoundedWorkflowConnector
 from .models import (
     DEFAULT_WORKFLOW_ACTION_BUDGET,
     MAX_ARTIFACT_KEY_LENGTH,
@@ -58,13 +81,28 @@ from .models import (
     MAX_WORKFLOW_ID_LENGTH,
     MAX_WORKFLOW_NAME_LENGTH,
     MAX_WORKFLOW_STEPS,
+    MAX_DETAIL_LENGTH,
+    MAX_DRAFT_BODY_LENGTH,
+    MAX_DRAFT_RECIPIENTS,
+    MAX_DRAFT_SUBJECT_LENGTH,
+    MAX_EVIDENCE_ENTRIES,
+    MAX_EXECUTION_DEPTH,
+    MAX_SESSION_HISTORY,
     REDACTED,
+    UNTRUSTED_BANNER,
+    UNTRUSTED_ENVELOPE_KEY,
     ActionBudget,
     ActionBudgetExceededError,
+    BackendUnavailableError,
+    CommunicationDraft,
     HandoffKind,
+    SessionState,
     StepEffect,
+    StepExecution,
     StepState,
+    TargetResolutionError,
     TrustLevel,
+    VerificationStatus,
     WorkflowApprovalError,
     WorkflowArtifact,
     WorkflowBudgetExceededError,
@@ -73,7 +111,9 @@ from .models import (
     WorkflowError,
     WorkflowHandoff,
     WorkflowHandoffError,
+    WorkflowObservation,
     WorkflowPipeline,
+    WorkflowReplayError,
     WorkflowSecurityError,
     WorkflowState,
     WorkflowStateError,
@@ -81,11 +121,13 @@ from .models import (
     WorkflowValidationError,
     artifact_digest,
     consequential_signal,
+    is_untrusted_marked,
     looks_like_secret,
     redact_secret,
     redact_structure,
     unique_ids,
     wrap_untrusted_handoff_content,
+    wrap_untrusted_structured_content,
 )
 from .policy import (
     BLOCKED_UNTRUSTED_SINK_DOMAINS,
@@ -131,13 +173,52 @@ from .policy import (
     validate_workflow_id,
     validate_workflow_name,
 )
+from .replay import WorkflowReplayProtector, inbound_digest
+from .session import WorkflowSession, WorkflowSessionSnapshot
+from .target import (
+    TARGET_TYPES,
+    WorkflowTarget,
+    WorkflowTargetResolver,
+    reject_positional_reference,
+)
 
 __all__ = [
     "BLOCKED_UNTRUSTED_SINK_DOMAINS",
     "DEFAULT_WORKFLOW_ACTION_BUDGET",
+    "DELIVERY_OPERATIONS",
     "DOMAIN_TRUST",
+    "DRAFT_CHANNELS",
     "FORBIDDEN_PARAMETER_KEYS",
     "FORBIDDEN_STEP_OPERATIONS",
+    "MAX_DETAIL_LENGTH",
+    "MAX_DRAFT_BODY_LENGTH",
+    "MAX_DRAFT_RECIPIENTS",
+    "MAX_DRAFT_SUBJECT_LENGTH",
+    "MAX_EVIDENCE_ENTRIES",
+    "MAX_EXECUTION_DEPTH",
+    "MAX_SESSION_HISTORY",
+    "TARGET_TYPES",
+    "UNTRUSTED_BANNER",
+    "UNTRUSTED_ENVELOPE_KEY",
+    "BackendUnavailableError",
+    "BaseWorkflowBackend",
+    "BoundedWorkflowConnector",
+    "CommunicationDraft",
+    "MockWorkflowBackend",
+    "SessionState",
+    "StepExecution",
+    "TargetResolutionError",
+    "UnsupportedWorkflowBackend",
+    "VerificationStatus",
+    "WorkflowObservation",
+    "WorkflowReplayError",
+    "WorkflowReplayProtector",
+    "WorkflowSession",
+    "WorkflowSessionSnapshot",
+    "WorkflowTarget",
+    "WorkflowTargetResolver",
+    "inbound_digest",
+    "reject_positional_reference",
     "MAX_ARTIFACT_KEYS",
     "MAX_ARTIFACT_KEY_LENGTH",
     "MAX_ARTIFACT_PAYLOAD_LENGTH",
@@ -197,6 +278,7 @@ __all__ = [
     "detect_dependency_cycle",
     "domain_trust",
     "infer_effect",
+    "is_untrusted_marked",
     "looks_like_secret",
     "lowest_trust",
     "pipeline_execution_order",
@@ -226,4 +308,5 @@ __all__ = [
     "validate_workflow_id",
     "validate_workflow_name",
     "wrap_untrusted_handoff_content",
+    "wrap_untrusted_structured_content",
 ]
