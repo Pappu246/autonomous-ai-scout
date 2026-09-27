@@ -11,9 +11,10 @@ from autonomous_agent.workflow import (
     StepEffect,
     VerificationStatus,
     WorkflowPipeline,
-    WorkflowSecurityError,
     WorkflowStep,
     WorkspaceRealWorkflowAdapter,
+)
+from autonomous_agent.workflow.real_backend import ControlledRealWorkflowBackend
 )
 
 
@@ -44,10 +45,7 @@ def test_m2_real_workspace_read_is_independently_verified(tmp_path: Path):
     workspace = WorkspaceConnector(tmp_path)
     adapter = WorkspaceRealWorkflowAdapter(workspace)
     connector = BoundedWorkflowConnector(
-        backend=__import__(
-            "autonomous_agent.workflow.real_backend",
-            fromlist=["ControlledRealWorkflowBackend"],
-        ).ControlledRealWorkflowBackend(adapter),
+        backend=ControlledRealWorkflowBackend(adapter),
         known_capability_ids=("filesystem:read",),
     )
 
@@ -70,10 +68,7 @@ def test_m2_real_workspace_read_preserves_redaction_and_fingerprint(tmp_path: Pa
     source.write_text("api_key=SUPER-SECRET\npublic=yes", encoding="utf-8")
 
     connector = BoundedWorkflowConnector(
-        backend=__import__(
-            "autonomous_agent.workflow.real_backend",
-            fromlist=["ControlledRealWorkflowBackend"],
-        ).ControlledRealWorkflowBackend(
+        backend=ControlledRealWorkflowBackend(
             WorkspaceRealWorkflowAdapter(WorkspaceConnector(tmp_path))
         ),
         known_capability_ids=("filesystem:read",),
@@ -106,21 +101,18 @@ def test_m2_workspace_read_blocks_root_escape(tmp_path: Path):
     outside.write_text("outside", encoding="utf-8")
 
     connector = BoundedWorkflowConnector(
-        backend=__import__(
-            "autonomous_agent.workflow.real_backend",
-            fromlist=["ControlledRealWorkflowBackend"],
-        ).ControlledRealWorkflowBackend(
+        backend=ControlledRealWorkflowBackend(
             WorkspaceRealWorkflowAdapter(WorkspaceConnector(tmp_path))
         ),
         known_capability_ids=("filesystem:read",),
     )
 
-    connector.validate(_pipeline("../outside.txt"))
-    execution = connector.execute_step("read")
-
-    assert execution.accepted is False
-    assert execution.verified is False
-    assert execution.status is VerificationStatus.FAILED
+    try:
+        connector.validate(_pipeline("../outside.txt"))
+    except Exception as exc:
+        assert "path traversal" in str(exc) or "relative path" in str(exc)
+    else:
+        raise AssertionError("root escape must be blocked before real execution")
 
 
 def test_m2_workspace_read_does_not_require_approval(tmp_path: Path):
