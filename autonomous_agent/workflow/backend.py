@@ -19,6 +19,8 @@ digests in CI.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -68,6 +70,10 @@ DELIVERY_OPERATIONS: frozenset[str] = frozenset({
 #: Channels the mock backend can model a draft for.
 DRAFT_CHANNELS: frozenset[str] = frozenset({"email", "calendar", "message", "comment"})
 
+
+#: Control characters and line breaks are never legitimate inside a draft
+#: recipient or subject; they are the shape of a header injection.
+_CONTROL_OR_NEWLINE = re.compile(r"[\x00-\x1f\x7f]")
 
 class BaseWorkflowBackend:
     """The safe, structured cross-domain workflow execution surface.
@@ -387,9 +393,26 @@ class MockWorkflowBackend(BaseWorkflowBackend):
             raise WorkflowValidationError(
                 f"draft exceeds max recipients: {len(recipients)} > {MAX_DRAFT_RECIPIENTS}"
             )
-        clean_recipients = tuple(str(item).strip()[:320] for item in recipients if str(item).strip())
+        clean_recipients: list[str] = []
+        for item in recipients:
+            if not isinstance(item, str):
+                # ``str(None)`` would otherwise become the recipient "None".
+                raise WorkflowValidationError("draft recipients must be strings")
+            address = item.strip()
+            if not address:
+                continue
+            if _CONTROL_OR_NEWLINE.search(address):
+                # A recipient carrying CR/LF is the shape of a header
+                # injection for whatever eventually sends the draft.
+                raise WorkflowValidationError(
+                    "draft recipients may not contain control characters or line breaks"
+                )
+            clean_recipients.append(address[:320])
+        clean_recipients = tuple(clean_recipients)
 
-        safe_subject = redact_secret(str(subject))[:MAX_DRAFT_SUBJECT_LENGTH]
+        safe_subject = _CONTROL_OR_NEWLINE.sub(" ", redact_secret(str(subject)))[
+            :MAX_DRAFT_SUBJECT_LENGTH
+        ]
         safe_body = redact_secret(str(body))[:MAX_DRAFT_BODY_LENGTH]
         if trust is TrustLevel.EXTERNAL:
             # Untrusted source material stays visibly quarantined inside the draft.
