@@ -31,6 +31,7 @@ from .models import (
     HandoffKind,
     StepEffect,
     StepExecution,
+    VerificationStatus,
     WorkflowArtifact,
     WorkflowObservation,
     WorkflowPipeline,
@@ -518,76 +519,3 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
         execution = self._executions.get(step_id)
         if execution is None:
             raise WorkflowValidationError(
-                f"no controlled-real execution exists for step: {step_id}"
-            )
-        envelope = self._envelopes.get(
-            next(
-                key
-                for key, value in self._envelopes.items()
-                if value.step_id == step_id
-            )
-        )
-        adapter = self._require_adapter()
-        observation = adapter.observe(envelope)
-        if not isinstance(observation, ObservationEnvelope):
-            raise RealBackendContractError(
-                "adapter.observe() must return ObservationEnvelope"
-            )
-        self._observations[envelope.idempotency_key] = observation
-
-        return {
-            "step_id": step_id,
-            "accepted": execution.accepted,
-            "artifacts": {
-                artifact.artifact_key: artifact.sha256
-                for artifact in execution.artifacts
-            },
-            "observed": observation.observed,
-            "state_digest": observation.state_digest,
-            "observed_artifacts": dict(observation.artifact_digests),
-            "evidence": dict(observation.evidence),
-            "detail": observation.detail[:MAX_DETAIL_LENGTH],
-        }
-
-    def observe_workflow(self, workflow_id: str) -> WorkflowObservation:
-        completed = tuple(
-            sorted(
-                step_id
-                for step_id, execution in self._executions.items()
-                if execution.accepted
-            )
-        )
-        return WorkflowObservation(
-            workflow_id=workflow_id or self._workflow_id,
-            completed_steps=completed,
-            artifact_keys=tuple(
-                sorted(
-                    key
-                    for execution in self._executions.values()
-                    for key in execution.safe_dict().get("artifacts", ())
-                )
-            ),
-            detail="controlled real backend state; provider acceptance is not verification",
-        )
-
-    def transfer(self, handoff, artifact):
-        raise BackendUnavailableError(
-            "cross-domain real transfer is not enabled in M1; use the Phase 5 connector contract"
-        )
-
-    def create_draft(self, step, **kwargs):
-        raise BackendUnavailableError(
-            "real communication drafting is not enabled in M1"
-        )
-
-
-__all__ = [
-    "ControlledRealWorkflowBackend",
-    "ExecutionEnvelope",
-    "ObservationEnvelope",
-    "ProviderOperationDescriptor",
-    "ProviderResult",
-    "RealBackendContractError",
-    "RealNetworkPolicy",
-    "RealWorkflowAdapter",
-]
