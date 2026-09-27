@@ -1,32 +1,30 @@
 """M1 contract for bounded real workflow execution.
 
-This module deliberately contains **no concrete network/provider client**.  A
-real adapter must be injected explicitly.  The backend only validates and
-binds execution metadata, delegates to that adapter, records a non-verified
-provider result, and exposes an observation surface for the existing Phase 5
-connector to verify independently.
+This module contains the *contract shell* for real provider execution. It has
+no concrete HTTP client, socket handling, shell access, browser transport or
+credential-store access. A provider adapter must be injected explicitly.
 
-The design rule is:
+The core invariant is:
 
     provider acceptance != verification
 
-The provider is never allowed to manufacture authority, approval, network
-policy, or verification state.
+The existing Phase 5 connector remains responsible for independent
+post-condition verification and audit integration.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Protocol, Sequence
 
-from ..prompt_injection_guard import TrustLevel
 from .backend import BaseWorkflowBackend, DELIVERY_OPERATIONS
 from .models import (
     MAX_ARTIFACT_KEYS,
+    MAX_ARTIFACT_PAYLOAD_LENGTH,
     MAX_CAPABILITY_ID_LENGTH,
     MAX_DETAIL_LENGTH,
-    MAX_OPERATION_LENGTH,
     BackendUnavailableError,
     HandoffKind,
     StepEffect,
@@ -55,17 +53,17 @@ class RealBackendContractError(WorkflowValidationError):
 
 
 class RealNetworkPolicy(str, Enum):
-    """Network authority explicitly declared by a real provider adapter."""
+    """Explicit network authority declared by a real provider adapter."""
 
     NONE = "none"
     BOUNDED_PROVIDER = "bounded_provider"
 
 
-def _bounded_text(value: Any, label: str, *, limit: int) -> str:
+def _bounded_text(value: Any, label: str, *, limit: int, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise RealBackendContractError(f"{label} must be a string")
     cleaned = value.strip()
-    if not cleaned:
+    if not cleaned and not allow_empty:
         raise RealBackendContractError(f"{label} must not be empty")
     if len(cleaned) > limit:
         raise RealBackendContractError(
@@ -81,7 +79,7 @@ def _scope_tuple(scopes: Sequence[str]) -> tuple[str, ...]:
         raise RealBackendContractError("required_scopes must be a list or tuple")
     if len(scopes) > 32:
         raise RealBackendContractError("required_scopes exceeds 32 entries")
-    cleaned = []
+    cleaned: list[str] = []
     for scope in scopes:
         item = _bounded_text(scope, "scope", limit=128).lower()
         if item not in cleaned:
@@ -89,9 +87,35 @@ def _scope_tuple(scopes: Sequence[str]) -> tuple[str, ...]:
     return tuple(cleaned)
 
 
+def _payload_size(payload: Any) -> int:
+    """Return a bounded JSON representation size for provider output."""
+    try:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+            ensure_ascii=False,
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RealBackendContractError(
+            f"provider artifact payload is not serializable: {type(exc).__name__}"
+        ) from None
+    return len(encoded.encode("utf-8"))
+
+
+def _assert_payload_bounds(payload: Any) -> None:
+    size = _payload_size(payload)
+    if size > MAX_ARTIFACT_PAYLOAD_LENGTH:
+        raise RealBackendContractError(
+            "provider artifact payload exceeds the workflow bound: "
+            f"{size} > {MAX_ARTIFACT_PAYLOAD_LENGTH}"
+        )
+
+
 @dataclass(frozen=True)
 class ProviderOperationDescriptor:
-    """Provider operation metadata; it is policy data, not authorization."""
+    """Provider operation metadata; this is not an authorization grant."""
 
     capability_id: str
     operation: str
@@ -105,7 +129,9 @@ class ProviderOperationDescriptor:
 
     def __post_init__(self) -> None:
         capability = _bounded_text(
-            self.capability_id, "capability_id", limit=MAX_CAPABILITY_ID_LENGTH
+            self.capability_id,
+            "capability_id",
+            limit=MAX_CAPABILITY_ID_LENGTH,
         )
         operation = validate_operation(self.operation)
         provider = _bounded_text(self.provider, "provider", limit=128)
@@ -119,7 +145,10 @@ class ProviderOperationDescriptor:
                 f"real workflow adapter operation is forbidden: {operation}"
             )
         if not isinstance(self.network_policy, RealNetworkPolicy):
-            raise RealBackendContractError("network_policy must be a RealNetworkPolicy")
+            raise RealBackendContractError(
+                "network_policy must be a RealNetworkPolicy"
+            )
+
         scopes = _scope_tuple(self.required_scopes)
         object.__setattr__(self, "capability_id", capability)
         object.__setattr__(self, "operation", operation)
@@ -221,11 +250,11 @@ class ExecutionEnvelope:
                 "capability_id": step.capability_id,
                 "operation": step.operation,
                 "input_digest": input_digest,
-                "precondition_digest": precondition_digest,
+                "precondition_digest": str(precondition_digest or ""),
             }
         )
         return cls(
-            workflow_id=workflow_id,
+            workflow_id=str(workflow_id),
             step_id=step.step_id,
             capability_id=step.capability_id,
             operation=step.operation,
@@ -242,8 +271,7 @@ class ExecutionEnvelope:
 class ProviderResult:
     """Provider response accepted by the adapter contract.
 
-    The response is *not* a verification result.  Artifacts and evidence are
-    checked again by the existing Phase 5 connector/observer.
+    A provider result is deliberately not a verification result.
     """
 
     accepted: bool
@@ -263,16 +291,27 @@ class ProviderResult:
             raise RealBackendContractError(
                 f"provider returned too many artifacts: {len(self.artifacts)}"
             )
-        # Provider output becomes workflow state.  Fail closed rather than
-        # persist credential material in artifacts or evidence.
         assert_secret_free(self.artifacts, "real provider artifacts")
         assert_secret_free(self.evidence, "real provider evidence")
+        for key, value in self.artifacts.items():
+            if not isinstance(key, str) or not key:
+                raise RealBackendContractError(
+                    "provider artifact keys must be non-empty strings"
+                )
+            _assert_payload_bounds(value)
+        if self.accepted is False and self.artifacts:
+            raise RealBackendContractError(
+                "a rejected provider request must not return artifacts"
+            )
         if self.provider_request_id:
-            _bounded_text(
-                self.provider_request_id, "provider_request_id", limit=256
+            _bounded_text(self.provider_request_id, "provider_request_id", limit=256)
+            assert_secret_free(
+                self.provider_request_id,
+                "provider request id",
             )
         if self.detail:
             _bounded_text(self.detail, "detail", limit=MAX_DETAIL_LENGTH)
+            assert_secret_free(self.detail, "provider detail")
 
     def safe_dict(self) -> dict[str, Any]:
         return {
@@ -286,7 +325,7 @@ class ProviderResult:
 
 @dataclass(frozen=True)
 class ObservationEnvelope:
-    """Independent provider observation returned after execution."""
+    """Provider read-back result used by the independent verification path."""
 
     observed: bool
     state_digest: str = ""
@@ -302,19 +341,25 @@ class ObservationEnvelope:
                 "ObservationEnvelope.artifact_digests must be a mapping"
             )
         if len(self.artifact_digests) > MAX_ARTIFACT_KEYS:
-            raise RealBackendContractError(
-                "observation contains too many artifacts"
-            )
+            raise RealBackendContractError("observation contains too many artifacts")
         for key, digest in self.artifact_digests.items():
             if not isinstance(key, str) or not key:
-                raise RealBackendContractError("observation artifact keys must be non-empty strings")
+                raise RealBackendContractError(
+                    "observation artifact keys must be non-empty strings"
+                )
             if not isinstance(digest, str) or not digest:
-                raise RealBackendContractError("observation artifact digests must be non-empty strings")
-        assert_secret_free(self.evidence, "real provider observation evidence")
+                raise RealBackendContractError(
+                    "observation artifact digests must be non-empty strings"
+                )
+        assert_secret_free(
+            self.evidence,
+            "real provider observation evidence",
+        )
         if self.state_digest and not isinstance(self.state_digest, str):
             raise RealBackendContractError("state_digest must be a string")
         if self.detail:
             _bounded_text(self.detail, "detail", limit=MAX_DETAIL_LENGTH)
+            assert_secret_free(self.detail, "observation detail")
 
     def safe_dict(self) -> dict[str, Any]:
         return {
@@ -331,7 +376,11 @@ class RealWorkflowAdapter(Protocol):
 
     name: str
 
-    def describe(self, capability_id: str, operation: str) -> ProviderOperationDescriptor:
+    def describe(
+        self,
+        capability_id: str,
+        operation: str,
+    ) -> ProviderOperationDescriptor:
         """Return the exact operation descriptor or raise if unsupported."""
 
     def execute(
@@ -346,15 +395,15 @@ class RealWorkflowAdapter(Protocol):
         self,
         envelope: ExecutionEnvelope,
     ) -> ObservationEnvelope:
-        """Re-read provider state after execution without changing it."""
+        """Re-read provider state without changing it."""
 
 
 class ControlledRealWorkflowBackend(BaseWorkflowBackend):
-    """M1 real backend shell; concrete provider access is injected explicitly.
+    """M1 real backend shell with explicit adapter injection.
 
-    With no adapter, every operation fails closed.  With an injected adapter,
-    this class only performs contract checks and delegates.  It never opens
-    network sockets, shells, subprocesses, browsers or credential stores itself.
+    With no adapter, every operation fails closed. The backend itself does not
+    open a network socket, spawn a process, invoke a shell, access a browser
+    transport, read credentials, or turn provider acceptance into verification.
     """
 
     name = "controlled-real"
@@ -363,8 +412,6 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
         self._adapter = adapter
         self._planned_order: tuple[str, ...] = ()
         self._envelopes: dict[str, ExecutionEnvelope] = {}
-        self._results: dict[str, ProviderResult] = {}
-        self._observations: dict[str, ObservationEnvelope] = {}
         self._executions: dict[str, StepExecution] = {}
         self._workflow_id = ""
 
@@ -393,9 +440,7 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
             )
         return self._adapter
 
-    def _descriptor_for(
-        self, step: WorkflowStep
-    ) -> ProviderOperationDescriptor:
+    def _descriptor_for(self, step: WorkflowStep) -> ProviderOperationDescriptor:
         adapter = self._require_adapter()
         descriptor = adapter.describe(step.capability_id, step.operation)
         if not isinstance(descriptor, ProviderOperationDescriptor):
@@ -458,29 +503,33 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
                 "adapter.execute() must return ProviderResult"
             )
 
-        artifacts: list[WorkflowArtifact] = []
         declared = set(step.produces)
         returned = set(result.artifacts)
-        if declared != returned:
+        if result.accepted and declared != returned:
             raise RealBackendContractError(
-                f"provider artifacts do not match declared outputs: expected={sorted(declared)} got={sorted(returned)}"
+                "provider artifacts do not match declared outputs: "
+                f"expected={sorted(declared)} got={sorted(returned)}"
             )
 
         trust = domain_trust(step.domain)
+        artifacts: list[WorkflowArtifact] = []
         for artifact_key, payload in sorted(result.artifacts.items()):
-            kind = HandoffKind.TEXT
-            if isinstance(payload, Mapping):
-                kind = HandoffKind.STRUCTURED
-            artifact = WorkflowArtifact(
-                artifact_key=artifact_key,
-                kind=kind,
-                source_step=step.step_id,
-                source_domain=step.domain,
-                payload=payload,
-                trust=trust,
-                sha256=artifact_digest(payload),
+            kind = (
+                HandoffKind.STRUCTURED
+                if isinstance(payload, Mapping)
+                else HandoffKind.TEXT
             )
-            artifacts.append(artifact)
+            artifacts.append(
+                WorkflowArtifact(
+                    artifact_key=artifact_key,
+                    kind=kind,
+                    source_step=step.step_id,
+                    source_domain=step.domain,
+                    payload=payload,
+                    trust=trust,
+                    sha256=artifact_digest(payload),
+                )
+            )
 
         execution = StepExecution(
             step_id=step.step_id,
@@ -510,8 +559,11 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
             digest=envelope.input_digest,
             epoch=epoch,
         )
+
+        # Persist the identity only after the provider contract has been
+        # satisfied. This prevents a malformed provider response from burning
+        # the idempotency key and leaving a false execution record behind.
         self._envelopes[envelope.idempotency_key] = envelope
-        self._results[envelope.idempotency_key] = result
         self._executions[step.step_id] = execution
         return execution
 
@@ -519,3 +571,79 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
         execution = self._executions.get(step_id)
         if execution is None:
             raise WorkflowValidationError(
+                f"no controlled-real execution exists for step: {step_id}"
+            )
+
+        envelope = next(
+            value for value in self._envelopes.values() if value.step_id == step_id
+        )
+        observation = self._require_adapter().observe(envelope)
+        if not isinstance(observation, ObservationEnvelope):
+            raise RealBackendContractError(
+                "adapter.observe() must return ObservationEnvelope"
+            )
+
+        return {
+            "step_id": step_id,
+            "accepted": execution.accepted,
+            "artifacts": {
+                artifact.artifact_key: artifact.sha256
+                for artifact in execution.artifacts
+            },
+            "observed": observation.observed,
+            "state_digest": observation.state_digest,
+            "observed_artifacts": dict(observation.artifact_digests),
+            "evidence": dict(observation.evidence),
+            "detail": observation.detail[:MAX_DETAIL_LENGTH],
+        }
+
+    def observe_workflow(self, workflow_id: str) -> WorkflowObservation:
+        completed = tuple(
+            sorted(
+                step_id
+                for step_id, execution in self._executions.items()
+                if execution.accepted
+            )
+        )
+        artifact_keys = tuple(
+            sorted(
+                {
+                    artifact.artifact_key
+                    for execution in self._executions.values()
+                    for artifact in execution.artifacts
+                }
+            )
+        )
+        return WorkflowObservation(
+            workflow_id=workflow_id or self._workflow_id,
+            completed_steps=completed,
+            artifact_keys=artifact_keys,
+            detail="controlled real backend state; provider acceptance is not verification",
+        )
+
+    def transfer(
+        self,
+        handoff: Any,
+        artifact: WorkflowArtifact,
+    ) -> WorkflowArtifact:
+        raise BackendUnavailableError(
+            "cross-domain real transfer is not enabled in M1; "
+            "use the existing Phase 5 connector contract"
+        )
+
+    def create_draft(self, step: WorkflowStep, **kwargs: Any):
+        raise BackendUnavailableError(
+            "real communication drafting is not enabled in M1"
+        )
+
+
+__all__ = [
+    "ControlledRealWorkflowBackend",
+    "ExecutionEnvelope",
+    "ObservationEnvelope",
+    "ProviderOperationDescriptor",
+    "ProviderResult",
+    "RealBackendContractError",
+    "RealNetworkPolicy",
+    "RealWorkflowAdapter",
+]
