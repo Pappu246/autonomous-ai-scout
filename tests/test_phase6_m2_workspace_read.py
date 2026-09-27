@@ -15,7 +15,6 @@ from autonomous_agent.workflow import (
     WorkspaceRealWorkflowAdapter,
 )
 from autonomous_agent.workflow.real_backend import ControlledRealWorkflowBackend
-)
 
 
 def _pipeline(path: str) -> WorkflowPipeline:
@@ -118,10 +117,7 @@ def test_m2_workspace_read_blocks_root_escape(tmp_path: Path):
 def test_m2_workspace_read_does_not_require_approval(tmp_path: Path):
     (tmp_path / "readme.txt").write_text("safe", encoding="utf-8")
     connector = BoundedWorkflowConnector(
-        backend=__import__(
-            "autonomous_agent.workflow.real_backend",
-            fromlist=["ControlledRealWorkflowBackend"],
-        ).ControlledRealWorkflowBackend(
+        backend=ControlledRealWorkflowBackend(
             WorkspaceRealWorkflowAdapter(WorkspaceConnector(tmp_path))
         ),
         known_capability_ids=("filesystem:read",),
