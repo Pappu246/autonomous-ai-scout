@@ -88,9 +88,9 @@ def test_digest_mismatch_fails():
 def test_allowed_statuses(status):
     assert evaluate_file_snapshot(request(),observation(entries=(entry(status=status),))).state is ReadOnlyVerificationState.PASS
 
-def test_unsupported_status_fails():
-    result=evaluate_file_snapshot(request(),observation(entries=(entry(status="removed"),)))
-    assert result.state is ReadOnlyVerificationState.FAIL
+def test_unsupported_status_is_rejected_as_malformed():
+    with pytest.raises(VerificationError):
+        SnapshotEntry(path="a.py", content_sha256=D_A, status="removed")
 
 def test_oversize_fails():
     result=evaluate_file_snapshot(request(),observation(entries=(entry(size_bytes=50*1024*1024+1),)))
