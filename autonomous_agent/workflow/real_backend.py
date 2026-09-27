@@ -254,7 +254,10 @@ class ExecutionEnvelope:
                 break
         content_value = parameters.get("content")
         if isinstance(content_value, str):
-            recovery_context["content_digest"] = artifact_digest(content_value)
+            path_for_content = recovery_context.get("path", "")
+            recovery_context["content_digest"] = artifact_digest(
+                {"path": path_for_content, "content": content_value}
+            )
         if precondition_digest:
             recovery_context["precondition_digest"] = str(precondition_digest)
         recovery_context["input_digest"] = input_digest
@@ -509,8 +512,12 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
             )
 
         inbound = dict(inbound or {})
+        resolved_workflow_id = workflow_id or self._workflow_id
+        if not resolved_workflow_id:
+            raise RealBackendContractError("real execution requires a workflow id")
+        self._workflow_id = resolved_workflow_id
         envelope = ExecutionEnvelope.build(
-            workflow_id=workflow_id or self._workflow_id,
+            workflow_id=resolved_workflow_id,
             step=step,
             provider=descriptor.provider,
             network_policy=descriptor.network_policy,

@@ -353,7 +353,9 @@ class WorkspaceRealWorkflowWriteAdapter:
         payload = self._artifact(evidence)
         self._states[envelope.idempotency_key] = _WorkspaceWriteState(
             relative_path=evidence.relative_path,
-            expected_content_digest=artifact_digest(content),
+            expected_content_digest=artifact_digest(
+                {"path": evidence.relative_path, "content": content}
+            ),
         )
         return ProviderResult(
             accepted=True,
