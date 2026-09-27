@@ -80,6 +80,7 @@ def test_m2_real_workspace_read_preserves_redaction_and_fingerprint(tmp_path: Pa
     assert artifact["redacted"] is True
     assert "SUPER-SECRET" not in artifact["content"]
     assert artifact["content"].endswith("public=yes")
+    assert "api_key=" not in artifact["content"]
     assert artifact["fingerprint"]
 
 
