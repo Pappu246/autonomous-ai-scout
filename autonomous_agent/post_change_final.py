@@ -207,10 +207,6 @@ def evaluate_post_change_tests(
                 return TestAttestationResult(ReadOnlyVerificationState.FAIL,"required check is not successful: "+check.name,failed_checks=(check.name,))
     return TestAttestationResult(ReadOnlyVerificationState.PASS,"all required checks completed successfully for the exact commit")
 
-class Phase6EvidenceBundle:
-    pass
-# replaced immediately below to keep the canonical evidence model explicit
-
 @dataclass(frozen=True, slots=True)
 class Phase6Evidence:
     commit: CommitObservation | None = None
@@ -239,7 +235,7 @@ class Phase6Evidence:
                 "head_commit_sha": self.pull_request.head_commit_sha,
                 "head_present": self.pull_request.head_present,
             },
-            "snapshot": None if self.snapshot is None else str(self.snapshot),
+            "snapshot": None if self.snapshot is None else self.snapshot.canonical(),
             "tests": None if self.tests is None else self.tests.canonical(),
         }
 

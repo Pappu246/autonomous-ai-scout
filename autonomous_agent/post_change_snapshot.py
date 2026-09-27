@@ -58,6 +58,18 @@ class SnapshotEntry:
     is_submodule: bool = False
     previous_path: str | None = None
 
+    def canonical(self) -> dict[str, object]:
+        return {
+            "path": self.path,
+            "content_sha256": self.content_sha256,
+            "status": self.status.value,
+            "size_bytes": self.size_bytes,
+            "is_binary": self.is_binary,
+            "is_symlink": self.is_symlink,
+            "is_submodule": self.is_submodule,
+            "previous_path": self.previous_path,
+        }
+
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "path",
@@ -100,6 +112,16 @@ class SnapshotObservation:
     complete: bool = True
     truncated: bool = False
     observed_file_count: int | None = None
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "repository": self.repository,
+            "commit_sha": self.commit_sha,
+            "entries": [entry.canonical() for entry in sorted(self.entries, key=lambda item: item.path)],
+            "complete": self.complete,
+            "truncated": self.truncated,
+            "observed_file_count": self.observed_file_count,
+        }
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "repository", _require_repository(self.repository))
