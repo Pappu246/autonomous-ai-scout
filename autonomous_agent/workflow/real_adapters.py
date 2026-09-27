@@ -15,6 +15,7 @@ Properties:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Mapping
 
 from ..filesystem_workspace import WorkspaceConnector, WorkspaceError
@@ -32,6 +33,24 @@ from .real_backend import (
     RealBackendContractError,
     RealNetworkPolicy,
 )
+
+_PROVIDER_SECRET_LABEL = re.compile(
+    r"(?i)\b(?:api[_-]?key|access[_-]?token|authorization|password|passwd|secret|cookie|session|credential)\s*[:=]\s*"
+)
+
+
+def _provider_safe_payload(evidence: Any) -> dict[str, Any]:
+    """Convert connector-safe evidence into a contract-safe provider payload.
+
+    WorkspaceConnector already removes credential values. The workflow contract
+    also rejects credential-looking field labels, so the adapter neutralizes
+    those labels before provider evidence enters the real-backend boundary.
+    """
+    payload = dict(evidence.safe_dict())
+    content = payload.get("content")
+    if isinstance(content, str):
+        payload["content"] = _PROVIDER_SECRET_LABEL.sub("redacted-field: ", content)
+    return payload
 
 
 @dataclass(frozen=True)
@@ -92,7 +111,7 @@ class WorkspaceRealWorkflowAdapter:
 
     @staticmethod
     def _artifact(evidence: Any) -> dict[str, Any]:
-        return evidence.safe_dict()
+        return _provider_safe_payload(evidence)
 
     def execute(
         self,
