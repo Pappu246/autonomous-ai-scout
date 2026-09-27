@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application","workflow"}
 # Advanced bounded browser operations dispatched to the injected browser connector.
 # Legacy open/click/extract are handled explicitly; these 12 are the canonical
 # Phase 3 capabilities. Anything not listed here is refused by the sandbox.
@@ -193,7 +193,19 @@ def _run_application(connector,request,limit):
         else:return False,f"sandbox application allowlist does not support operation: {op}",(),False
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("APPLICATION",op),truncated
     except Exception as exc:return False,f"application operation failed: {type(exc).__name__}: {exc}",("APPLICATION",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None):
+def _run_workflow(connector,request,limit):
+    # Bounded cross-domain workflow orchestration. The sandbox owns no workflow
+    # logic: it forwards one allowlisted operation to the injected bounded
+    # connector, which applies policy, approval, budget, replay and trust. No
+    # send/deliver path exists here or downstream.
+    if connector is None or not isinstance(request,Mapping):return False,"workflow requires an approved injected connector and structured request",(),False
+    op=str(request.get("operation","")).strip().lower()
+    try:
+        from .workflow.integration import execute_workflow_operation
+        payload=execute_workflow_operation(connector,request)
+        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("WORKFLOW",op),truncated
+    except Exception as exc:return False,f"workflow operation failed: {type(exc).__name__}: {exc}",("WORKFLOW",op),False
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,workflow_connector:Any=None,workflow_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
@@ -215,6 +227,8 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
         success,output,command,truncated=_run_documents(documents_connector,documents_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
     if op=="application":
         success,output,command,truncated=_run_application(application_connector,application_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
+    if op=="workflow":
+        success,output,command,truncated=_run_workflow(workflow_connector,workflow_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
     if op=="inspect":
         files=[]
         for path in sorted(root_path.rglob("*")):

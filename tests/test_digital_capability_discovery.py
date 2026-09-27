@@ -44,6 +44,8 @@ def test_every_domain_is_declared_as_a_peer():
         CapabilityDomain.GITHUB,
         CapabilityDomain.DOCUMENTS,
         CapabilityDomain.APPLICATION,
+        CapabilityDomain.WORKFLOW,
+        CapabilityDomain.COMMUNICATION,
         CapabilityDomain.TESTING,
     }
     assert values == expected

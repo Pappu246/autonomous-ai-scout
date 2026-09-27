@@ -1,0 +1,332 @@
+"""Bounded cross-domain workflow domain (Phase 5).
+
+Provides the strongly typed, bounded models and the platform-independent
+security policy for workflows that compose several Phase 1-4 capability
+domains into one declarative, acyclic plan.
+
+Guarantees:
+- Fail-closed validation: every identifier, bound, domain and dependency is
+  checked before a workflow is usable, and any doubt raises.
+- Bounded DAG structure: bounded steps, dependencies, handoffs and domains,
+  with cycles rejected rather than unrolled.
+- Deterministic ordering: a validated workflow always yields the same
+  execution order and the same audit digest.
+- Declared cross-domain handoffs: data crosses a domain boundary only through
+  a handoff whose consumer transitively depends on its producer, for artifact
+  keys both sides declared.
+- Trust propagation: untrusted content taints every downstream step and trust
+  never silently upgrades by crossing a domain boundary.
+- Hard sinks: untrusted external content can never reach the workspace shell
+  or desktop input domains, with or without approval.
+- No understated effects: an operation that mutates state cannot declare
+  itself read-only to slip past the approval gate.
+- Approval gating: consequential and untrusted-tainted mutating steps must
+  declare an explicit human approval gate.
+- Secret-free definitions and serialization: credential material is rejected
+  from workflow declarations and recursively redacted from every
+  ``safe_dict()``.
+- Workflow action budgets: declared step costs can never exceed the bounded
+  workflow budget.
+
+Phase 5 M2 adds the bounded execution layer on top of that contract:
+
+- Deterministic backends (`MockWorkflowBackend`) plus a fail-closed default
+  (`UnsupportedWorkflowBackend`) that never fabricates live success.
+- A bounded `WorkflowSession` with OPEN/CLOSED/SUSPENDED/RESUMED lifecycle,
+  budget, execution depth and secret-free snapshots that store digests rather
+  than payloads.
+- Semantic `WorkflowTarget` resolution that rejects stale, foreign, unknown
+  and coordinate-like references.
+- `WorkflowReplayProtector`, which refuses to repeat completed steps,
+  handoffs, mutations and verified artifacts across a resume.
+- `BoundedWorkflowConnector`, which composes all of the above and enforces
+  that authority never travels with data, that acceptance is never mistaken
+  for verification, and that drafting is never sending.
+
+Registry, sandbox, provider, builtins and runtime integration are deliberately
+out of scope here; they belong to a later milestone.
+"""
+
+from __future__ import annotations
+
+from .backend import (
+    DELIVERY_OPERATIONS,
+    DRAFT_CHANNELS,
+    BaseWorkflowBackend,
+    MockWorkflowBackend,
+    UnsupportedWorkflowBackend,
+)
+from .connector import BoundedWorkflowConnector
+from .integration import (
+    MUTATING_WORKFLOW_OPERATIONS,
+    REFUSED_WORKFLOW_OPERATIONS,
+    WORKFLOW_SANDBOX_OPERATIONS,
+    WorkflowRequestError,
+    execute_workflow_operation,
+    handoff_from_mapping,
+    pipeline_from_mapping,
+    step_from_mapping,
+)
+from .observer import WorkflowPostConditionObserver
+from .models import (
+    DEFAULT_WORKFLOW_ACTION_BUDGET,
+    MAX_ARTIFACT_KEY_LENGTH,
+    MAX_ARTIFACT_KEYS,
+    MAX_ARTIFACT_PAYLOAD_LENGTH,
+    MAX_CAPABILITY_ID_LENGTH,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_METADATA_ENTRIES,
+    MAX_OPERATION_LENGTH,
+    MAX_PARAMETER_DEPTH,
+    MAX_PARAMETER_ITEMS,
+    MAX_PARAMETER_KEY_LENGTH,
+    MAX_PARAMETER_VALUE_LENGTH,
+    MAX_STEP_ACTION_COST,
+    MAX_STEP_DEPENDENCIES,
+    MAX_STEP_ID_LENGTH,
+    MAX_STEP_PARAMETERS,
+    MAX_WORKFLOW_ACTION_BUDGET,
+    MAX_WORKFLOW_DOMAINS,
+    MAX_WORKFLOW_GOAL_LENGTH,
+    MAX_WORKFLOW_HANDOFFS,
+    MAX_WORKFLOW_ID_LENGTH,
+    MAX_WORKFLOW_NAME_LENGTH,
+    MAX_WORKFLOW_STEPS,
+    MAX_DETAIL_LENGTH,
+    MAX_DRAFT_BODY_LENGTH,
+    MAX_DRAFT_RECIPIENTS,
+    MAX_DRAFT_SUBJECT_LENGTH,
+    MAX_EVIDENCE_ENTRIES,
+    MAX_EXECUTION_DEPTH,
+    MAX_SESSION_HISTORY,
+    REDACTED,
+    UNTRUSTED_BANNER,
+    UNTRUSTED_ENVELOPE_KEY,
+    ActionBudget,
+    ActionBudgetExceededError,
+    BackendUnavailableError,
+    CommunicationDraft,
+    HandoffKind,
+    SessionState,
+    StepEffect,
+    StepExecution,
+    StepState,
+    TargetResolutionError,
+    TrustLevel,
+    VerificationStatus,
+    WorkflowApprovalError,
+    WorkflowArtifact,
+    WorkflowBudgetExceededError,
+    WorkflowDependencyError,
+    WorkflowDomainError,
+    WorkflowError,
+    WorkflowHandoff,
+    WorkflowHandoffError,
+    WorkflowObservation,
+    WorkflowPipeline,
+    WorkflowReplayError,
+    WorkflowSecurityError,
+    WorkflowState,
+    WorkflowStateError,
+    WorkflowStep,
+    WorkflowValidationError,
+    artifact_digest,
+    consequential_signal,
+    is_untrusted_marked,
+    looks_like_secret,
+    redact_secret,
+    redact_structure,
+    unique_ids,
+    wrap_untrusted_handoff_content,
+    wrap_untrusted_structured_content,
+)
+from .policy import (
+    BLOCKED_UNTRUSTED_SINK_DOMAINS,
+    DOMAIN_TRUST,
+    FORBIDDEN_PARAMETER_KEYS,
+    FORBIDDEN_STEP_OPERATIONS,
+    MUTATING_OPERATION_SIGNALS,
+    PATH_PARAMETER_KEYS,
+    SENSITIVE_SINK_DOMAINS,
+    UNTRUSTED_SOURCE_DOMAINS,
+    approval_reason,
+    assert_approval_gate,
+    assert_cross_domain_handoff_allowed,
+    assert_domain_active,
+    assert_effect_declared,
+    assert_secret_free,
+    assert_within_action_budget,
+    detect_dependency_cycle,
+    domain_trust,
+    infer_effect,
+    lowest_trust,
+    pipeline_execution_order,
+    pipeline_trust_map,
+    propagate_trust,
+    requires_human_approval,
+    topological_order,
+    transitive_dependencies,
+    validate_action_budget,
+    validate_action_cost,
+    validate_artifact_key,
+    validate_artifact_keys,
+    validate_capability_id,
+    validate_dependencies,
+    validate_description,
+    validate_goal,
+    validate_handoff,
+    validate_metadata,
+    validate_operation,
+    validate_parameters,
+    validate_pipeline,
+    validate_step,
+    validate_step_id,
+    validate_workflow_id,
+    validate_workflow_name,
+)
+from .replay import WorkflowReplayProtector, inbound_digest
+from .session import WorkflowSession, WorkflowSessionSnapshot
+from .target import (
+    TARGET_TYPES,
+    WorkflowTarget,
+    WorkflowTargetResolver,
+    reject_positional_reference,
+)
+
+__all__ = [
+    "BLOCKED_UNTRUSTED_SINK_DOMAINS",
+    "DEFAULT_WORKFLOW_ACTION_BUDGET",
+    "DELIVERY_OPERATIONS",
+    "DOMAIN_TRUST",
+    "DRAFT_CHANNELS",
+    "FORBIDDEN_PARAMETER_KEYS",
+    "FORBIDDEN_STEP_OPERATIONS",
+    "MAX_DETAIL_LENGTH",
+    "MAX_DRAFT_BODY_LENGTH",
+    "MAX_DRAFT_RECIPIENTS",
+    "MAX_DRAFT_SUBJECT_LENGTH",
+    "MAX_EVIDENCE_ENTRIES",
+    "MAX_EXECUTION_DEPTH",
+    "MAX_SESSION_HISTORY",
+    "MUTATING_WORKFLOW_OPERATIONS",
+    "REFUSED_WORKFLOW_OPERATIONS",
+    "TARGET_TYPES",
+    "WORKFLOW_SANDBOX_OPERATIONS",
+    "UNTRUSTED_BANNER",
+    "UNTRUSTED_ENVELOPE_KEY",
+    "BackendUnavailableError",
+    "BaseWorkflowBackend",
+    "BoundedWorkflowConnector",
+    "CommunicationDraft",
+    "MockWorkflowBackend",
+    "SessionState",
+    "StepExecution",
+    "TargetResolutionError",
+    "UnsupportedWorkflowBackend",
+    "VerificationStatus",
+    "WorkflowObservation",
+    "WorkflowPostConditionObserver",
+    "WorkflowReplayError",
+    "WorkflowRequestError",
+    "WorkflowReplayProtector",
+    "WorkflowSession",
+    "WorkflowSessionSnapshot",
+    "WorkflowTarget",
+    "WorkflowTargetResolver",
+    "inbound_digest",
+    "reject_positional_reference",
+    "MAX_ARTIFACT_KEYS",
+    "MAX_ARTIFACT_KEY_LENGTH",
+    "MAX_ARTIFACT_PAYLOAD_LENGTH",
+    "MAX_CAPABILITY_ID_LENGTH",
+    "MAX_DESCRIPTION_LENGTH",
+    "MAX_METADATA_ENTRIES",
+    "MAX_OPERATION_LENGTH",
+    "MAX_PARAMETER_DEPTH",
+    "MAX_PARAMETER_ITEMS",
+    "MAX_PARAMETER_KEY_LENGTH",
+    "MAX_PARAMETER_VALUE_LENGTH",
+    "MAX_STEP_ACTION_COST",
+    "MAX_STEP_DEPENDENCIES",
+    "MAX_STEP_ID_LENGTH",
+    "MAX_STEP_PARAMETERS",
+    "MAX_WORKFLOW_ACTION_BUDGET",
+    "MAX_WORKFLOW_DOMAINS",
+    "MAX_WORKFLOW_GOAL_LENGTH",
+    "MAX_WORKFLOW_HANDOFFS",
+    "MAX_WORKFLOW_ID_LENGTH",
+    "MAX_WORKFLOW_NAME_LENGTH",
+    "MAX_WORKFLOW_STEPS",
+    "MUTATING_OPERATION_SIGNALS",
+    "PATH_PARAMETER_KEYS",
+    "REDACTED",
+    "SENSITIVE_SINK_DOMAINS",
+    "StepEffect",
+    "StepState",
+    "TrustLevel",
+    "UNTRUSTED_SOURCE_DOMAINS",
+    "ActionBudget",
+    "ActionBudgetExceededError",
+    "HandoffKind",
+    "WorkflowApprovalError",
+    "WorkflowArtifact",
+    "WorkflowBudgetExceededError",
+    "WorkflowDependencyError",
+    "WorkflowDomainError",
+    "WorkflowError",
+    "WorkflowHandoff",
+    "WorkflowHandoffError",
+    "WorkflowPipeline",
+    "WorkflowSecurityError",
+    "WorkflowState",
+    "WorkflowStateError",
+    "WorkflowStep",
+    "WorkflowValidationError",
+    "approval_reason",
+    "artifact_digest",
+    "assert_approval_gate",
+    "assert_cross_domain_handoff_allowed",
+    "assert_domain_active",
+    "assert_effect_declared",
+    "assert_secret_free",
+    "assert_within_action_budget",
+    "consequential_signal",
+    "detect_dependency_cycle",
+    "domain_trust",
+    "execute_workflow_operation",
+    "handoff_from_mapping",
+    "infer_effect",
+    "is_untrusted_marked",
+    "looks_like_secret",
+    "lowest_trust",
+    "pipeline_execution_order",
+    "pipeline_from_mapping",
+    "pipeline_trust_map",
+    "propagate_trust",
+    "redact_secret",
+    "redact_structure",
+    "requires_human_approval",
+    "step_from_mapping",
+    "topological_order",
+    "transitive_dependencies",
+    "unique_ids",
+    "validate_action_budget",
+    "validate_action_cost",
+    "validate_artifact_key",
+    "validate_artifact_keys",
+    "validate_capability_id",
+    "validate_dependencies",
+    "validate_description",
+    "validate_goal",
+    "validate_handoff",
+    "validate_metadata",
+    "validate_operation",
+    "validate_parameters",
+    "validate_pipeline",
+    "validate_step",
+    "validate_step_id",
+    "validate_workflow_id",
+    "validate_workflow_name",
+    "wrap_untrusted_handoff_content",
+    "wrap_untrusted_structured_content",
+]

@@ -45,6 +45,8 @@ class CapabilityDomain(str, Enum):
     GITHUB = "github"
     DOCUMENTS = "documents"
     APPLICATION = "application"
+    WORKFLOW = "workflow"
+    COMMUNICATION = "communication"
     TESTING = "testing"
 
 
@@ -361,6 +363,49 @@ DOMAIN_DESCRIPTORS: tuple[DomainDescriptor, ...] = (
         ),
         notes="Repository-focused engineering remains fully supported through "
         "this domain.",
+    ),
+    DomainDescriptor(
+        CapabilityDomain.WORKFLOW,
+        "Cross-domain workflow orchestration",
+        "Plan, validate and execute a bounded multi-step pipeline whose steps "
+        "belong to other domains, moving data across those boundaries under "
+        "explicit policy, budget and approval control.",
+        DomainPhase.ACTIVE,
+        signals=(
+            "cross-domain workflow",
+            "cross domain workflow",
+            "workflow pipeline",
+            "multi-step workflow",
+            "multi step workflow",
+            "orchestrate workflow",
+            "plan the pipeline",
+            "pipeline plan",
+            "execute the pipeline",
+            "hand off the data",
+            "data handoff",
+        ),
+        notes="Orchestration only. Every step still executes through the "
+        "registered capability of its own domain, with that domain's approval "
+        "gate intact.",
+    ),
+    DomainDescriptor(
+        CapabilityDomain.COMMUNICATION,
+        "Bounded communication",
+        "Coordinate meeting logistics and prepare communication drafts. "
+        "Drafting is the end of the line: no autonomous delivery path exists.",
+        DomainPhase.ACTIVE,
+        signals=(
+            "coordinate a meeting",
+            "coordinate the meeting",
+            "meeting coordination",
+            "propose meeting times",
+            "prepare a draft",
+            "prepare the draft",
+            "draft for review",
+            "communication draft",
+        ),
+        notes="draft != send. This domain can never deliver a message; "
+        "sending stays outside autonomous reach.",
     ),
 )
 
