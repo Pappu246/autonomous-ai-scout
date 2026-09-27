@@ -397,6 +397,10 @@ class WorkspaceRealWorkflowWriteAdapter:
             )
 
         payload = self._artifact(evidence)
+        # The execution artifact represents the resulting write state. Keep the
+        # observation payload semantically identical while recording the actual
+        # read-back fact separately in ObservationEnvelope.evidence.
+        payload["operation"] = "write"
         payload_digest = artifact_digest(payload)
         return ObservationEnvelope(
             observed=True,
