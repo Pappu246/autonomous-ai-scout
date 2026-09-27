@@ -49,7 +49,6 @@ from autonomous_agent.digital.domains import (
 from autonomous_agent.digital.provider import TOOL_SANDBOX_BINDINGS, SandboxCapabilityExecutor
 from autonomous_agent.sandbox import SAFE_OPERATIONS, run_safe_operation
 from autonomous_agent.tool_registry import (
-    REGISTRY,
     ApprovalRequirement,
     AuditRequirement,
     AuthenticationRequirement,
@@ -977,3 +976,154 @@ def test_untrusted_payload_cannot_grant_authority_through_the_capability(capabil
     blocked = run(capabilities["workflow:pipeline.execute"], {"step_id": "brief"}, approved=True)
     assert blocked.state == "failed"
     assert "explicit human approval" in blocked.reason
+
+
+# ==========================================================================
+# 9. CENTRAL RUNTIME LIFECYCLE (no parallel runtime is constructed)
+# ==========================================================================
+def simple_pipeline_payload() -> dict:
+    return {
+        "workflow_id": "wf-rt",
+        "name": "Runtime pipeline",
+        "action_budget": 12,
+        "steps": [
+            {
+                "step_id": "research",
+                "domain": "web",
+                "capability_id": "web:search",
+                "operation": "search",
+                "produces": ["findings"],
+            }
+        ],
+    }
+
+
+@pytest.fixture()
+def agent(tmp_path: Path, connector: BoundedWorkflowConnector):
+    from autonomous_agent.digital import build_agent
+
+    return build_agent(root=tmp_path, connectors={"workflow": connector})
+
+
+def test_planner_routes_workflow_and_communication_goals(agent):
+    workflow_plan = agent.plan("plan the pipeline for this cross-domain workflow")
+    assert "workflow:pipeline.plan" in [step.capability_id for step in workflow_plan.steps]
+    assert workflow_plan.requires_approval is False
+
+    communication_plan = agent.plan("coordinate a meeting with the reviewers")
+    assert "communication:meeting.coordinate" in [
+        step.capability_id for step in communication_plan.steps
+    ]
+
+
+def test_runtime_runs_a_workflow_goal_with_audit_and_checkpoint(tmp_path: Path, agent):
+    from autonomous_agent.digital import DigitalResultState
+    from autonomous_agent.execution_audit import verify_execution_audit
+
+    audit = tmp_path / "audit.jsonl"
+    checkpoint = tmp_path / "checkpoint.json"
+    result = agent.run(
+        "plan the pipeline for this cross-domain workflow",
+        root=tmp_path,
+        audit_path=audit,
+        execution_id="exec-wf-1",
+        requests={"workflow:pipeline.plan": {"pipeline": simple_pipeline_payload()}},
+        granted=[Capability.WORKFLOW],
+        checkpoint_path=checkpoint,
+    )
+    assert result.state is DigitalResultState.VERIFIED
+    assert [(item.capability_id, item.verified) for item in result.steps] == [
+        ("workflow:pipeline.plan", True)
+    ]
+    assert verify_execution_audit(audit) is True
+    assert checkpoint.exists()
+
+
+def test_runtime_stops_an_unapproved_workflow_execution(tmp_path: Path, agent):
+    from autonomous_agent.digital import DigitalResultState
+
+    result = agent.run(
+        "execute the pipeline",
+        root=tmp_path,
+        audit_path=tmp_path / "audit.jsonl",
+        execution_id="exec-wf-2",
+        requests={
+            "workflow:pipeline.execute": {"step_id": "research", "approver": "ops-human"}
+        },
+        granted=[Capability.WORKFLOW],
+        explicitly_approved=False,
+    )
+    assert result.state is DigitalResultState.REQUIRES_APPROVAL
+    assert "requires approval" in result.reason
+
+
+def test_runtime_blocks_a_wrongly_granted_workflow_capability(tmp_path: Path, agent):
+    """An explicit grant for another domain never authorizes workflow work."""
+    from autonomous_agent.digital import DigitalResultState
+
+    result = agent.run(
+        "plan the pipeline for this cross-domain workflow",
+        root=tmp_path,
+        audit_path=tmp_path / "audit.jsonl",
+        execution_id="exec-wf-3",
+        requests={"workflow:pipeline.plan": {"pipeline": simple_pipeline_payload()}},
+        granted=[Capability.DOCUMENTS],
+    )
+    assert result.state is not DigitalResultState.VERIFIED
+    assert all(not item.verified for item in result.steps)
+
+
+def test_runtime_never_widens_a_workflow_grant(tmp_path: Path, agent):
+    """Extra high-impact grants are dropped, not carried into the run."""
+    plan = agent.plan(
+        "plan the pipeline for this cross-domain workflow",
+        granted=[Capability.WORKFLOW, Capability.DESTRUCTIVE, Capability.DEPLOY],
+    )
+    assert Capability.WORKFLOW in plan.granted
+    assert Capability.DESTRUCTIVE not in plan.granted
+    assert Capability.DEPLOY not in plan.granted
+
+
+def test_runtime_requires_sandbox_and_audit_availability(tmp_path: Path, agent):
+    from autonomous_agent.digital import DigitalResultState
+
+    result = agent.run(
+        "plan the pipeline for this cross-domain workflow",
+        root=tmp_path,
+        audit_path=tmp_path / "audit.jsonl",
+        execution_id="exec-wf-4",
+        requests={"workflow:pipeline.plan": {"pipeline": simple_pipeline_payload()}},
+        granted=[Capability.WORKFLOW],
+        sandbox_available=False,
+    )
+    assert result.state is not DigitalResultState.VERIFIED
+
+
+def test_runtime_refuses_to_auto_replay_an_interrupted_execution(tmp_path: Path, agent):
+    from autonomous_agent.digital import DigitalResultState
+    from autonomous_agent.digital.contract import CapabilityAuditRecord
+    from autonomous_agent.execution_audit import append_execution_record
+
+    audit = tmp_path / "audit.jsonl"
+    append_execution_record(
+        audit,
+        CapabilityAuditRecord(
+            "exec-wf-5",
+            "workflow:pipeline.execute",
+            "workflow.pipeline.execute",
+            "capability_started",
+            "running",
+        ).as_record(),
+    )
+    result = agent.run(
+        "execute the pipeline",
+        root=tmp_path,
+        audit_path=audit,
+        execution_id="exec-wf-5",
+        requests={"workflow:pipeline.execute": {"step_id": "research"}},
+        granted=[Capability.WORKFLOW],
+        explicitly_approved=True,
+        resume=True,
+    )
+    assert result.state is DigitalResultState.RECOVERY_REQUIRED
+    assert "automatic replay is disabled" in result.reason
