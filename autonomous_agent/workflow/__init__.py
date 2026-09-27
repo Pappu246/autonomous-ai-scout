@@ -68,6 +68,7 @@ from .integration import (
     step_from_mapping,
 )
 from .observer import WorkflowPostConditionObserver
+from .real_adapters import WorkspaceRealWorkflowAdapter
 from .real_backend import (
     ControlledRealWorkflowBackend,
     ExecutionEnvelope,
@@ -236,6 +237,7 @@ __all__ = [
     "VerificationStatus",
     "WorkflowObservation",
     "WorkflowPostConditionObserver",
+    "WorkspaceRealWorkflowAdapter",
     "ControlledRealWorkflowBackend",
     "ExecutionEnvelope",
     "ObservationEnvelope",
