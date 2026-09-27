@@ -270,8 +270,17 @@ class WorkflowSession:
         if not isinstance(snapshot, WorkflowSessionSnapshot):
             raise WorkflowStateError("restore requires a WorkflowSessionSnapshot")
 
-        budget = action_budget or ActionBudget(limit=snapshot.action_limit or MAX_WORKFLOW_ACTION_BUDGET)
-        budget.used = min(max(0, int(snapshot.action_used)), budget.limit)
+        claimed_limit = int(snapshot.action_limit or MAX_WORKFLOW_ACTION_BUDGET)
+        budget = action_budget or ActionBudget(
+            limit=min(max(1, claimed_limit), MAX_WORKFLOW_ACTION_BUDGET)
+        )
+        # A checkpoint is state, not testimony. Work that the snapshot itself
+        # records has already been spent, so the restored usage can never fall
+        # below it: a tampered or stale ``action_used`` must not hand a resumed
+        # workflow a fresh budget.
+        recorded_work = len(snapshot.completed_digests) + len(snapshot.handoff_digests)
+        claimed_used = max(0, int(snapshot.action_used))
+        budget.used = min(max(claimed_used, recorded_work), budget.limit)
 
         session = cls(
             session_id=snapshot.session_id,

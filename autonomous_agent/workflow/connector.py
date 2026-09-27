@@ -47,6 +47,7 @@ from .models import (
     WorkflowHandoffError,
     WorkflowObservation,
     WorkflowPipeline,
+    WorkflowReplayError,
     WorkflowSecurityError,
     WorkflowState,
     WorkflowStateError,
@@ -71,6 +72,10 @@ from .target import WorkflowTargetResolver
 
 #: Keys in untrusted payload content that would, if ever honoured, let data
 #: promote itself. They are recorded as injection signals and never obeyed.
+#: Session-metadata key pinning the digest of the validated workflow this
+#: session is bound to. A session serves exactly one definition.
+PIPELINE_DIGEST_KEY = "pipeline_digest"
+
 _AUTHORITY_CLAIM_KEYS: frozenset[str] = frozenset({
     "approved",
     "approval",
@@ -158,6 +163,19 @@ class BoundedWorkflowConnector:
         self._session.ensure_open()
         self._session.bind(validated.workflow_id)
 
+        # A session's approvals, verified steps and spent budget belong to one
+        # exact workflow definition. Re-validating a *different* definition
+        # under the same workflow id would let an approval granted for one step
+        # carry over to a redefined one, so the digest is pinned on first bind.
+        digest = validated.digest()
+        pinned = str(self._session.metadata.get(PIPELINE_DIGEST_KEY, ""))
+        if pinned and pinned != digest:
+            raise WorkflowSecurityError(
+                f"workflow '{validated.workflow_id}' is already bound to a different "
+                "validated definition; a redefinition may not reuse this session"
+            )
+        self._session.metadata[PIPELINE_DIGEST_KEY] = digest
+
         # The workflow's declared budget is the ceiling this session enforces.
         if validated.action_budget < self._session.action_budget.limit:
             budget = ActionBudget(limit=validated.action_budget)
@@ -178,7 +196,10 @@ class BoundedWorkflowConnector:
     def grant_approval(self, step_id: str, *, approver: str) -> None:
         """Record an explicit human approval. Only a caller can reach this."""
         pipeline = self._require_pipeline()
-        clean_approver = str(approver).strip()
+        if not isinstance(approver, str):
+            # ``str(None)`` is a truthy name; only a real string can name a human.
+            raise WorkflowApprovalError("an approval must name the approving human")
+        clean_approver = approver.strip()
         if not clean_approver:
             raise WorkflowApprovalError("an approval must name the approving human")
         step = self._resolver._require_step(pipeline, step_id)
@@ -334,6 +355,22 @@ class BoundedWorkflowConnector:
         declared = set(step.produces)
         produced = {artifact.artifact_key: artifact.sha256 for artifact in execution.artifacts}
 
+        # A claimed digest is only worth as much as the content behind it. The
+        # connector holds the payload, so it re-derives the digest itself: a
+        # backend cannot hand back content that differs from what it attested.
+        for artifact in execution.artifacts:
+            recomputed = artifact_digest(artifact.payload)
+            if artifact.sha256 and artifact.sha256 != recomputed:
+                return replace(
+                    execution,
+                    status=VerificationStatus.OBSERVED,
+                    observed=True,
+                    verified=False,
+                    detail=(
+                        f"artifact '{artifact.artifact_key}' does not hash to its claimed digest"
+                    ),
+                )
+
         if declared != set(produced):
             return replace(
                 execution,
@@ -351,7 +388,9 @@ class BoundedWorkflowConnector:
                     verified=False,
                     detail=f"observed digest for artifact '{key}' does not match the claimed evidence",
                 )
-        if not execution.has_evidence and declared:
+        if not execution.has_evidence:
+            # No declared outputs is not an excuse for no evidence: a step that
+            # shows nothing observable can never reach VERIFIED.
             return replace(
                 execution,
                 status=VerificationStatus.OBSERVED,
@@ -393,6 +432,17 @@ class BoundedWorkflowConnector:
                 f"artifact '{target.artifact_key}' has not been produced yet"
             )
 
+        # A declared edge carries its artifact exactly once. Replay protection
+        # alone keys on the payload, so without this an attacker who can change
+        # the produced artifact could re-deliver *different* content over an
+        # edge the consumer's approval was already granted against. The record
+        # lives in session state, so it survives a checkpoint and resume.
+        if target.target_id in self._session.handoff_digests:
+            raise WorkflowReplayError(
+                f"handoff '{producer.step_id}->{consumer.step_id}' for artifact "
+                f"'{target.artifact_key}' has already been delivered; a resume must not repeat it"
+            )
+
         # 3: payload bounds.
         self._assert_payload_bounds(artifact)
 
@@ -408,8 +458,14 @@ class BoundedWorkflowConnector:
         moved = self._enforce_trust_floor(moved, inbound_trust)
         self._record_authority_claims(moved, consumer)
 
-        # 7: deterministic digest of exactly what crossed the boundary.
-        payload_digest = moved.sha256 or artifact_digest(moved.payload)
+        # 7: deterministic digest of exactly what crossed the boundary. It is
+        # recomputed from the payload rather than taken from the backend, so
+        # replay identity and session state describe the real content.
+        payload_digest = artifact_digest(moved.payload)
+        if moved.sha256 and moved.sha256 != payload_digest:
+            raise WorkflowSecurityError(
+                f"transferred artifact '{moved.artifact_key}' does not hash to its claimed digest"
+            )
         handoff_key = self._replay.handoff_key(
             workflow_id=pipeline.workflow_id, handoff=handoff, payload_digest=payload_digest
         )
@@ -545,6 +601,16 @@ class BoundedWorkflowConnector:
     def _require_pipeline(self) -> WorkflowPipeline:
         if self._pipeline is None:
             raise WorkflowStateError("no validated workflow is bound to this connector")
+        # The validated workflow's declared budget is the ceiling. Re-checking
+        # it on every entry means a session whose limit was widened after
+        # validation -- by a tampered checkpoint or a direct attribute write --
+        # cannot spend more than the definition allowed.
+        limit = self._session.action_budget.limit
+        if limit > self._pipeline.action_budget:
+            raise WorkflowSecurityError(
+                f"session action budget was widened beyond the validated workflow: "
+                f"{limit} > {self._pipeline.action_budget}"
+            )
         return self._pipeline
 
     def _declared_handoff(self, source_step: str, target_step: str, artifact_key: str):
