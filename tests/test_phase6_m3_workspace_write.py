@@ -184,10 +184,17 @@ def test_m3_ambiguous_mutation_is_not_blindly_retried(tmp_path: Path):
     assert adapter.execute_count == 1
 
 
-def test_m3_write_rejects_secret_like_content_at_workspace_boundary(tmp_path: Path):
-    connector, _ = _connector(tmp_path, content="api_key=not-allowed")
-    connector.grant_approval("write", approver="human-reviewer")
-    execution = connector.execute_step("write")
-    assert execution.status is VerificationStatus.FAILED
-    assert execution.accepted is False
-    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "before"
+def test_m3_write_rejects_secret_like_content_before_execution(tmp_path: Path):
+    source = tmp_path / "notes.txt"
+    source.write_text("before", encoding="utf-8")
+    workspace = WorkspaceConnector(tmp_path)
+    fingerprint = _fingerprint(workspace, "notes.txt")
+    connector = BoundedWorkflowConnector(
+        backend=ControlledRealWorkflowBackend(WorkspaceRealWorkflowWriteAdapter(workspace)),
+        known_capability_ids=("filesystem:write",),
+    )
+    from autonomous_agent.workflow.models import WorkflowSecurityError
+
+    with pytest.raises(WorkflowSecurityError):
+        connector.validate(_pipeline("notes.txt", "api_key=not-allowed", fingerprint))
+    assert source.read_text(encoding="utf-8") == "before"

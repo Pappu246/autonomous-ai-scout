@@ -101,7 +101,7 @@ The M3 tests cover approval gating, real workspace mutation, stale-precondition
 failure, precondition-bound idempotency, ambiguous post-write non-retry, and
 secret rejection.
 
-Latest M3 CI validation will be recorded only after the branch check completes.
+Latest M3 CI validation: first implementation run reached 1998 passed, 6 skipped but exposed two test-contract issues; fixes are now being validated.
 
 ## 2. Non-goals
 
