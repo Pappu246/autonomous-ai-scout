@@ -80,6 +80,7 @@ class CheckObservation:
 
 @dataclass(frozen=True, slots=True)
 class TestAttestation:
+    __test__ = False
     repository: str
     commit_sha: str
     checks: tuple[CheckObservation, ...]
@@ -116,12 +117,14 @@ class TestAttestation:
         }
 
 class TestAttestationReader(Protocol):
+    __test__ = False
     """Only read-side operation authorized for M4."""
 
     def read_completed_checks(self, request: VerificationRequest) -> TestAttestation: ...
 
 @dataclass(frozen=True, slots=True)
 class TestAttestationPolicy:
+    __test__ = False
     allowed_events: frozenset[str] = ALLOWED_EVENTS
     allowed_workflows: frozenset[str] = DEFAULT_WORKFLOWS
     require_all_reported: bool = True
@@ -150,6 +153,7 @@ class TestAttestationPolicy:
 
 @dataclass(frozen=True, slots=True)
 class TestAttestationResult:
+    __test__ = False
     state: ReadOnlyVerificationState
     detail: str
     evaluated: bool = True

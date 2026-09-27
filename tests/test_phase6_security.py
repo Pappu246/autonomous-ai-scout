@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import inspect
+from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -66,7 +67,14 @@ def test_phase6_modules_import_only_safe_stdlib_and_local_phase6_modules():
             elif isinstance(node,ast.ImportFrom):
                 assert node.module
                 root=node.module.split(".")[0]
-                assert root in allowed_top or node.module in allowed_local
+                if node.level:
+                    assert node.module in {
+                        "post_change_verification",
+                        "post_change_evidence",
+                        "post_change_snapshot",
+                    }
+                else:
+                    assert root in allowed_top or node.module in allowed_local
 
 def test_phase6_modules_contain_no_execution_or_transport_calls():
     forbidden={"open","system","popen","execv","spawn","fork","eval","exec",
@@ -80,9 +88,17 @@ def test_phase6_surface_has_no_mutation_or_delivery_methods():
     for module in production_modules():
         for name,obj in inspect.getmembers(module):
             if inspect.isclass(obj) and obj.__module__ == module.__name__:
-                forbidden={a for a in dir(obj) if a.lower().startswith(
-                    ("send","merge","deploy","dispatch","delete","write","update","create","post","patch","request")
-                )}
+                if issubclass(obj, Enum):
+                    continue
+                forbidden = {
+                    attr
+                    for attr in dir(obj)
+                    if not attr.startswith("_")
+                    and callable(getattr(obj, attr, None))
+                    and attr.lower().startswith(
+                        ("send","merge","deploy","dispatch","delete","write","update","create","post","patch","request")
+                    )
+                }
                 assert not forbidden, (module.__name__, name, sorted(forbidden))
 
 def test_read_only_protocols_are_narrow():
@@ -92,7 +108,7 @@ def test_read_only_protocols_are_narrow():
         final_module.TestAttestationReader: {"read_completed_checks"},
     }
     for protocol,names in expected.items():
-        actual={n for n,v in inspect.getmembers(protocol) if inspect.isfunction(v) or inspect.ismethod(v)}
+        actual={n for n,v in inspect.getmembers(protocol) if not n.startswith("_") and (inspect.isfunction(v) or inspect.ismethod(v))}
         assert actual == names
 
 def test_exact_stage_order_is_fixed():

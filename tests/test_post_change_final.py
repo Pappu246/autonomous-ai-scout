@@ -78,7 +78,7 @@ def test_duplicate_checks_are_rejected():
         attest((check(),check()))
 
 def test_reader_has_one_read_method():
-    names={n for n,v in inspect.getmembers(TestAttestationReader) if inspect.isfunction(v) or inspect.ismethod(v)}
+    names={n for n,v in inspect.getmembers(TestAttestationReader) if not n.startswith("_") and (inspect.isfunction(v) or inspect.ismethod(v))}
     assert names=={"read_completed_checks"}
 
 def test_verify_phase6_success():

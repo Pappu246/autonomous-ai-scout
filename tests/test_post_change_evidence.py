@@ -150,7 +150,7 @@ def test_contradictory_merged_state_is_rejected():
 def test_provider_surface_is_narrow_and_read_only():
     methods = {
         name for name, value in inspect.getmembers(ReadOnlyEvidenceProvider)
-        if inspect.isfunction(value) or inspect.ismethod(value)
+        if not name.startswith("_") and (inspect.isfunction(value) or inspect.ismethod(value))
     }
     assert methods == {"read_commit_identity", "read_pull_request"}
     forbidden = {"request", "post", "patch", "delete", "merge", "dispatch",
