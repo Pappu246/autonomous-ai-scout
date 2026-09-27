@@ -68,6 +68,16 @@ from .integration import (
     step_from_mapping,
 )
 from .observer import WorkflowPostConditionObserver
+from .real_backend import (
+    ControlledRealWorkflowBackend,
+    ExecutionEnvelope,
+    ObservationEnvelope,
+    ProviderOperationDescriptor,
+    ProviderResult,
+    RealBackendContractError,
+    RealNetworkPolicy,
+    RealWorkflowAdapter,
+)
 from .models import (
     DEFAULT_WORKFLOW_ACTION_BUDGET,
     MAX_ARTIFACT_KEY_LENGTH,
@@ -226,6 +236,14 @@ __all__ = [
     "VerificationStatus",
     "WorkflowObservation",
     "WorkflowPostConditionObserver",
+    "ControlledRealWorkflowBackend",
+    "ExecutionEnvelope",
+    "ObservationEnvelope",
+    "ProviderOperationDescriptor",
+    "ProviderResult",
+    "RealBackendContractError",
+    "RealNetworkPolicy",
+    "RealWorkflowAdapter",
     "WorkflowReplayError",
     "WorkflowRequestError",
     "WorkflowReplayProtector",
