@@ -309,6 +309,7 @@ class BoundedWorkflowConnector:
             # its identity is recorded immediately: never repeat it blindly.
             if step.mutating:
                 self._replay.record(mutation_key)
+                self._session.record_mutation(mutation_key)
 
             verified = self._verify_execution(step, execution)
         finally:

@@ -196,6 +196,7 @@ class ExecutionEnvelope:
     authorization_digest: str
     precondition_digest: str = ""
     network_policy: RealNetworkPolicy = RealNetworkPolicy.NONE
+    recovery_context: Mapping[str, str] = field(default_factory=dict)
 
     def safe_dict(self) -> dict[str, Any]:
         return {
@@ -209,6 +210,7 @@ class ExecutionEnvelope:
             "authorization_digest": self.authorization_digest,
             "precondition_digest": self.precondition_digest,
             "network_policy": self.network_policy.value,
+            "recovery_context": dict(self.recovery_context),
         }
 
     @classmethod
@@ -243,6 +245,19 @@ class ExecutionEnvelope:
                 "approved": bool(approved),
             }
         )
+        recovery_context: dict[str, str] = {}
+        parameters = step.parameters
+        for path_key in ("path", "relative_path", "file_path", "target_path"):
+            path_value = parameters.get(path_key)
+            if isinstance(path_value, str) and path_value.strip():
+                recovery_context["path"] = path_value.strip()
+                break
+        content_value = parameters.get("content")
+        if isinstance(content_value, str):
+            recovery_context["content_digest"] = artifact_digest(content_value)
+        if precondition_digest:
+            recovery_context["precondition_digest"] = str(precondition_digest)
+        recovery_context["input_digest"] = input_digest
         idempotency_key = artifact_digest(
             {
                 "workflow_id": workflow_id,
@@ -264,6 +279,7 @@ class ExecutionEnvelope:
             authorization_digest=authorization_digest,
             precondition_digest=str(precondition_digest or ""),
             network_policy=network_policy,
+            recovery_context=recovery_context,
         )
 
 
@@ -609,6 +625,112 @@ class ControlledRealWorkflowBackend(BaseWorkflowBackend):
             "observed": observation.observed,
             "state_digest": observation.state_digest,
             "observed_artifacts": dict(observation.artifact_digests),
+            "evidence": dict(observation.evidence),
+            "detail": observation.detail[:MAX_DETAIL_LENGTH],
+        }
+
+    def checkpoint(self) -> dict[str, Any]:
+        """Return a durable, secret-free record of real execution identities."""
+        return {
+            "version": 1,
+            "workflow_id": self._workflow_id,
+            "envelopes": [
+                envelope.safe_dict()
+                for _, envelope in sorted(self._envelopes.items())
+            ],
+        }
+
+    def restore_checkpoint(self, snapshot: Mapping[str, Any]) -> None:
+        """Restore execution identities without replaying provider mutations."""
+        if not isinstance(snapshot, Mapping):
+            raise RealBackendContractError("real backend checkpoint must be a mapping")
+        if int(snapshot.get("version", 0)) != 1:
+            raise RealBackendContractError("unsupported real backend checkpoint version")
+        workflow_id = snapshot.get("workflow_id", "")
+        if not isinstance(workflow_id, str):
+            raise RealBackendContractError("checkpoint workflow_id must be a string")
+        entries = snapshot.get("envelopes", ())
+        if not isinstance(entries, (list, tuple)):
+            raise RealBackendContractError("checkpoint envelopes must be a list")
+        restored: dict[str, ExecutionEnvelope] = {}
+        for item in entries:
+            if not isinstance(item, Mapping):
+                raise RealBackendContractError("checkpoint envelope entry must be a mapping")
+            policy = item.get("network_policy", RealNetworkPolicy.NONE.value)
+            try:
+                network_policy = RealNetworkPolicy(policy)
+            except ValueError as exc:
+                raise RealBackendContractError("checkpoint contains invalid network policy") from exc
+            context = item.get("recovery_context", {})
+            if not isinstance(context, Mapping):
+                raise RealBackendContractError("checkpoint recovery_context must be a mapping")
+            clean_context: dict[str, str] = {}
+            for key, value in context.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    raise RealBackendContractError("checkpoint recovery_context must be string-to-string")
+                if len(key) > 64 or len(value) > 4096:
+                    raise RealBackendContractError("checkpoint recovery_context entry exceeds bounds")
+                clean_context[key] = value
+            envelope = ExecutionEnvelope(
+                workflow_id=str(item.get("workflow_id", "")),
+                step_id=str(item.get("step_id", "")),
+                capability_id=str(item.get("capability_id", "")),
+                operation=str(item.get("operation", "")),
+                provider=str(item.get("provider", "")),
+                idempotency_key=str(item.get("idempotency_key", "")),
+                input_digest=str(item.get("input_digest", "")),
+                authorization_digest=str(item.get("authorization_digest", "")),
+                precondition_digest=str(item.get("precondition_digest", "")),
+                network_policy=network_policy,
+                recovery_context=clean_context,
+            )
+            if not envelope.workflow_id or envelope.workflow_id != workflow_id:
+                raise RealBackendContractError("checkpoint envelope workflow mismatch")
+            if envelope.idempotency_key in restored:
+                raise RealBackendContractError("checkpoint contains duplicate idempotency keys")
+            expected = artifact_digest({
+                "workflow_id": envelope.workflow_id,
+                "step_id": envelope.step_id,
+                "capability_id": envelope.capability_id,
+                "operation": envelope.operation,
+                "input_digest": envelope.input_digest,
+                "precondition_digest": envelope.precondition_digest,
+            })
+            if expected != envelope.idempotency_key:
+                raise RealBackendContractError("checkpoint idempotency key does not match the envelope identity")
+            restored[envelope.idempotency_key] = envelope
+        self._workflow_id = workflow_id
+        self._envelopes = restored
+        self._executions = {}
+
+    def recover_step(self, step_id: str) -> Mapping[str, Any]:
+        """Observe a previously accepted real operation without retrying it."""
+        matches = [envelope for envelope in self._envelopes.values() if envelope.step_id == step_id]
+        if len(matches) != 1:
+            raise WorkflowReplayError(
+                f"durable recovery requires exactly one stored execution for step '{step_id}'"
+            )
+        envelope = matches[0]
+        observation = self._require_adapter().observe(envelope)
+        if not isinstance(observation, ObservationEnvelope):
+            raise RealBackendContractError("adapter.observe() must return ObservationEnvelope")
+        if not observation.observed:
+            return {
+                "step_id": step_id,
+                "recovery": "uncertain",
+                "idempotency_key": envelope.idempotency_key,
+                "observed": False,
+                "artifact_digests": {},
+                "evidence": dict(observation.evidence),
+                "detail": observation.detail[:MAX_DETAIL_LENGTH],
+            }
+        return {
+            "step_id": step_id,
+            "recovery": "observed",
+            "idempotency_key": envelope.idempotency_key,
+            "observed": True,
+            "state_digest": observation.state_digest,
+            "artifact_digests": dict(observation.artifact_digests),
             "evidence": dict(observation.evidence),
             "detail": observation.detail[:MAX_DETAIL_LENGTH],
         }

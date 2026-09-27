@@ -1,6 +1,6 @@
 # Phase 6 — Controlled Real Workflow Execution
 
-Status: **M3 IMPLEMENTED — M4 PENDING**
+Status: **M4 IMPLEMENTED — M5 PENDING**
 
 Phase 5 established bounded cross-domain workflow orchestration, deterministic mock execution, fail-closed unsupported execution, post-condition observation, replay protection, checkpoint/resume, approval gates, and auditability.
 
@@ -102,6 +102,20 @@ failure, precondition-bound idempotency, ambiguous post-write non-retry, and
 secret rejection.
 
 Initial M3 implementation run: 1998 passed, 2 failed, 6 skipped; the two failures were test-contract issues. A follow-up hardening attempt initially exposed 90 legacy regressions, so that shared connector change was reverted/localized. Final M3 CI validation: 2000 passed, 6 skipped in 13.20s.
+
+### M4 implementation status
+
+M4 hardens durable recovery and idempotency without adding a new execution path:
+
+- ExecutionEnvelope carries bounded, secret-free recovery context.
+- ControlledRealWorkflowBackend.checkpoint() persists provider execution identities only; raw mutation content is never checkpointed.
+- restore_checkpoint() validates every restored idempotency key from its constituent identity fields and fails closed on tampering.
+- recover_step() performs observation of a previously accepted operation and never re-executes it.
+- Workspace adapters can recover observations from the envelope after adapter/backend reconstruction.
+- Mutation replay identities are included in WorkflowSessionSnapshot, so a resumed session can reconstruct replay protection for mutations that landed before verification.
+- M4 adversarial tests cover checkpoint secrecy, rehydration, duplicate mutation refusal, tampered identity, mutation-journal persistence, fresh-adapter recovery, and bounded/non-authoritative recovery context.
+
+M4 CI validation will be recorded only after the branch check completes.
 
 ## 2. Non-goals
 

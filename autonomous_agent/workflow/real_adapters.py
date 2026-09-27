@@ -60,7 +60,7 @@ class _WorkspaceReadState:
 @dataclass(frozen=True)
 class _WorkspaceWriteState:
     relative_path: str
-    expected_content: str
+    expected_content_digest: str
 
 
 class WorkspaceRealWorkflowAdapter:
@@ -165,9 +165,13 @@ class WorkspaceRealWorkflowAdapter:
     def observe(self, envelope: ExecutionEnvelope) -> ObservationEnvelope:
         state = self._states.get(envelope.idempotency_key)
         if state is None:
-            raise RealBackendContractError(
-                "workspace observation requested for an unknown execution envelope"
-            )
+            recovery_path = envelope.recovery_context.get("path")
+            if isinstance(recovery_path, str) and recovery_path.strip():
+                state = _WorkspaceReadState(relative_path=recovery_path.strip())
+            else:
+                raise RealBackendContractError(
+                    "workspace observation requested for an unknown execution envelope"
+                )
 
         try:
             evidence = self._workspace.read(state.relative_path)
@@ -349,7 +353,7 @@ class WorkspaceRealWorkflowWriteAdapter:
         payload = self._artifact(evidence)
         self._states[envelope.idempotency_key] = _WorkspaceWriteState(
             relative_path=evidence.relative_path,
-            expected_content=content,
+            expected_content_digest=artifact_digest(content),
         )
         return ProviderResult(
             accepted=True,
@@ -367,9 +371,22 @@ class WorkspaceRealWorkflowWriteAdapter:
     def observe(self, envelope: ExecutionEnvelope) -> ObservationEnvelope:
         state = self._states.get(envelope.idempotency_key)
         if state is None:
-            raise RealBackendContractError(
-                "workspace write observation requested for an unknown execution envelope"
-            )
+            recovery_path = envelope.recovery_context.get("path")
+            recovery_content_digest = envelope.recovery_context.get("content_digest")
+            if (
+                isinstance(recovery_path, str)
+                and recovery_path.strip()
+                and isinstance(recovery_content_digest, str)
+                and len(recovery_content_digest) == 64
+            ):
+                state = _WorkspaceWriteState(
+                    relative_path=recovery_path.strip(),
+                    expected_content_digest=recovery_content_digest,
+                )
+            else:
+                raise RealBackendContractError(
+                    "workspace write observation requested for an unknown execution envelope"
+                )
 
         try:
             evidence = self._workspace.read(state.relative_path)
@@ -384,7 +401,10 @@ class WorkspaceRealWorkflowWriteAdapter:
                 detail="workspace write postcondition could not be observed",
             )
 
-        if evidence.content != state.expected_content:
+        expected_fingerprint = artifact_digest(
+            {"path": evidence.relative_path, "content": evidence.content}
+        )
+        if expected_fingerprint != state.expected_content_digest:
             return ObservationEnvelope(
                 observed=False,
                 evidence={
