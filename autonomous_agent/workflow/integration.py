@@ -239,8 +239,11 @@ def _bind_pipeline(connector: BoundedWorkflowConnector, request: Mapping[str, An
                 "this workflow session is already bound to "
                 f"'{current.workflow_id}' and cannot switch to '{pipeline.workflow_id}'"
             )
-        if current is None:
-            connector.validate(pipeline)
+        # Re-validating the identical definition is idempotent; a *different*
+        # definition under the same workflow id is refused by the connector
+        # rather than silently ignored, so a later request cannot quietly
+        # substitute the workflow a session already carries approvals for.
+        connector.validate(pipeline)
         return
     if current is None:
         raise WorkflowRequestError(

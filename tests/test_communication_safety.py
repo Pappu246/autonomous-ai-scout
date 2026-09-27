@@ -797,3 +797,128 @@ def test_the_whole_workflow_surface_still_marks_untrusted_content(comms):
     assert is_untrusted_marked(moved.payload)
     assert moved.trust is TrustLevel.EXTERNAL
     assert comms.session.approved_steps == ()
+
+
+# =========================================================================
+# Foreign-workflow targeting through the request adapter
+# =========================================================================
+
+def test_a_request_cannot_target_a_foreign_workflow(comms):
+    for foreign in ("wf-other", "wf-comm-2", "wf-comm.evil", "wf"):
+        with pytest.raises(WorkflowRequestError, match="but this session is bound to"):
+            execute_workflow_operation(comms, {"operation": "plan", "workflow_id": foreign})
+    assert comms.pipeline.workflow_id == "wf-comm"
+
+
+def test_a_request_may_not_swap_the_bound_pipeline(comms):
+    """Regression: finding M4-12 -- a swapped definition was silently ignored.
+
+    A second, different definition under the same workflow id must be refused
+    so a later request cannot substitute the workflow a session already holds
+    approvals and verified steps for.
+    """
+    swapped = {
+        "workflow_id": "wf-comm",
+        "name": "swapped",
+        "action_budget": 12,
+        "steps": [
+            {
+                "step_id": "research",
+                "domain": "web",
+                "capability_id": "web:search",
+                "operation": "search",
+                "produces": ["findings"],
+                "parameters": {"query": "different"},
+            }
+        ],
+    }
+    with pytest.raises(WorkflowSecurityError, match="already bound to a different"):
+        execute_workflow_operation(comms, {"operation": "plan", "pipeline": swapped})
+    assert comms.pipeline.step("research").parameters == {}
+
+
+def test_a_request_may_resend_the_identical_pipeline(comms):
+    """Honest re-sends stay idempotent (M1-M3 behaviour is preserved)."""
+    identical = {
+        "workflow_id": "wf-comm",
+        "name": "communication pipeline",
+        "action_budget": 12,
+        "steps": [
+            {
+                "step_id": "research",
+                "domain": "web",
+                "capability_id": "web:search",
+                "operation": "search",
+                "produces": ["findings"],
+            }
+        ],
+    }
+    fresh = BoundedWorkflowConnector(MockWorkflowBackend())
+    first = execute_workflow_operation(fresh, {"operation": "plan", "pipeline": identical})
+    second = execute_workflow_operation(fresh, {"operation": "plan", "pipeline": identical})
+    assert first["pipeline_digest"] == second["pipeline_digest"]
+
+
+# =========================================================================
+# Static review of the Phase 5 additions to shared infrastructure
+# =========================================================================
+
+DANGEROUS_PRIMITIVES = (
+    "subprocess",
+    "os.system",
+    "shell=True",
+    "eval(",
+    "exec(",
+    "__import__",
+    "pickle",
+    "socket",
+    "smtplib",
+    "urllib",
+    "requests.",
+    "httpx",
+    "http.client",
+    "ftplib",
+    "paramiko",
+    "Popen",
+)
+
+
+def test_the_sandbox_workflow_handler_owns_no_execution_primitive():
+    """The Phase 5 handler in the shared sandbox only delegates; it runs nothing."""
+    import inspect as _inspect
+
+    from autonomous_agent.sandbox import _run_workflow
+
+    source = _inspect.getsource(_run_workflow)
+    for primitive in DANGEROUS_PRIMITIVES:
+        assert primitive not in source, f"{primitive} found in _run_workflow"
+    assert "execute_workflow_operation" in source
+    # The handler never decides: it refuses without an injected connector.
+    assert "requires an approved injected connector" in source
+
+
+def test_the_workflow_sandbox_route_reports_network_as_disabled():
+    """Phase 5's sandbox branch hardcodes the network-disabled guarantee."""
+    import inspect as _inspect
+
+    from autonomous_agent.sandbox import run_safe_operation as _run
+
+    source = _inspect.getsource(_run)
+    workflow_branch = source.split('if op=="workflow":', 1)[1].split("\n", 2)[1]
+    assert "_run_workflow" in workflow_branch
+    assert workflow_branch.rstrip().endswith("True)")  # network_disabled=True
+
+
+def test_phase_five_sandbox_bindings_add_no_new_domain():
+    """Five new tools, one existing sandbox domain, no new execution surface."""
+    from autonomous_agent.sandbox import SAFE_OPERATIONS
+
+    phase5 = {
+        tool: binding
+        for tool, binding in TOOL_SANDBOX_BINDINGS.items()
+        if tool.startswith(("workflow.", "communication."))
+    }
+    assert len(phase5) == 5
+    for domain, _handler, _operation in phase5.values():
+        assert domain == "workflow"
+        assert domain in SAFE_OPERATIONS
