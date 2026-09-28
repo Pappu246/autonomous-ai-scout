@@ -40,22 +40,22 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
                 simple = re.match(r"(pwd|ls|dir)\b", command_text, re.I)
                 if simple:
                     requests["workspace.shell"] = {"argv": (simple.group(1).lower(),)}
-    if "filesystem.transform" in selected:
+    if "filesystem.transform" in selected or re.search(r"(?:transform|modify|replace in)\s+file\b", text, re.I):
         match = positive_match(r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$")
         if match:
             requests["filesystem.transform"] = {"operation":"transform","path":match.group(1).rstrip("."),"find":match.group(2),"replace":match.group(3)}
-    if "filesystem.write" in selected:
+    if "filesystem.write" in selected or re.search(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\b", text, re.I):
         match = re.search(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.+)$", text, re.I | re.S)
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
             requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
-    if "filesystem.read" in selected:
+    if "filesystem.read" in selected or re.search(r"(?:read|open)\s+(?:the\s+)?file\b", text, re.I):
         match = re.search(r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)", text, re.I)
         if not match:
             match = re.search(r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b", text, re.I)
         if match and not negative.search(match.group(0)):
             requests["filesystem.read"] = {"operation":"read","path":match.group(1).rstrip(".")}
-    if "filesystem.list" in selected:
+    if "filesystem.list" in selected or re.search(r"\b(?:list|enumerate)\s+(?:the\s+)?(?:files|directory|folder|workspace)\b", text, re.I):
         if re.search(r"\b(?:list|enumerate)\s+(?:the\s+)?(?:files|directory|folder|workspace)\b", text, re.I) or re.search(r"\binspect\s+(?:the\s+)?(?:workspace|directory|folder)\b", text, re.I):
             requests["filesystem.list"] = {"operation":"list","path":"."}
     return requests or None
