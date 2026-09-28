@@ -45,7 +45,7 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         if match:
             requests["filesystem.transform"] = {"operation":"transform","path":match.group(1).rstrip("."),"find":match.group(2),"replace":match.group(3)}
     if "filesystem.write" in selected:
-        match = positive_match(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.*)$")
+        match = re.search(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.*)$", text, re.I | re.S)
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
             requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
@@ -90,7 +90,7 @@ def run_task(
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
-    prepared = core.prepare(task, explicitly_approved=explicitly_approved)
+    prepared = core.prepare(task, explicitly_approved=True) if explicitly_approved else core.prepare(task)
     if workspace_connector is None and any(
         step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
         for step in prepared.plan.steps
