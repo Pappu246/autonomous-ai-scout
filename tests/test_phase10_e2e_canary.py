@@ -29,11 +29,12 @@ def test_e2e_canary_read_verify_and_audit(tmp_path: Path):
     assert result.verified
     assert result.steps
     assert result.steps[0].verified is True
-    assert "README.md" in result.steps[0].observation
-    assert "canary-line-1" in result.steps[0].observation
+    assert result.steps[0].observation == "workspace read evidence"
     assert verify_execution_audit(audit)
 
     events = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines() if line.strip()]
+    audit_text = audit.read_text(encoding="utf-8")
+    assert "canary-line-1" in audit_text
     assert any(item.get("event") == "capability_result" and item.get("verification") == "verified" for item in events)
     assert any(item.get("event") == "run_verified" and item.get("state") == DigitalResultState.VERIFIED.value for item in events)
 
@@ -57,6 +58,7 @@ def test_e2e_canary_side_effect_requires_approval(tmp_path: Path):
         audit_path=audit,
         execution_id="canary-write-approved",
         explicitly_approved=True,
+        granted=["files_workspace"],
     )
 
     assert approved.state is DigitalResultState.VERIFIED
@@ -106,7 +108,8 @@ def test_e2e_canary_resume_skips_verified_work(tmp_path: Path):
     assert second.steps[0].resumed is True
     assert second.steps[0].verified is True
     assert second.steps[1].verified is True
-    assert "recovered" in second.steps[1].observation
+    assert second.steps[1].observation == "workspace read evidence"
+    assert "recovered" in audit.read_text(encoding="utf-8")
     assert verify_execution_audit(audit)
 
 
