@@ -697,8 +697,9 @@ Phase 6 includes controlled, approval-gated real workflow execution, durable rec
 Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
 single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
 planned, authorized, executed, observed and verified result. Computer control, application
-adapters and document processing are declared as reserved domains and deliberately
-unimplemented; goals that need them fail closed instead of being approximated.
+adapters and document processing are implemented as bounded domains. Their registered
+capabilities remain subject to the same authorization, sandbox, approval, replay and
+verification boundaries as every other domain.
 
 N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and the persisted coding worker require operator-supplied provider/GitHub credentials and a target workspace; repository-level canary evidence is verified independently through GitHub Actions.
 
