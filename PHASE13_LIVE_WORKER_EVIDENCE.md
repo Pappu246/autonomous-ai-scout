@@ -29,7 +29,7 @@ Live worker identifiers:
 
 ## Important boundary
 
-The worker's final `POST /pulls` call was rejected by GitHub for the workflow token even though the workflow explicitly requested `pull-requests: write`. GitHub documents a separate repository/organization setting controlling whether Actions workflows may create or approve pull requests with `GITHUB_TOKEN`. citeturn383567search0turn383567search5
+The worker's final `POST /pulls` call was rejected by GitHub for the workflow token even though the workflow explicitly requested `pull-requests: write`. GitHub documents a separate repository/organization setting controlling whether Actions workflows may create or approve pull requests with `GITHUB_TOKEN`.
 
 Because that setting could not be changed through the connected repository control plane available here, the already-created worker branch and commit were preserved and the draft PR lifecycle was completed through the connected GitHub control plane without replaying the worker mutation.
 
