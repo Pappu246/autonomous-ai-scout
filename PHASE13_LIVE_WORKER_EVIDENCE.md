@@ -47,3 +47,15 @@ An earlier Phase 13 canary established the same approval-to-worker bridge and re
 ## Safety
 
 The fresh worker mutation targeted only the existing harmless documentation line in `PHASE13_LIVE_WORKER_OUTPUT.md`. No runtime module, credentials, production deployment configuration, or production resource was changed. The draft PR was not merged.
+
+## CI gate revalidation after Actions permission change
+
+A fresh harmless draft PR canary was run after the repository Actions permission change:
+
+- Canary PR: #190
+- Head commit: `3e1a856122d455267edb18849ae384d87af90637`
+- Normal `pull_request` CI run: `36458592757`
+- CI result: **success**
+- The canary PR was closed without merge.
+
+This revalidates that the repository's normal pull-request CI path now executes successfully under the updated Actions configuration. It does not retroactively change the earlier worker observation run `36454434980`, which remains an `action_required` historical run.
