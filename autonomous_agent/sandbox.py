@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application","workflow"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","rest","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application","workflow"}
 # Advanced bounded browser operations dispatched to the injected browser connector.
 # Legacy open/click/extract are handled explicitly; these 12 are the canonical
 # Phase 3 capabilities. Anything not listed here is refused by the sandbox.
