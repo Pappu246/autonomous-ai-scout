@@ -216,33 +216,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
             try:
-                if (
-                 result.success
-                 and capability is Capability.FILES_WORKSPACE
-                 and isinstance(request, Mapping)
-                 and str(request.get("operation", "")).lower() == "read"
-             ):
-                 try:
-                     payload = json.loads(result.output)
-                     human_output = (
-                         f"READ VERIFIED: {payload.get('relative_path', request.get('path', ''))}\n\n"
-                         + str(payload.get("content", ""))
-                     )
-                     result = SandboxResult(
-                         operation=result.operation,
-                         success=result.success,
-                         exit_status=result.exit_status,
-                         output=human_output,
-                         output_truncated=result.output_truncated,
-                         command=result.command,
-                         verification_status=result.verification_status,
-                         started_at=result.started_at,
-                         finished_at=result.finished_at,
-                         network_disabled=result.network_disabled,
-                     )
-                 except (TypeError, ValueError, json.JSONDecodeError):
-                     pass
-             if budget_ledger is not None:
+                if budget_ledger is not None:
                     budget_ledger.consume(
                         attempts=1,
                         tool_calls=1,
@@ -268,6 +242,32 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
             if capability is Capability.BROWSER and isinstance(browser_request,Mapping):candidate=browser_request.get(tool.name,browser_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=browser_connector
             if capability is Capability.BROWSER and isinstance(request,dict):request["operation"]={"browser.open":"open","browser.click":"click","browser.extract":"extract"}[tool.name]
             result=run_safe_operation(operation,root,timeout_seconds=timeout,output_limit=output,web_connector=connector if capability is Capability.WEB_RESEARCH else None,web_request=request if capability is Capability.WEB_RESEARCH else None,rest_connector=connector if capability is Capability.REST_API else None,rest_request=request if capability is Capability.REST_API else None,workspace_connector=connector if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,workspace_request=request if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} else None,gmail_connector=connector if capability is Capability.EMAIL else None,gmail_request=request if capability is Capability.EMAIL else None,calendar_connector=connector if capability is Capability.CALENDAR else None,calendar_request=request if capability is Capability.CALENDAR else None,browser_connector=connector if capability is Capability.BROWSER else None,browser_request=request if capability is Capability.BROWSER else None)
+            if (
+                result.success
+                and capability is Capability.FILES_WORKSPACE
+                and isinstance(request, Mapping)
+                and str(request.get("operation", "")).lower() == "read"
+            ):
+                try:
+                    payload = json.loads(result.output)
+                    human_output = (
+                        f"READ VERIFIED: {payload.get('relative_path', request.get('path', ''))}\n\n"
+                        + str(payload.get("content", ""))
+                    )
+                    result = SandboxResult(
+                        operation=result.operation,
+                        success=result.success,
+                        exit_status=result.exit_status,
+                        output=human_output,
+                        output_truncated=result.output_truncated,
+                        command=result.command,
+                        verification_status=result.verification_status,
+                        started_at=result.started_at,
+                        finished_at=result.finished_at,
+                        network_disabled=result.network_disabled,
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    pass
             if budget_ledger is not None:
                 elapsed=max(0.0,monotonic()-last_budget_monotonic)
                 try:
