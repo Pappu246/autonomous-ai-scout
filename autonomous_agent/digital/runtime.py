@@ -258,7 +258,9 @@ class DigitalAgentRuntime:
                 True,
             )
 
-        authorization_digest = self._authorization_digest(plan, explicitly_approved)
+        authorization_digest = self._authorization_digest(
+            plan, explicitly_approved, payloads
+        )
         store = ExecutionCheckpointStore(checkpoint_path) if checkpoint_path else None
         already_verified = (
             self._resumable_steps(store, plan, audit, execution_id, authorization_digest)
@@ -542,9 +544,34 @@ class DigitalAgentRuntime:
             return
         append_execution_record(audit, record.as_record())
 
-    def _authorization_digest(self, plan: CapabilityPlan, explicitly_approved: bool) -> str:
+    def _authorization_digest(
+        self,
+        plan: CapabilityPlan,
+        explicitly_approved: bool,
+        payloads: Mapping[str, Mapping[str, Any]],
+    ) -> str:
         import hashlib
 
+        # Resume safety must be bound not only to the plan/approval state but
+        # also to the concrete request arguments. The same natural-language
+        # goal can legally be executed with different inputs (for example,
+        # reading two different files). Reusing a checkpoint across those
+        # inputs would otherwise skip the new request and report a verified
+        # result without observing it.
+        request_payload = {
+            step.capability_id: {
+                "arguments": dict(payloads.get(
+                    step.capability_id,
+                    payloads.get(step.tool_name, {}),
+                )),
+                "credential_reference": (
+                    payloads.get(f"{step.capability_id}:credref")
+                    if isinstance(payloads.get(f"{step.capability_id}:credref"), str)
+                    else None
+                ),
+            }
+            for step in plan.steps
+        }
         payload = {
             "granted": sorted(item.value for item in plan.granted),
             "explicitly_approved": bool(explicitly_approved),
@@ -558,9 +585,15 @@ class DigitalAgentRuntime:
                 }
                 for step in plan.steps
             ],
+            "request_payload": request_payload,
         }
         return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
         ).hexdigest()
 
     @staticmethod
