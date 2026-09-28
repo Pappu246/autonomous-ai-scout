@@ -714,6 +714,20 @@ implemented, tested, and verified.
 
 ---
 
+
+### Runtime readiness check
+
+Run the local prerequisite doctor before attempting an external coding run:
+
+```bash
+autonomous-scout-doctor --root .
+```
+
+The doctor reports whether coding-provider routes are configured and whether each configured
+credential environment variable is present. It never prints credential values. A missing
+provider route or credential is reported as unavailable instead of being replaced with an
+implicit fallback.
+
 ## Documentation
 - [Phase 13 — Live GitHub Worker Evidence](PHASE13_LIVE_WORKER_EVIDENCE.md)
 - [Phase 12 — Operational Readiness Reconciliation](PHASE12_OPERATIONAL_READINESS.md)
