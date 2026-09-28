@@ -407,6 +407,36 @@ def test_resume_without_a_checkpoint_replays_everything(tmp_path: Path):
     assert executor.call_count("filesystem.list") == 2
 
 
+def test_resume_refuses_progress_from_changed_request_inputs(tmp_path: Path):
+    executor = RecordingExecutor()
+    runtime, _ = build_runtime(("filesystem:list",), executor)
+    checkpoint = tmp_path / "checkpoint.json"
+
+    first = run(
+        runtime,
+        "list the files in the docs folder",
+        tmp_path,
+        execution_id="request-change-1",
+        requests={"filesystem:list": {"path": "docs"}},
+        checkpoint_path=checkpoint,
+    )
+    assert first.state is DigitalResultState.VERIFIED
+    assert executor.call_count("filesystem.list") == 1
+
+    second = run(
+        runtime,
+        "list the files in the docs folder",
+        tmp_path,
+        execution_id="request-change-1",
+        requests={"filesystem:list": {"path": "."}},
+        checkpoint_path=checkpoint,
+        resume=True,
+    )
+    assert second.state is DigitalResultState.VERIFIED
+    assert second.resumed_steps == ()
+    assert executor.call_count("filesystem.list") == 2
+
+
 def test_resume_refuses_progress_from_a_different_plan(tmp_path: Path):
     executor = RecordingExecutor()
     runtime, _ = build_runtime(("filesystem:list", "filesystem:read"), executor)
