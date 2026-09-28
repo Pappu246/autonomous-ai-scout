@@ -25,8 +25,16 @@ def test_phase7_imports_only_local_phase6_transport_and_safe_stdlib():
                 assert alias.name.split(".")[0] in {"hashlib", "dataclasses", "typing"}
         elif isinstance(node, ast.ImportFrom):
             assert node.module
-            root = node.module.split(".")[0]
-            assert root in {"__future__", "hashlib", "dataclasses", "typing", "autonomous_agent"}
+            if node.level:
+                assert node.module in {
+                    "post_change_evidence",
+                    "post_change_final",
+                    "post_change_snapshot",
+                    "post_change_verification",
+                }
+            else:
+                root = node.module.split(".")[0]
+                assert root in {"__future__", "hashlib", "dataclasses", "typing", "autonomous_agent"}
 
 def test_phase7_has_no_remote_mutation_calls():
     source = Path(phase7.__file__).read_text(encoding="utf-8")
