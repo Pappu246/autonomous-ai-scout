@@ -4,7 +4,7 @@ from typing import Iterable
 from .capability_policy import Capability
 from .task_decomposer import decompose_task
 from .task_intent import classify_intent
-from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
+from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep,TaskIntent
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
 from .tool_router import DynamicToolRouter
