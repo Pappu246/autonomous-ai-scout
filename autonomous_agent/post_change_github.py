@@ -101,16 +101,34 @@ class GitHubPostChangeEvidenceProvider:
                 if isinstance(head_repo, Mapping)
                 else None
             )
+            number = value.get("number")
+            state = value.get("state")
+            draft = value.get("draft")
+            merged = value.get("merged")
+            head_ref = head.get("ref")
+            head_sha = head.get("sha")
+            base_ref = base.get("ref")
+            if (
+                not isinstance(number, int) or isinstance(number, bool)
+                or not isinstance(state, str)
+                or not isinstance(draft, bool)
+                or not isinstance(merged, bool)
+                or not isinstance(head_repository, str)
+                or not isinstance(head_ref, str)
+                or not isinstance(head_sha, str)
+                or not isinstance(base_ref, str)
+            ):
+                return None
             return PullRequestObservation(
                 repository=request.repository,
-                number=int(value.get("number", request.pull_request_number)),
-                state=str(value.get("state", "unknown")),
-                draft=bool(value.get("draft", False)),
-                merged=bool(value.get("merged", False)),
-                head_repository=str(head_repository or request.repository),
-                head_branch=str(head.get("ref", "")),
-                base_branch=str(base.get("ref", "")),
-                head_commit_sha=str(head.get("sha", "")),
+                number=number,
+                state=state,
+                draft=draft,
+                merged=merged,
+                head_repository=head_repository,
+                head_branch=head_ref,
+                base_branch=base_ref,
+                head_commit_sha=head_sha,
                 head_present=True,
             )
         except Exception:
@@ -118,7 +136,7 @@ class GitHubPostChangeEvidenceProvider:
 
     def read_file_snapshot(self, request: VerificationRequest) -> SnapshotObservation | None:
         try:
-            pull_files = self._read_all_pull_files(request)
+            pull_files, files_complete = self._read_all_pull_files(request)
             tree = self.transport.git_tree(
                 request.repository,
                 request.expected_commit_sha,
@@ -151,7 +169,7 @@ class GitHubPostChangeEvidenceProvider:
                     tree_by_path[path] = raw
 
             entries: list[SnapshotEntry] = []
-            complete = True
+            complete = files_complete
             changed_count = len(pull_files)
             for item in pull_files:
                 if not isinstance(item, Mapping):
@@ -234,7 +252,7 @@ class GitHubPostChangeEvidenceProvider:
 
     def read_test_attestation(self, request: VerificationRequest) -> TestAttestation | None:
         try:
-            runs = self._read_all_workflow_runs(request)
+            runs, runs_complete = self._read_all_workflow_runs(request)
             grouped: dict[str, list[Mapping[str, Any]]] = {}
             for run in runs:
                 if not isinstance(run, Mapping):
@@ -281,12 +299,14 @@ class GitHubPostChangeEvidenceProvider:
                 repository=request.repository,
                 commit_sha=request.expected_commit_sha,
                 checks=tuple(observations),
-                complete=True,
+                complete=runs_complete,
             )
         except Exception:
             return None
 
-    def _read_all_pull_files(self, request: VerificationRequest) -> list[Mapping[str, Any]]:
+    def _read_all_pull_files(
+        self, request: VerificationRequest
+    ) -> tuple[list[Mapping[str, Any]], bool]:
         result: list[Mapping[str, Any]] = []
         for page in range(1, MAX_PAGES + 1):
             batch = self.transport.pull_request_files(
@@ -297,10 +317,12 @@ class GitHubPostChangeEvidenceProvider:
             )
             result.extend(batch)
             if len(batch) < PAGE_SIZE:
-                return result
-        return result
+                return result, True
+        return result, False
 
-    def _read_all_workflow_runs(self, request: VerificationRequest) -> list[Mapping[str, Any]]:
+    def _read_all_workflow_runs(
+        self, request: VerificationRequest
+    ) -> tuple[list[Mapping[str, Any]], bool]:
         result: list[Mapping[str, Any]] = []
         for page in range(1, MAX_PAGES + 1):
             batch = self.transport.workflow_runs(
@@ -311,10 +333,34 @@ class GitHubPostChangeEvidenceProvider:
             )
             result.extend(batch)
             if len(batch) < PAGE_SIZE:
-                return result
+                return result, True
             if len(result) >= MAX_RUNS:
-                return result[:MAX_RUNS]
-        return result
+                return result[:MAX_RUNS], False
+        return result, False
+
+    def verify(
+        self,
+        request: VerificationRequest,
+        *,
+        snapshot_policy=None,
+        test_policy=None,
+    ):
+        """Collect live evidence and run the pure Phase 6 verifier."""
+        from .post_change_final import TestAttestationPolicy, verify_phase6
+        from .post_change_snapshot import SnapshotPolicy
+
+        evidence = self.collect(request)
+        return verify_phase6(
+            request,
+            evidence,
+            snapshot_policy=snapshot_policy or SnapshotPolicy(),
+            test_policy=test_policy or TestAttestationPolicy(),
+        )
+
+    @classmethod
+    def from_env(cls, *, config=None):
+        from .github_api import GitHubApiClient
+        return cls(GitHubApiClient(config))
 
     @staticmethod
     def _aggregate_conclusion(values: list[str]) -> CheckConclusion:

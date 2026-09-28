@@ -170,3 +170,37 @@ def test_missing_branch_head_fails_closed_for_commit_identity():
     transport.head_sha = lambda repository, branch: None
     evidence = GitHubPostChangeEvidenceProvider(transport).collect(request())
     assert evidence.commit is None
+
+
+def test_malformed_pr_metadata_is_rejected_not_defaulted():
+    transport = FakeTransport()
+
+    def malformed(repository, pull_request):
+        value = FakeTransport().get(repository, pull_request)
+        value["head"]["repo"]["full_name"] = None
+        return value
+
+    transport.get = malformed
+    evidence = GitHubPostChangeEvidenceProvider(transport).collect(request())
+    assert evidence.pull_request is None
+
+
+def test_paginated_pull_files_exhaustion_is_incomplete():
+    transport = FakeTransport()
+    transport.files = [{"filename": "app.py", "status": "modified"}] * 100
+    original = transport.pull_request_files
+    calls = []
+
+    def full_pages(repository, pull_request, *, page=1, per_page=100):
+        calls.append(page)
+        return original(repository, pull_request, page=page, per_page=per_page)
+
+    transport.pull_request_files = full_pages
+    evidence = GitHubPostChangeEvidenceProvider(transport).collect(request())
+    assert calls == [1, 2, 3, 4, 5, 6]
+    assert evidence.snapshot.complete is False
+
+
+def test_verify_runs_pure_phase6_gate():
+    report = GitHubPostChangeEvidenceProvider(FakeTransport()).verify(request())
+    assert report.verdict.value == "pass"
