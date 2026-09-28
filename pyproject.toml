@@ -18,7 +18,7 @@ autonomous-scout-doctor = "autonomous_agent.doctor:main"
 autonomous-scout-approval = "autonomous_agent.approval_cli:main"
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9"]
+test = ["pytest>=8,<10"]
 
 [tool.setuptools.packages.find]
 include = ["autonomous_agent*"]
