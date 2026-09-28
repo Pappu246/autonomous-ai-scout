@@ -44,6 +44,7 @@ class WorkflowSessionSnapshot:
     completed_digests: tuple[tuple[str, str], ...] = ()
     verified_steps: tuple[str, ...] = ()
     handoff_digests: tuple[tuple[str, str], ...] = ()
+    mutation_digests: tuple[str, ...] = ()
     approved_steps: tuple[str, ...] = ()
     artifact_digests: tuple[tuple[str, str], ...] = ()
     action_limit: int = 0
@@ -64,6 +65,7 @@ class WorkflowSessionSnapshot:
             "completed_digests": {key: value for key, value in self.completed_digests},
             "verified_steps": list(self.verified_steps),
             "handoff_digests": {key: value for key, value in self.handoff_digests},
+            "mutation_digests": list(self.mutation_digests),
             "approved_steps": list(self.approved_steps),
             "artifact_digests": {key: value for key, value in self.artifact_digests},
             "action_limit": self.action_limit,
@@ -76,7 +78,13 @@ class WorkflowSessionSnapshot:
 
     def replay_keys(self) -> tuple[str, ...]:
         """Every completed step and handoff digest, for rebuilding replay state."""
-        return tuple(sorted({value for _, value in self.completed_digests} | {value for _, value in self.handoff_digests}))
+        return tuple(
+            sorted(
+                {value for _, value in self.completed_digests}
+                | {value for _, value in self.handoff_digests}
+                | set(self.mutation_digests)
+            )
+        )
 
 
 class WorkflowSession:
@@ -102,6 +110,7 @@ class WorkflowSession:
         self._completed: dict[str, str] = {}
         self._verified: list[str] = []
         self._handoffs: dict[str, str] = {}
+        self._mutations: set[str] = set()
         self._approved: list[str] = []
         self._artifacts: dict[str, str] = {}
 
@@ -189,6 +198,12 @@ class WorkflowSession:
         self._handoffs[str(handoff_id)] = str(digest)
         self.note(f"handoff:{handoff_id}")
 
+    def record_mutation(self, digest: str) -> None:
+        self.ensure_open()
+        self._mutations.add(str(digest))
+        self.note(f"mutation:{str(digest)[:16]}")
+
+
     def record_artifact(self, artifact_key: str, digest: str) -> None:
         self.ensure_open()
         self._artifacts[str(artifact_key)] = str(digest)
@@ -227,6 +242,11 @@ class WorkflowSession:
         return dict(self._handoffs)
 
     @property
+    def mutation_digests(self) -> tuple[str, ...]:
+        return tuple(sorted(self._mutations))
+
+
+    @property
     def artifact_digests(self) -> dict[str, str]:
         return dict(self._artifacts)
 
@@ -245,6 +265,7 @@ class WorkflowSession:
             completed_digests=tuple(sorted(self._completed.items())),
             verified_steps=self.verified_steps,
             handoff_digests=tuple(sorted(self._handoffs.items())),
+            mutation_digests=self.mutation_digests,
             approved_steps=self.approved_steps,
             artifact_digests=tuple(sorted(self._artifacts.items())),
             action_limit=self.action_budget.limit,
@@ -295,6 +316,7 @@ class WorkflowSession:
         session._completed = {key: value for key, value in snapshot.completed_digests}
         session._verified = [item for item in snapshot.verified_steps]
         session._handoffs = {key: value for key, value in snapshot.handoff_digests}
+        session._mutations = {str(item) for item in snapshot.mutation_digests}
         session._approved = [item for item in snapshot.approved_steps]
         session._artifacts = {key: value for key, value in snapshot.artifact_digests}
         session.state = (

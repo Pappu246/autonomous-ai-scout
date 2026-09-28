@@ -1,0 +1,192 @@
+# Phase 6 — Controlled Real Workflow Execution
+
+Status: **M6 RELEASE GATE COMPLETE — MERGE PENDING**
+
+Phase 5 established bounded cross-domain workflow orchestration, deterministic mock execution, fail-closed unsupported execution, post-condition observation, replay protection, checkpoint/resume, approval gates, and auditability.
+
+Phase 6 extends that foundation with a **controlled real-workflow execution backend**. It does not remove Phase 5 gates and does not introduce unrestricted network or autonomous delivery.
+
+## 1. Objective
+
+Enable selected Phase 5 workflow operations to execute against already-registered capability domains through explicit, bounded adapters while preserving:
+
+```
+goal
+  → plan
+  → authorization
+  → capability routing
+  → sandbox
+  → workflow connector
+  → controlled backend
+  → independent observation
+  → verification
+  → audit
+```
+
+The key change is:
+
+```
+Mock / Unsupported backend
+        ↓
+Controlled real backend adapters
+```
+
+The backend is an execution implementation, **not an authority source**.
+
+### M1 implementation status
+
+M1 is implemented in `autonomous_agent/workflow/real_backend.py`.
+The contract includes an explicit `RealWorkflowAdapter`, provider operation descriptors,
+secret-free execution envelopes, deterministic idempotency keys, provider-result and
+observation envelopes, fail-closed default behavior, artifact bounds, provider/step
+contract matching, and duplicate-execution protection.
+
+CI validation on the M1 head reported **1989 passed, 6 skipped**.
+
+M1 intentionally adds no concrete network/provider client. The real backend is only
+live when an adapter is injected explicitly; the existing Phase 5 connector still
+owns independent verification.
+
+### M2 implementation status
+
+M2 is implemented as a real, read-only vertical slice over the existing
+filesystem:read capability:
+
+- capability: filesystem:read
+- existing connector: WorkspaceConnector
+- Phase 6 adapter: WorkspaceRealWorkflowAdapter
+- network policy: none
+- effect: read_only
+- approval: not required
+- observation: the same bounded workspace file is re-read after provider acceptance
+- verification: the Phase 5 connector independently re-derives the artifact digest and
+  compares it with the second read
+- secret handling: workspace content is redacted; credential-looking labels are
+  neutralized again at the provider boundary
+- path safety: the existing root-bound WorkspaceConnector blocks traversal and
+  credential/VCS paths
+
+The M2 tests exercise an actual temporary workspace rather than a mock backend.
+The provider result is therefore real adapter execution over the bounded workspace,
+while the existing observation/verification chain remains authoritative.
+
+Latest CI validation: 1994 passed, 6 skipped.
+### M3 implementation status
+
+M3 is implemented as exactly one approval-gated real write vertical slice over
+the existing filesystem:write capability:
+
+- adapter: WorkspaceRealWorkflowWriteAdapter
+- network policy: none
+- effect: mutating
+- approval: required; the existing BoundedWorkflowConnector.grant_approval()
+  path remains the only approval source
+- precondition: the workflow must declare the current file SHA-256 fingerprint;
+  ControlledRealWorkflowBackend hashes that declaration into the
+  ExecutionEnvelope.precondition_digest and idempotency identity
+- execution: the adapter calls the existing bounded WorkspaceConnector.write()
+  and exposes no shell, subprocess, browser, credential or arbitrary network path
+- postcondition: the adapter re-reads the same file after the write and only
+  reports observable success when the resulting content matches the requested
+  content
+- verification: the existing Phase 5 connector independently re-derives and
+  compares the observed artifact digest
+- stale state: a fingerprint mismatch fails closed before any write
+- ambiguous mutation: the connector records the mutation replay identity before
+  verification, so an uncertain post-write outcome cannot be blindly retried
+- idempotency: the execution envelope and Phase 5 replay protector both bind the
+  operation to the workflow, step, inputs and precondition
+
+The M3 tests cover approval gating, real workspace mutation, stale-precondition
+failure, precondition-bound idempotency, ambiguous post-write non-retry, and
+secret rejection.
+
+Initial M3 implementation run: 1998 passed, 2 failed, 6 skipped; the two failures were test-contract issues. A follow-up hardening attempt initially exposed 90 legacy regressions, so that shared connector change was reverted/localized. Final M3 CI validation: 2000 passed, 6 skipped in 13.20s.
+
+### M4 implementation status
+
+M4 hardens durable recovery and idempotency without adding a new execution path:
+
+- ExecutionEnvelope carries bounded, secret-free recovery context.
+- ControlledRealWorkflowBackend.checkpoint() persists provider execution identities only; raw mutation content is never checkpointed.
+- restore_checkpoint() validates every restored idempotency key from its constituent identity fields and fails closed on tampering.
+- recover_step() performs observation of a previously accepted operation and never re-executes it.
+- Workspace adapters can recover observations from the envelope after adapter/backend reconstruction.
+- Mutation replay identities are included in WorkflowSessionSnapshot, so a resumed session can reconstruct replay protection for mutations that landed before verification.
+- M4 adversarial tests cover checkpoint secrecy, rehydration, duplicate mutation refusal, tampered identity, mutation-journal persistence, fresh-adapter recovery, and bounded/non-authoritative recovery context.
+
+M4 CI validation is still being checked on the branch. M5 security review tests are added in parallel and will be finalized only after green CI.
+
+### M5 security review and evaluation
+
+M5 adds a static security review over the Phase 6 real-execution source and targeted contract tests:
+
+- AST scan rejects process/shell, socket, SMTP, HTTP-client, browser-automation and dynamic-code escape hatches in the Phase 6 real backend/adapters.
+- Real provider descriptors must remain observable and idempotent; mutating operations must require explicit approval.
+- Implemented M2/M3 workspace adapters explicitly use network policy none.
+- Autonomous delivery operations remain rejected by the provider descriptor contract.
+- The default controlled-real backend remains fail-closed when no explicit adapter is injected.
+
+Final Phase 6 validation on the branch head: 2013 passed, 6 skipped in 11.70s.
+
+### M6 release gate
+
+Phase 6 release gate is complete for this branch:
+
+- M1 real-backend contract: green
+- M2 controlled real read: green
+- M3 approval-gated controlled real write: green
+- M4 durable recovery and mutation replay hardening: green
+- M5 static security review/evaluation: green
+- Full repository CI: green
+- Production main remains unchanged at cc10592ddb7e6553142142e7453ab95527a1648b
+- PR #170 remains open and unmerged
+- No Phase 7 functionality is included
+
+Merge is intentionally left as a separate human-controlled release action.
+
+## 2. Non-goals
+
+Phase 6 does **not**:
+
+- grant unrestricted machine access;
+- create a generic shell, Python, JavaScript, browser-debugger, or process-execution escape hatch;
+- permit arbitrary outbound network connections;
+- autonomously send email/messages;
+- autonomously publish content;
+- bypass human approval for controlled writes;
+- treat a provider response as proof of success;
+- store raw credentials or secrets in workflow state/checkpoints;
+- widen a capability grant because a workflow requests it;
+- introduce a second planner/runtime/authorization path;
+- start Phase 7 functionality.
+
+## 3. Architecture
+
+```
+                 ┌─────────────────────────────┐
+User Goal ──────►│ Existing planner / policy   │
+                 └──────────────┬──────────────┘
+                                ▼
+                 ┌─────────────────────────────┐
+                 │ Capability authorization    │
+                 └──────────────┬──────────────┘
+                                ▼
+                 ┌─────────────────────────────┐
+                 │ Existing sandbox boundary   │
+                 └──────────────┬──────────────┘
+                                ▼
+                 ┌─────────────────────────────┐
+                 │ BoundedWorkflowConnector     │
+                 │ Phase 5 enforcement point    │
+                 └──────────────┬──────────────┘
+                                ▼
+                 ┌─────────────────────────────┐
+                 │ ControlledRealWorkflowBackend│
+                 └──────────────┬──────────────┘
+                                ▼
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+  existing web            existing filesystem      existing communication
+  / browser / docs        / application adapters   adapters
+        │                       │                       │
