@@ -61,12 +61,13 @@ Capability domains are **peers**:
 | `github` | active | One connector among many |
 | `testing` | active | Tests, lint, deterministic metrics |
 | `computer` | **active** | Bounded Windows desktop control: screen, window, mouse, keyboard, clipboard |
-| `application` | **reserved** | Declared, unimplemented |
-| `documents` | **reserved** | Declared, unimplemented |
+| `application` | active | Bounded application adapters; mutating commands remain approval-gated |
+| `documents` | active | Bounded inspect/extract/read/transform capabilities; mutations remain approval-gated |
 
-Reserved domains are honest. There is no stub behind them: the catalog reports them as
-unusable, routing reports them as required-but-unavailable, and the run ends `BLOCKED`.
-A goal is never reported as done when the capability that would have done it does not exist.
+Capability availability is honest. A domain is usable only when at least one registered
+capability is actually available. Unsupported external backends still fail closed rather
+than fabricating execution results. A goal is never reported as done when its required
+capability is unavailable.
 
 Every capability implements the same contract:
 
@@ -100,6 +101,10 @@ print(result.state, result.reason)
 Full design, guarantees and limitations:
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [Phase 2 — Bounded Windows Computer Control](PHASE2_WINDOWS_COMPUTER_CONTROL.md)
+- [Phase 4 — Bounded Application and Documents Domains](PHASE4_APPLICATION_DOCUMENTS.md)
+- [Phase 10 — End-to-End Canary](PHASE10_END_TO_END_CANARY.md)
+- [Phase 11 — Real GitHub Execution Canary](PHASE11_GITHUB_EXECUTION_CANARY.md)
+- [Phase 12 — Operational Readiness Reconciliation](PHASE12_OPERATIONAL_READINESS.md)
 
 ---
 
@@ -257,7 +262,9 @@ flowchart LR
     N9 --> N10 --> N11 --> N12 --> N13 --> N14 --> N15 --> N16 --> N17 --> N18 --> N19 --> N20 --> N21 --> N22 --> N23 --> N24 --> N25 --> N26 --> N27 --> N28 --> N29 --> N30
 ```
 
-The N9→N14 layers are implemented. The remaining production work is configuration, live-provider validation, and operating the complete chain against a real repository.
+The N9→N14 layers are implemented. The remaining environment-dependent work is live-provider configuration and operator-supplied
+credentials. The repository-level safety, readiness, admission, coding-worker, and remote
+GitHub evidence paths are covered by deterministic tests and verified CI canaries.
 
 These are implementation boundaries, not claims that every possible autonomous workflow is complete.
 
@@ -681,7 +688,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary. None of these layers auto-merge or deploy.
+Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation. None of these layers auto-merge or deploy.
 
 
 
@@ -693,7 +700,7 @@ planned, authorized, executed, observed and verified result. Computer control, a
 adapters and document processing are declared as reserved domains and deliberately
 unimplemented; goals that need them fail closed instead of being approximated.
 
-N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and a real approved draft-PR run still require operator-supplied credentials and a target workspace.
+N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and the persisted coding worker require operator-supplied provider/GitHub credentials and a target workspace; repository-level canary evidence is verified independently through GitHub Actions.
 
 N15–N30 contributed the unified task core, durable checkpoints and resume, deterministic tool
 selection, the bounded observe/verify/retry/adapt loop, DAG planning, the background queue, the
@@ -707,10 +714,13 @@ implemented, tested, and verified.
 ---
 
 ## Documentation
+- [Phase 12 — Operational Readiness Reconciliation](PHASE12_OPERATIONAL_READINESS.md)
+- [Phase 11 — Real GitHub Execution Canary](PHASE11_GITHUB_EXECUTION_CANARY.md)
 - [Phase 10 — End-to-End Canary](PHASE10_END_TO_END_CANARY.md)
 - [Phase 9 — Tamper-Evident Release Evidence](PHASE9_TAMPER_EVIDENT_RELEASE_EVIDENCE.md)
 - [Phase 8 — Controlled Release Boundary](PHASE8_CONTROLLED_RELEASE_BOUNDARY.md)
 - [Phase 7 — Live GitHub Evidence Adapter](PHASE7_LIVE_GITHUB_EVIDENCE.md)
+- [Phase 4 — Bounded Application and Documents Domains](PHASE4_APPLICATION_DOCUMENTS.md)
 
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [N14 Provider Router](N14_PROVIDER_ROUTER.md)
