@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib,json
 from dataclasses import dataclass
 from datetime import datetime,timezone
+from time import monotonic
 from enum import Enum
 from pathlib import Path
 from typing import Any,Iterable,Mapping
@@ -17,12 +18,18 @@ from .tool_registry import REGISTRY,ToolRegistry
 from .admission import AdmissionRequest, evaluate_admission
 from .production_audit import ProductionAudit
 from .readiness import ReadinessReport
+from .budget import BudgetExceededError, BudgetLedger
+from .observability import TelemetryBuffer
 class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
 class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
 _CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.REST_API:"rest",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser",Capability.DOCUMENTS:"documents",Capability.APPLICATION:"application"}
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
+def _telemetry(buffer,name,**fields):
+    if buffer is None:return
+    try:buffer.record(name,**fields)
+    except Exception:return
 def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
 def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGISTRY):
     values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
@@ -116,7 +123,9 @@ def _validate_documents_tool(tool):
     return tool.capability==Capability.DOCUMENTS.value and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"documents.inspect","documents.extract.text","documents.extract.tables","documents.page.read","documents.transform"}
 def _validate_application_tool(tool):
     return tool.capability==Capability.APPLICATION.value and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"application.list","application.inspect","application.observe","application.command.execute"}
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
+    started_monotonic=monotonic()
+    last_budget_monotonic=started_monotonic
     granted=tuple(granted)
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
@@ -134,7 +143,9 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         decision=evaluate_admission(admission_request,actual_task_digest=task_digest,actual_authorization_digest=authorization_digest,actual_execution_id=execution_id,actual_side_effects=side_effects,actual_explicitly_approved=explicitly_approved,readiness=readiness_report,production_audit=production_audit)
         if not decision.admitted:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason=decision.reason,event="admission_blocked",admission_digest=decision.digest)
+            _telemetry(telemetry,"admission_blocked",execution_id=execution_id,reason=decision.reason,admission_digest=decision.digest)
             return ExecutionResult(ExecutionState.BLOCKED,decision.reason,0,(),str(audit_path))
+        _telemetry(telemetry,"admission_admitted",execution_id=execution_id,admission_digest=decision.digest)
     try:checkpoint=checkpoint_store.load()
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if checkpoint is not None:
@@ -167,6 +178,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     retries=max(0,min(int(max_retries),MAX_RETRIES));timeout=max(1,min(int(timeout_seconds),MAX_TIMEOUT_SECONDS));output=max(1,min(int(output_limit),MAX_OUTPUT_BYTES))
     checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.RUNNING.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
     _remember(memory,project,task=plan.task,execution_id=execution_id,outcome="resumed" if checkpoint is not None else "started")
+    _telemetry(telemetry,"execution_started",execution_id=execution_id,steps=len(plan.steps))
     results=[]
     for step in plan.steps:
         if step.step_id in completed_step_ids:
@@ -207,6 +219,18 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         if not tool.safe_autonomous and not (capability in {Capability.FILES_WORKSPACE,Capability.EMAIL,Capability.CALENDAR,Capability.REST_API,Capability.DOCUMENTS,Capability.APPLICATION} and explicitly_approved):return ExecutionResult(ExecutionState.BLOCKED,f"tool is outside the safe autonomous execution boundary: {tool.name}",total_attempts,tuple(results),str(audit_path))
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
+            try:
+                if budget_ledger is not None:
+                    budget_ledger.consume(
+                        attempts=1,
+                        tool_calls=1,
+                        external_side_effects=1 if tool.read_write_mode.value!="read_only" else 0,
+                    )
+            except BudgetExceededError as exc:
+                _audit(audit_path,execution_id,ExecutionState.FAILED,tool=tool.name,reason=str(exc))
+                _telemetry(telemetry,"budget_exceeded",tool=tool.name,reason=str(exc))
+                checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
+                return ExecutionResult(ExecutionState.FAILED,f"resource budget exceeded before tool execution: {tool.name}",total_attempts,tuple(results),str(audit_path))
             if capability is Capability.WEB_RESEARCH and isinstance(web_request,Mapping):candidate=web_request.get(tool.name,web_request);request=candidate if isinstance(candidate,Mapping) else None;connector=web_connector
             if capability in {Capability.READ_FILE,Capability.FILES_WORKSPACE,Capability.WORKSPACE_SHELL} and isinstance(workspace_request,Mapping):candidate=workspace_request.get(tool.name,workspace_request);request=candidate if isinstance(candidate,Mapping) else None;connector=workspace_connector
             if capability is Capability.EMAIL and isinstance(gmail_request,Mapping):candidate=gmail_request.get(tool.name,gmail_request);request=dict(candidate) if isinstance(candidate,Mapping) else None;connector=gmail_connector
