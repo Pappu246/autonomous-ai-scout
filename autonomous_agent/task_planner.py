@@ -55,13 +55,19 @@ def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved
     selected_names=list(selection.tool_names)
     if intent is TaskIntent.WORKSPACE:
         import re
-        explicit_workspace_listing=bool(
-            re.search(r"\\b(?:list|enumerate)\\s+(?:the\\s+)?(?:files|directory|folder|workspace)\\b",raw,re.I)
-            or re.search(r"\\binspect\\s+(?:the\\s+)?(?:workspace|directory|folder)\\b",raw,re.I)
+        positive_specific = bool(
+            re.search(r"\b(?:read|open)\s+(?:the\s+)?file\b", raw, re.I)
+            or re.search(r"\b(?:write|create|save)\s+(?:a|an|the)?\s*file\b", raw, re.I)
+            or re.search(r"\b(?:transform|modify|replace in)\s+file\b", raw, re.I)
+            or re.search(r"\b(?:run|execute)\s+(?:exactly\s+)?(?:this|the)\s+(?:safe\s+)?command\b", raw, re.I)
+            or "py_compile" in raw.lower()
         )
-        specific=[name for name in selected_names if name in {"workspace.shell","filesystem.transform","filesystem.write","filesystem.read"}]
-        if specific and not explicit_workspace_listing:
-            selected_names=specific
+        explicit_workspace_listing=bool(
+            re.search(r"\b(?:list|enumerate)\s+(?:the\s+)?(?:files|directory|folder|workspace)\b",raw,re.I)
+            or re.search(r"\binspect\s+(?:the\s+)?(?:workspace|directory|folder)\b",raw,re.I)
+        )
+        if positive_specific and not explicit_workspace_listing:
+            selected_names=[name for name in selected_names if name != "filesystem.list"]
     selected=tuple(tool for name in selected_names if (tool:=registry.get(name)) is not None)
     if not required:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False

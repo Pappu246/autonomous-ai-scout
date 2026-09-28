@@ -118,6 +118,7 @@ def run_task(
         audit_path=audit_path,
         execution_id=execution_id,
         checkpoint_path=checkpoint_path,
+        explicitly_approved=explicitly_approved,
         browser_connector=browser_connector,
         browser_request=browser_request,
         web_connector=web_connector,
