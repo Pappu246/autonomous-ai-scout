@@ -688,7 +688,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation. None of these layers auto-merge or deploy.
+Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation; Phase 13 verifies the persisted approval-to-real-GitHub-worker mutation path and records the current Actions-token PR-creation policy boundary. None of these layers auto-merge or deploy.
 
 
 
@@ -715,6 +715,7 @@ implemented, tested, and verified.
 ---
 
 ## Documentation
+- [Phase 13 — Live GitHub Worker Evidence](PHASE13_LIVE_WORKER_EVIDENCE.md)
 - [Phase 12 — Operational Readiness Reconciliation](PHASE12_OPERATIONAL_READINESS.md)
 - [Phase 11 — Real GitHub Execution Canary](PHASE11_GITHUB_EXECUTION_CANARY.md)
 - [Phase 10 — End-to-End Canary](PHASE10_END_TO_END_CANARY.md)
