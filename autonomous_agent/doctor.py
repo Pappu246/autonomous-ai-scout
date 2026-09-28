@@ -47,9 +47,37 @@ def run_checks(root: str | Path = ".") -> tuple[Check, ...]:
         Check(
             "coding providers",
             configured > 0,
-            f"{configured} provider route(s) configured; credentials are checked by the router at execution time",
+            f"{configured} provider route(s) configured",
         )
     )
+
+    configured_credentials = 0
+    credential_details: list[str] = []
+    for provider in providers:
+        env_name = provider.config.api_key_env.strip()
+        present = bool(env_name and os.getenv(env_name, "").strip())
+        if present:
+            configured_credentials += 1
+        credential_details.append(
+            f"{provider.name}={env_name}:{'present' if present else 'missing'}"
+        )
+    if providers:
+        checks.append(
+            Check(
+                "coding provider credentials",
+                configured_credentials == configured,
+                f"{configured_credentials}/{configured} credential(s) present; "
+                + ", ".join(credential_details),
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "coding provider credentials",
+                True,
+                "no provider routes configured; external coding execution is unavailable",
+            )
+        )
 
     token_env = os.getenv("GITHUB_TOKEN_ENV", "GITHUB_TOKEN").strip() or "GITHUB_TOKEN"
     token_present = bool(os.getenv(token_env, "").strip())
