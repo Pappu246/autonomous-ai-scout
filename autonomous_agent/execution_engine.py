@@ -216,7 +216,33 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         for attempt in range(retries+1):
             total_attempts+=1;request=None;connector=None
             try:
-                if budget_ledger is not None:
+                if (
+                 result.success
+                 and capability is Capability.FILES_WORKSPACE
+                 and isinstance(request, Mapping)
+                 and str(request.get("operation", "")).lower() == "read"
+             ):
+                 try:
+                     payload = json.loads(result.output)
+                     human_output = (
+                         f"READ VERIFIED: {payload.get('relative_path', request.get('path', ''))}\n\n"
+                         + str(payload.get("content", ""))
+                     )
+                     result = SandboxResult(
+                         operation=result.operation,
+                         success=result.success,
+                         exit_status=result.exit_status,
+                         output=human_output,
+                         evidence=result.evidence,
+                         verification_status=result.verification_status,
+                         started_at=result.started_at,
+                         finished_at=result.finished_at,
+                         network_disabled=result.network_disabled,
+                         output_truncated=result.output_truncated,
+                     )
+                 except (TypeError, ValueError, json.JSONDecodeError):
+                     pass
+             if budget_ledger is not None:
                     budget_ledger.consume(
                         attempts=1,
                         tool_calls=1,
