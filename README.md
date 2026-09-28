@@ -211,6 +211,20 @@ execution system, ending in the Phase 1 general-purpose digital agent foundation
 | **N28** | Auth / Credential / Permission Broker | Uses non-secret credential references, explicit scopes, and short-lived access without persisting raw secrets |
 | **N29** | Security + Prompt-Injection Defense | Separates untrusted data from authoritative instructions and blocks untrusted content from silently authorizing writes |
 | **N30** | Consequence-Aware Approval | Derives approval mode from risk, side effects, high-impact capabilities, audit requirements, and origin trust |
+| **N31** | Durable External Side-Effect Protection | Persistent side-effect ledger across Gmail, Calendar and bounded REST writes; uncertain outcomes require reconciliation |
+| **N32** | Durable Execution Leases | Single-owner worker execution leases with restart-safe expiry handling |
+| **N33** | Capability-Scoped Delegation | Delegated child work inherits a strict capability subset and bounded depth |
+| **N34** | Deterministic Self-Evaluation | Verified execution evidence is required before success is reported |
+| **N35** | Bounded Goal Loops | Long-horizon goals use explicit iteration ceilings and deterministic termination |
+| **N36** | Resource Budgets | Attempts, tool calls, wall time, output bytes and external side effects are bounded |
+| **N37** | Fail-Closed Recovery Classification | Unknown external outcomes require reconciliation instead of blind replay |
+| **N38** | Secret-Redacted Telemetry | Bounded runtime telemetry is observational and secret-safe |
+| **N39** | Persistent Trigger State | Trigger fingerprints and cooldowns prevent duplicate work across restarts |
+| **N40** | Deterministic Benchmark Harness | Reproducible control/evaluation evidence without uncontrolled retries |
+| **N41** | Readiness Aggregation | Independent safety evidence is aggregated into an explicit readiness result |
+| **N42** | Production Safety Evidence | Required production-safety areas are checked before canonical release admission |
+| **N43-N45** | Canonical Control Integration | Budget, telemetry and trigger-to-durable-queue controls are bound into the existing lifecycle |
+| **N46** | Canonical Admission Gate | Task, authorization, readiness, audit, execution identity and approval state are bound before execution |
 | **Phase 1** | Universal Digital Agent Foundation | Peer capability domains, a canonical goal → intent → plan → authorize → execute → observe → verify → resume lifecycle, a uniform adapter contract, and data-driven routing so new adapters need no core changes |
 
 ### N9 → N14 flow
