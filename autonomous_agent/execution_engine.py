@@ -233,12 +233,12 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
                          success=result.success,
                          exit_status=result.exit_status,
                          output=human_output,
-                         evidence=result.evidence,
+                         output_truncated=result.output_truncated,
+                         command=result.command,
                          verification_status=result.verification_status,
                          started_at=result.started_at,
                          finished_at=result.finished_at,
                          network_disabled=result.network_disabled,
-                         output_truncated=result.output_truncated,
                      )
                  except (TypeError, ValueError, json.JSONDecodeError):
                      pass
