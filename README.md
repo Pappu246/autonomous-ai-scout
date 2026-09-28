@@ -681,11 +681,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence. No layer auto-merges or deploys.
+Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission. None of these layers auto-merge or deploy.
 
 
 
-**Implemented through N30, plus the Phase 1 universal digital agent foundation.**
+**Implemented through N46, plus the Phase 1 universal digital agent foundation.**
 
 Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
 single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
