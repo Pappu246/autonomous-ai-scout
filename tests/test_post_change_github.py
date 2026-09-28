@@ -188,12 +188,11 @@ def test_malformed_pr_metadata_is_rejected_not_defaulted():
 def test_paginated_pull_files_exhaustion_is_incomplete():
     transport = FakeTransport()
     transport.files = [{"filename": f"extra{index}.py", "status": "modified"} for index in range(100)]
-    original = transport.pull_request_files
     calls = []
 
     def full_pages(repository, pull_request, *, page=1, per_page=100):
         calls.append(page)
-        return original(repository, pull_request, page=page, per_page=per_page)
+        return transport.files
 
     transport.pull_request_files = full_pages
     evidence = GitHubPostChangeEvidenceProvider(transport).collect(request())
