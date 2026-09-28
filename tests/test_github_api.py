@@ -239,3 +239,57 @@ def test_commit_files_rejects_changed_parent_sha(monkeypatch):
         assert "changed after approval" in str(exc)
     else:
         raise AssertionError("changed branch parent must be rejected")
+
+def test_read_file_bytes_at_ref_preserves_binary(monkeypatch):
+    import base64
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"type": "file", "content": base64.b64encode(b"\\xff\\x00").decode()}]
+    assert client(fake).read_file_bytes_at_ref("owner/repo", "app.bin", "a" * 40) == b"\\xff\\x00"
+
+
+def test_pull_request_files_is_bounded_and_read_only(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [[{"filename": "app.py", "status": "modified"}]]
+    result = client(fake).pull_request_files("owner/repo", "7", page=2, per_page=50)
+    assert result[0]["filename"] == "app.py"
+    assert fake.calls[0][0] == "GET"
+    assert fake.calls[0][3] == {"page": 2, "per_page": 50}
+
+
+def test_git_tree_reads_exact_commit(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"sha": "tree", "truncated": False, "tree": []}]
+    result = client(fake).git_tree("owner/repo", "a" * 40)
+    assert result["sha"] == "tree"
+    assert fake.calls[0][1].endswith("/git/trees/" + "a" * 40)
+    assert fake.calls[0][3] == {"recursive": "1"}
+
+
+def test_workflow_runs_filters_by_exact_head_sha(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    fake = FakeApi()
+    fake.responses = [{"workflow_runs": [{"id": 1, "head_sha": "a" * 40}]}]
+    result = client(fake).workflow_runs("owner/repo", "a" * 40)
+    assert result[0]["id"] == 1
+    assert fake.calls[0][3]["head_sha"] == "a" * 40
+
+
+def test_new_read_methods_require_auth(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    fake = FakeApi()
+    api = client(fake)
+    for call in (
+        lambda: api.pull_request_files("owner/repo", "1"),
+        lambda: api.git_tree("owner/repo", "a" * 40),
+        lambda: api.workflow_runs("owner/repo", "a" * 40),
+        lambda: api.read_file_bytes_at_ref("owner/repo", "app.py", "a" * 40),
+    ):
+        try:
+            call()
+        except Exception as exc:
+            assert "GITHUB_TOKEN" in str(exc)
+        else:
+            raise AssertionError("missing token must fail closed")
