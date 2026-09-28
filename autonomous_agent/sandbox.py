@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any,Mapping
 MAX_TIMEOUT_SECONDS=120;MAX_OUTPUT_BYTES=64*1024;MAX_READ_BYTES=128*1024;MAX_FILES=5000
-SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application","workflow"}
+SAFE_OPERATIONS={"inspect","test","lint","metrics","read_file","benchmark","web_research","rest","filesystem_workspace","workspace_shell","gmail","calendar","browser","computer","documents","application","workflow"}
 # Advanced bounded browser operations dispatched to the injected browser connector.
 # Legacy open/click/extract are handled explicitly; these 12 are the canonical
 # Phase 3 capabilities. Anything not listed here is refused by the sandbox.
@@ -46,6 +46,28 @@ def _run_test(root,timeout_seconds,output_limit):
         _kill(process);stdout,_=process.communicate();text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,"timeout\n"+text,truncated,command
     except OSError as exc:return None,f"sandbox subprocess could not start: {exc}",False,command
     text,truncated=_text_limit((stdout or b"").decode("utf-8",errors="replace"),output_limit);return process.returncode,text,truncated,command
+def _run_rest(connector, request, limit, *, approved=False):
+    if connector is None or not isinstance(request, Mapping):
+        return False, "rest requires an approved injected REST connector and structured request", (), False
+    try:
+        from .rest_connector import RestRequest
+        raw_body = request.get("body", "")
+        body = raw_body.encode("utf-8") if isinstance(raw_body, str) else bytes(raw_body)
+        rest_request = RestRequest(
+            method=str(request.get("method", "GET")),
+            url=str(request.get("url", "")),
+            headers=request.get("headers", {}) if isinstance(request.get("headers", {}), Mapping) else {},
+            body=body,
+            credential_ref=request.get("credential_ref"),
+            idempotency_key=request.get("idempotency_key"),
+        )
+        payload = connector.safe_json(rest_request, approved=approved, resolve_dns=False)
+        text, truncated = _text_limit(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str), limit)
+        success = 200 <= int(payload.get("status_code", 0)) < 400
+        return success, text, ("REST", rest_request.method.upper()), truncated
+    except Exception as exc:
+        return False, f"REST operation failed: {type(exc).__name__}", ("REST", str(request.get("method", ""))), False
+
 def _run_web_research(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"web_research requires an approved injected connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
@@ -205,10 +227,15 @@ def _run_workflow(connector,request,limit):
         payload=execute_workflow_operation(connector,request)
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("WORKFLOW",op),truncated
     except Exception as exc:return False,f"workflow operation failed: {type(exc).__name__}: {exc}",("WORKFLOW",op),False
-def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,workflow_connector:Any=None,workflow_request:Mapping[str,Any]|None=None):
+def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,workflow_connector:Any=None,workflow_request:Mapping[str,Any]|None=None):
     started=datetime.now(timezone.utc).isoformat();op=operation.strip().lower();limit=max(1,min(int(output_limit),MAX_OUTPUT_BYTES));root_path=_root(root)
     if op not in SAFE_OPERATIONS:
         finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,False,None,"operation is outside the sandbox allowlist",False,(),"blocked",started,finished,True)
+    if op=="rest":
+        request = rest_request or {}
+        success,output,command,truncated=_run_rest(rest_connector,request,limit,approved=bool(request.get("__approved__",False)) if isinstance(request,Mapping) else False)
+        finished=datetime.now(timezone.utc).isoformat()
+        return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="web_research":
         success,output,command,truncated=_run_web_research(web_connector,web_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="filesystem_workspace":
