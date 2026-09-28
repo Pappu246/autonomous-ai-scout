@@ -49,7 +49,7 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
             requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
-    if "filesystem.read" in selected or re.search(r"(?:read|open)\s+(?:the\s+)?file\b", text, re.I):
+    if ("filesystem.read" in selected or re.search(r"(?:read|open)\s+(?:the\s+)?file\b", text, re.I) or re.search(r"(?:read|open)\s+(?:the\s+)?[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+\b", text, re.I)):
         match = re.search(r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)", text, re.I)
         if not match:
             match = re.search(r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b", text, re.I)
