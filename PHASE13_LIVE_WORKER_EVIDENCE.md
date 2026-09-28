@@ -2,7 +2,7 @@
 
 ## Status
 
-Phase 13 verified the real remote mutation boundary of the persisted approval-to-GitHub worker.
+Phase 13 verified the real remote mutation boundary of the persisted approval-to-GitHub worker, including a worker-created draft PR after the repository Actions PR-creation permission was enabled.
 
 ## Verified live path
 
@@ -13,31 +13,37 @@ Inside GitHub Actions, the concrete worker:
 3. created an explicit approval record and single-use claim;
 4. created the dedicated worker branch;
 5. created exactly one Git commit on that branch with `GITHUB_TOKEN`;
-6. returned control without merging or deploying.
+6. created a draft PR itself with `GITHUB_TOKEN`;
+7. returned control without merging or deploying.
 
-Live worker identifiers:
+### Fresh live worker run
 
-- Workflow canary: Phase 13 Live GitHub Worker Canary v2
-- Worker workflow run: `36418755482`
-- Expected `main` HEAD: `dd63b4b7a75e31eb783e6afb4b2685b9afad86e2`
-- Worker branch: `improvement/phase13-live-worker-36418755482`
-- Worker-created commit: `ae097296e8a0c85d35c992b9cbfee0c7f38e006e`
-- Draft PR completed as: `#186`
-- PR-head CI run: `#2520`
-- PR-head CI result: `2298 passed, 6 skipped`
-- Final merged commit: `6567ba2c6d2a364acf28d979458e235bba5f0c7c`
+- Workflow: Phase 13 Live GitHub Worker Canary v3
+- Workflow run: `36454392200`
+- Expected `main` HEAD: `e835af1b12adcdb20367a046a326fa6dcbb9b889`
+- Worker branch: `improvement/phase13-live-worker-36454392200`
+- Worker-created commit: `137526e8c40792210eac6969079a8f85b9279a35`
+- Worker-created draft PR: `#188`
+- PR author: `github-actions[bot]`
+- PR diff: one file, one line changed in `PHASE13_LIVE_WORKER_OUTPUT.md`
 
-## Important boundary
+This run proves the repository Actions token can cross the approval-gated mutation boundary and create the draft PR itself. No connected control-plane PR creation was needed for this run.
 
-The worker's final `POST /pulls` call was rejected by GitHub for the workflow token even though the workflow explicitly requested `pull-requests: write`. GitHub documents a separate repository/organization setting controlling whether Actions workflows may create or approve pull requests with `GITHUB_TOKEN`.
+## CI observation boundary
 
-Because that setting could not be changed through the connected repository control plane available here, the already-created worker branch and commit were preserved and the draft PR lifecycle was completed through the connected GitHub control plane without replaying the worker mutation.
+The worker then entered its bounded PR-observation loop. The PR's normal CI run was created as workflow run `36454434980`, but GitHub returned the run with conclusion `action_required`. The worker therefore failed closed after its observation budget without merging or deploying.
 
-This means the live evidence is exact about what was proven:
+This is now the remaining environment-dependent boundary:
 
-- **Proven live:** approval-to-worker bridge, exact-head binding, real branch creation, real commit creation, draft-PR/CI observation path, no worker merge/deploy.
-- **Environment-gated:** worker-created draft PR via `GITHUB_TOKEN` under the repository's current Actions PR-creation policy.
+- **Proven live:** exact-head binding, persisted approval, single-use claim, worker branch creation, worker commit creation, and worker-created draft PR.
+- **Environment-gated:** successful execution of the normal `pull_request` CI workflow for a PR created by `github-actions[bot]` when GitHub reports `action_required`.
+
+The draft PR was intentionally closed without merge, and the worker/test branches were reset to the verified `main` SHA after evidence collection.
+
+## Previous live evidence
+
+An earlier Phase 13 canary established the same approval-to-worker bridge and real branch/commit path but could not create the PR from `GITHUB_TOKEN` under the repository's then-current Actions policy. That earlier limitation is superseded for PR creation by the fresh run above.
 
 ## Safety
 
-The live candidate modified only `PHASE13_LIVE_WORKER_OUTPUT.md`. No runtime module, credentials, workflow permissions on `main`, deployment configuration or production resource was changed.
+The fresh worker mutation targeted only the existing harmless documentation line in `PHASE13_LIVE_WORKER_OUTPUT.md`. No runtime module, credentials, production deployment configuration, or production resource was changed. The draft PR was not merged.
