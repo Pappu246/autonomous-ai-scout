@@ -18,6 +18,11 @@ class WorkspaceConnector:
         if not self.root.is_dir():raise WorkspaceError("workspace root must be an existing directory")
         if not 1<=max_file_bytes<=MAX_FILE_BYTES or not 1<=max_output_bytes<=MAX_OUTPUT_BYTES or not 1<=max_entries<=MAX_ENTRIES or not 0<=max_retries<=MAX_RETRIES or not 1<=timeout_seconds<=MAX_TIMEOUT_SECONDS:raise WorkspaceError("unsafe workspace bounds")
         self.max_file_bytes=max_file_bytes;self.max_output_bytes=max_output_bytes;self.max_entries=max_entries;self.max_retries=max_retries;self.timeout_seconds=timeout_seconds
+        from .workspace_shell import ControlledWorkspaceShell
+        self._shell=ControlledWorkspaceShell(self.root)
+
+    def run(self, argv, *, timeout_seconds=20):
+        return self._shell.run(argv, timeout_seconds=timeout_seconds)
     def _path(self,relative):
         if not isinstance(relative,str) or not relative.strip():raise WorkspaceError("workspace path is required")
         candidate=(self.root/relative).resolve()
@@ -50,12 +55,38 @@ class WorkspaceConnector:
         if path.exists() and path.is_dir():raise WorkspaceError("workspace target is a directory")
         if not isinstance(content,str) or len(content.encode())>=self.max_file_bytes:raise WorkspaceError("write content exceeds workspace size limit")
         if _SECRET.search(content):raise WorkspaceError("secret-like content is not permitted")
-        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8",newline="")
-        return WorkspaceEvidence("write",str(path.relative_to(self.root)),_digest({"path":str(path.relative_to(self.root)),"content":content}),content=content)
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(content,encoding="utf-8",newline="")
+        try:
+            written=path.read_text(encoding="utf-8")
+        except (OSError,UnicodeError) as exc:
+            raise WorkspaceError("write verification failed: file could not be re-read") from exc
+        if written!=content:
+            raise WorkspaceError("write verification failed: file contents differ after write")
+        return WorkspaceEvidence(
+            "write",
+            str(path.relative_to(self.root)),
+            _digest({"path":str(path.relative_to(self.root)),"content":written}),
+            content=written,
+        )
     def transform(self,relative,find,replace):
         evidence=self.read(relative)
         if evidence.redacted:raise WorkspaceError("transform refuses content requiring secret redaction")
         if not isinstance(find,str) or not find:raise WorkspaceError("transform find text is required")
-        updated=evidence.content.replace(find,str(replace))
-        if updated==evidence.content:return evidence
-        return self.write(relative,updated)
+        replacement=str(replace)
+        if find not in evidence.content:
+            raise WorkspaceError("transform source text was not found")
+        updated=evidence.content.replace(find,replacement)
+        if updated==evidence.content:
+            raise WorkspaceError("transform produced no change")
+        self.write(relative,updated)
+        verified=self.read(relative)
+        if verified.content!=updated:
+            raise WorkspaceError("transform verification failed: file contents differ after write")
+        return WorkspaceEvidence(
+            "transform",
+            verified.relative_path,
+            verified.fingerprint,
+            content=verified.content,
+            redacted=verified.redacted,
+        )

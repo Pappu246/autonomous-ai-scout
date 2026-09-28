@@ -1,7 +1,7 @@
 from __future__ import annotations
 import hashlib,json
 from typing import Iterable
-from .capability_policy import Capability
+from .capability_policy import Capability, DENIED_CAPABILITIES
 from .task_decomposer import decompose_task
 from .task_intent import classify_intent
 from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
@@ -34,16 +34,23 @@ def candidate_tool_names(task: str, registry: ToolRegistry = REGISTRY) -> tuple[
     return tuple(tool.name for tool in _select_tools(registry, intent, raw))
 
 
-def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTRY) -> tuple[Capability, ...]:
-    """Grant only capabilities exposed by tools explicitly marked safe_autonomous."""
+def default_grants_for_task(
+    task: str | object,
+    registry: ToolRegistry = REGISTRY,
+    *,
+    explicitly_approved: bool = False,
+) -> tuple[Capability, ...]:
+    """Grant safe autonomous capabilities, plus safe registered capabilities after explicit approval."""
     raw = task.task if hasattr(task, "task") and isinstance(getattr(task, "task"), str) else str(task)
     intent = classify_intent(raw)
     values: list[Capability] = []
     seen: set[Capability] = set()
     for tool in _select_tools(registry, intent, raw):
-        if not tool.safe_autonomous:
+        if not tool.safe_autonomous and not explicitly_approved:
             continue
         capability = Capability(tool.capability)
+        if capability in DENIED_CAPABILITIES:
+            continue
         if capability not in seen:
             seen.add(capability)
             values.append(capability)
@@ -58,6 +65,24 @@ def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved
     descriptions=decompose_task(raw,intent);steps=[]
     for index,tool in enumerate(selected,1):
         description=descriptions[min(index-1,len(descriptions)-1)] if descriptions else f"Run {tool.name}.";decision=registry.authorize(tool.name,granted,explicitly_approved=explicitly_approved,sandbox_available=sandbox_available,audit_available=audit_available)
-        if not decision.allowed:executable,reason=False,f"Authorization blocked for {tool.name}: {decision.reason}"
-        steps.append(TaskStep(f"step-{index}",description,tool.name,PlanRisk(tool.risk_level.value),"authorized" if decision.allowed else "blocked","execute only through the existing registered capability/sandbox/lifecycle boundary","verify tool result before proceeding and retain audit record"))
+        if not decision.allowed:
+            if (
+                not explicitly_approved
+                and Capability(tool.capability) not in DENIED_CAPABILITIES
+                and tool.approval_requirement.value != "none"
+            ):
+                executable, reason = False, f"Explicit approval required for {tool.name}: {decision.reason}"
+            else:
+                executable, reason = False, f"Authorization blocked for {tool.name}: {decision.reason}"
+        steps.append(
+            TaskStep(
+                f"step-{index}",
+                description,
+                tool.name,
+                PlanRisk(tool.risk_level.value),
+                "authorized" if decision.allowed else "blocked",
+                "execute only through the existing registered capability/sandbox/lifecycle boundary",
+                "verify tool result before proceeding and retain audit record",
+            )
+        )
     digest=_digest(raw,intent.value,tuple(s.tool_name for s in steps));return TaskPlan(raw,intent,tuple(steps),aggregate_risk(selected),executable,reason,TaskAuditRecord(raw,intent,tuple(s.step_id for s in steps),executable,digest))

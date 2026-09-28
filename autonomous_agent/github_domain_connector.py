@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Mapping
 
 from .action_queue import PendingAction
@@ -43,7 +44,7 @@ class GitHubDomainConnector:
 
     def checks(self, repository: str, head_sha: str) -> tuple[Mapping[str, Any], ...]:
         repository = self._repo(repository)
-        if len(head_sha) != 40:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
             raise GitHubConnectorError("invalid commit scope")
         value = self._fetch(f"/repos/{repository}/commits/{head_sha}/check-runs", {"per_page": 100})
         checks = value.get("check_runs", []) if isinstance(value, Mapping) else []

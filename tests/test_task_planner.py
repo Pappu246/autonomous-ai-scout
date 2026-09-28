@@ -12,6 +12,14 @@ def test_intent_classification_is_conservative():
 
 def test_test_plan_uses_only_registry_tools_and_can_be_authorized():
     plan=plan_task("run tests",granted=[Capability.INSPECT,Capability.TEST]); assert plan.intent is TaskIntent.TEST and plan.executable; assert [s.tool_name for s in plan.steps]==["github.inspect","tests.run"]; assert plan.risk is PlanRisk.LOW and all(s.authorization=="authorized" for s in plan.steps)
+def test_write_plan_requires_explicit_approval():
+    plan = plan_task("transform file config.py")
+    assert not plan.executable
+    assert "Explicit approval required" in plan.reason
+    assert "filesystem.transform" in plan.reason
+    assert plan.steps[0].authorization == "blocked"
+
+
 def test_plan_fails_closed_without_capability_grant():
     plan=plan_task("run tests"); assert not plan.executable and "Authorization blocked" in plan.reason
 def test_research_plan_uses_bounded_web_capability():
@@ -28,3 +36,32 @@ def test_custom_registry_is_the_only_tool_source():
     base=get_tool("tests.run"); registry=ToolRegistry((base,)); plan=plan_task("run tests",granted=[Capability.TEST],registry=registry); assert not plan.executable and "github.inspect" in plan.reason
 def test_plan_is_deterministically_auditable():
     kwargs={"granted":[Capability.INSPECT,Capability.TEST]}; assert plan_task("run tests",**kwargs).audit==plan_task("run tests",**kwargs).audit
+
+
+
+def test_explicit_test_request_with_file_safety_constraints_stays_test_intent():
+    request = (
+        "Run the repository test suite. Do not modify, create, delete, transform, "
+        "or write any file."
+    )
+    plan = plan_task(request, granted=[Capability.INSPECT, Capability.TEST])
+    assert plan.intent is TaskIntent.TEST
+    assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]
+
+
+def test_read_only_repository_inspection_with_file_mentions_stays_inspect_intent():
+    request = (
+        "Inspect this repository. Identify the 3 most important current issues "
+        "you can safely verify without modifying any files. For each issue, give "
+        "the affected file(s), evidence, severity, and a concrete next action. "
+        "Do not make any changes."
+    )
+    plan = plan_task(request, granted=[Capability.INSPECT])
+    assert plan.intent is TaskIntent.INSPECT
+    assert [step.tool_name for step in plan.steps] == ["github.inspect"]
+    assert plan.executable is True
+
+
+def test_direct_local_file_read_classifies_as_workspace():
+    task = "Read README.md and give me a human-readable summary. Do not modify any files."
+    assert classify_intent(task) is TaskIntent.WORKSPACE

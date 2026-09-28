@@ -169,15 +169,6 @@ def execute_approved_change(
         return GitHubChangeResult(False, manifest_error)
     if not validate_patch_file_contents(unified_diff, file_contents):
         return GitHubChangeResult(False, "changed file contents do not match the reviewed diff")
-    try:
-        base_files = {
-            path: backend.read_file_at_ref(request.repository, path, request.expected_head_sha)
-            for path in review.files
-        }
-    except Exception as exc:
-        return GitHubChangeResult(False, f"base file verification failed closed: {type(exc).__name__}")
-    if not validate_patch_applies_to_base(unified_diff, base_files, file_contents):
-        return GitHubChangeResult(False, "reviewed diff does not produce the supplied file contents from the verified base")
     if _contains_forbidden_term(" ".join((action.task, request.title, request.body))):
         return GitHubChangeResult(False, "change request crosses a forbidden capability boundary")
     if not request.repository:
@@ -195,6 +186,18 @@ def execute_approved_change(
     claimed = claim_approval(approval, claim_store)
     if not claimed.allowed:
         return GitHubChangeResult(False, claimed.reason)
+
+    # Approval must be validated and consumed before any remote repository read.
+    # A rejected/expired approval must not even trigger a backend request.
+    try:
+        base_files = {
+            path: backend.read_file_at_ref(request.repository, path, request.expected_head_sha)
+            for path in review.files
+        }
+    except Exception as exc:
+        return GitHubChangeResult(False, f"base file verification failed closed: {type(exc).__name__}")
+    if not validate_patch_applies_to_base(unified_diff, base_files, file_contents):
+        return GitHubChangeResult(False, "reviewed diff does not produce the supplied file contents from the verified base")
 
     try:
         if request.expected_head_sha and hasattr(backend, "create_branch_at_sha"):

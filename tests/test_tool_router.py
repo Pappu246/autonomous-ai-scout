@@ -47,3 +47,71 @@ def test_router_does_not_expand_capabilities():
     selection = DynamicToolRouter().select("send email")
     assert selection == ("email.send",)
     assert Capability.EMAIL.value == get_tool("email.send").capability
+
+def test_router_routes_canonical_workspace_shell_phrasing():
+    selection = DynamicToolRouter().select_names(
+        "Use the canonical local workspace shell to run exactly this command: pwd"
+    )
+    assert selection.tool_names == ("workspace.shell",)
+
+
+def test_router_does_not_route_negated_shell_requests():
+    selection = DynamicToolRouter().select_names(
+        "inspect the workspace. Do not run a shell command or py_compile."
+    )
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+
+
+def test_router_defaults_ambiguous_workspace_requests_to_read_only_tools():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository workspace and investigate its structure"
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.list",)
+    assert "filesystem.read" not in selection.tool_names
+    assert "filesystem.write" not in selection.tool_names
+    assert "filesystem.transform" not in selection.tool_names
+
+
+def test_router_keeps_explicit_workspace_mutation_requests_mutating_only_when_requested():
+    selection = DynamicToolRouter().select_names("transform file config.py")
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.transform",)
+
+
+
+def test_router_ignores_negated_workspace_mutations():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository workspace. Do not create, modify, save, or transform files."
+    )
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+
+
+def test_router_allows_explicit_workspace_mutation_in_positive_clause():
+    selection = DynamicToolRouter().select_names(
+        "inspect the repository. Transform file config.py."
+    )
+    assert selection.tool_names == ("filesystem.transform",)
+
+
+def test_router_recognizes_natural_language_file_creation_request():
+    selection = DynamicToolRouter().select_names(
+        "Create a harmless test file at state/scout_approval_test.txt containing: "
+        "AUTONOMOUS_SCOUT_APPROVAL_TEST. Do not modify any other files."
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.write",)
+
+
+def test_router_routes_direct_readme_request_to_read_only_filesystem():
+    selection = DynamicToolRouter().select_names(
+        "Read README.md and give me a human-readable summary. Do not modify any files."
+    )
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
+
+def test_router_keeps_read_only_inspection_without_file_target_bounded():
+    selection = DynamicToolRouter().select_names(
+        "Inspect the workspace. Do not modify any files."
+    )
+    assert selection.tool_names == ("filesystem.list", "filesystem.read")
