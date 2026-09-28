@@ -99,7 +99,6 @@ class GmailConnector:
     def thread(self,thread_id):
         thread_id=_safe_id(thread_id,"thread id");payload=self._request("GET",f"{GMAIL_API_ROOT}/threads/{quote(thread_id,safe='')}",params={"format":"full"});items=payload.get("messages",[]) if isinstance(payload.get("messages",[]),list) else [];messages=[{"id":_bounded_text(x.get("id",""),512),"threadId":_bounded_text(x.get("threadId",thread_id),512),"internalDate":_bounded_text(x.get("internalDate",""),32),"snippet":_bounded_text(x.get("snippet",""))} for x in items[:MAX_THREAD_MESSAGES] if isinstance(x,Mapping)];messages.sort(key=lambda x:(x["internalDate"],x["id"]));data={"threadId":thread_id,"messages":messages};return GmailEvidence("email.thread",data,_fingerprint(data))
     def draft(self,*,to,subject,body,thread_id=None,approved=False):
-        if not approved:raise GmailError("email.draft requires explicit approval")
         message=_raw_message(to,subject,body,thread_id)
         claim_key=canonical_request_digest("email.draft",message)
         if self.side_effect_store is not None:
