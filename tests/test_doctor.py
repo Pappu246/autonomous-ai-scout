@@ -24,6 +24,7 @@ def test_doctor_detects_missing_operational_configuration(tmp_path: Path, monkey
     assert checks["workspace"].ok
     assert checks["ci workflow"].ok
     assert checks["coding providers"].ok is False
+    assert checks["coding provider credentials"].ok
     assert checks["github credential"].ok is False
 
 
@@ -41,6 +42,7 @@ def test_doctor_reports_configured_provider_without_exposing_secret(tmp_path, mo
     checks = {item.name: item for item in run_checks(tmp_path)}
 
     assert checks["coding providers"].ok
+    assert checks["coding provider credentials"].ok
     assert checks["github credential"].ok
     assert "do-not-print" not in checks["coding providers"].detail
     assert "github-secret" not in checks["github credential"].detail
