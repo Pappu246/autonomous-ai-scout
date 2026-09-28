@@ -11,4 +11,4 @@ def test_debug_direct_read_failure(tmp_path: Path):
         journal_path=tmp_path / "debug-journal.jsonl",
         execution_id="debug-direct-read",
     )
-    assert result.state is ExecutionState.VERIFIED, result.results[-1].output if result.results else result.reason
+    assert result.state is ExecutionState.VERIFIED, (result.results[-1].command, result.results[-1].output, result.reason) if result.results else result.reason
