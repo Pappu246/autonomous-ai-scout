@@ -7,6 +7,8 @@ from autonomous_agent.execution_audit import append_execution_record, verify_exe
 from autonomous_agent.execution_engine import ExecutionState, execute_plan, _authorization_digest, recover_execution
 from autonomous_agent.sandbox import SandboxResult
 from autonomous_agent.task_plan_models import TaskPlan
+from autonomous_agent.budget import BudgetLedger, ResourceBudget
+from autonomous_agent.observability import TelemetryBuffer
 from autonomous_agent.task_planner import plan_task
 
 
@@ -370,6 +372,42 @@ def test_forged_verified_checkpoint_cannot_claim_completion_without_audit(tmp_pa
     assert "trusted audit" in result.reason
 
 
+def test_checkpoint_rejects_non_list_completed_steps(tmp_path: Path):
+    from autonomous_agent.execution_checkpoint import ExecutionCheckpointStore
+    checkpoint = tmp_path / "bad.json"
+    checkpoint.write_text(json.dumps({
+        "schema_version": 2,
+        "execution_id": "bad",
+        "task_digest": "task",
+        "plan_digest": "plan",
+        "authorization_digest": "auth",
+        "state": "running",
+        "completed_step_ids": "step-1",
+        "total_attempts": 0,
+        "updated_at": "2026-09-23T00:00:00+00:00",
+    }), encoding="utf-8")
+    try:
+        ExecutionCheckpointStore(checkpoint).load()
+    except ValueError as exc:
+        assert "must be a list" in str(exc)
+    else:
+        raise AssertionError("malformed completed_step_ids must be rejected")
+
+
+def test_checkpoint_rejects_unknown_state(tmp_path: Path):
+    from autonomous_agent.execution_checkpoint import ExecutionCheckpointStore
+    with __import__("pytest").raises(ValueError, match="state is invalid"):
+        ExecutionCheckpointStore(tmp_path / "new.json").save(
+            execution_id="bad",
+            task_digest="task",
+            plan_digest="plan",
+            authorization_digest="auth",
+            state="unknown",
+            completed_step_ids=(),
+            total_attempts=0,
+        )
+
+
 def test_resume_does_not_trust_checkpoint_completed_steps_without_audit(tmp_path: Path):
     plan = _inspect_plan()
     audit = tmp_path / "resume-forged.jsonl"
@@ -395,3 +433,37 @@ def test_resume_does_not_trust_checkpoint_completed_steps_without_audit(tmp_path
     )
     assert result.state is ExecutionState.RECOVERY_REQUIRED
     assert "without matching trusted audit evidence" in result.reason
+
+
+def test_canonical_executor_enforces_resource_budget(tmp_path: Path):
+    plan = _inspect_plan()
+    ledger = BudgetLedger(ResourceBudget(attempts=0))
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=tmp_path / "budget.jsonl",
+        execution_id="budget-1",
+        budget_ledger=ledger,
+    )
+    assert result.state is ExecutionState.FAILED
+    assert "resource budget exceeded" in result.reason
+    assert not result.results
+
+
+def test_canonical_executor_emits_bounded_telemetry(tmp_path: Path):
+    plan = _inspect_plan()
+    telemetry = TelemetryBuffer(max_events=10)
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=tmp_path / "telemetry.jsonl",
+        execution_id="telemetry-1",
+        telemetry=telemetry,
+    )
+    assert result.state is ExecutionState.VERIFIED
+    events = telemetry.snapshot()
+    assert any(item["name"] == "execution_started" for item in events)
+    assert any(item["name"] == "tool_result" for item in events)
+    assert all("telemetry-1" in str(item) or "secret" not in str(item).lower() for item in events)
