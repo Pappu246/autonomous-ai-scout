@@ -7,6 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .execution_engine import ExecutionResult, ExecutionState
+from .filesystem_workspace import WorkspaceConnector
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
 from .task_plan_models import TaskPlan
@@ -16,6 +17,42 @@ ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 
+def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] | None:
+    """Derive only bounded workspace requests explicitly delimited by the task."""
+    import re
+    selected = tuple(step.tool_name for step in plan.steps)
+    requests: dict[str, Any] = {}
+    clauses = re.split(r"[.;!?\n]+", task.strip())
+    negative = ("do not", "don't", "never", "without")
+    if "workspace.shell" in selected:
+        match = re.search(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$", task.strip(), re.I)
+        if match:
+            command_text = match.group(1).strip().strip("`")
+            py_compile = re.match(r"python\s+-m\s+py_compile\s+([A-Za-z0-9_./\\-]+)", command_text, re.I)
+            if py_compile:
+                requests["workspace.shell"] = {"argv": ("python", "-m", "py_compile", py_compile.group(1).rstrip("."))}
+            else:
+                simple = re.match(r"(pwd|ls|dir)\b", command_text, re.I)
+                if simple:
+                    requests["workspace.shell"] = {"argv": (simple.group(1).lower(),)}
+    if "filesystem.list" in selected:
+        requests["filesystem.list"] = {"operation": "list", "path": "."}
+    if "filesystem.transform" in selected:
+        match = re.search(r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$", task.strip(), re.I)
+        if match and not any(marker in match.group(0).lower() for marker in negative):
+            requests["filesystem.transform"] = {"operation":"transform","path":match.group(1).rstrip("."),"find":match.group(2),"replace":match.group(3)}
+    if "filesystem.write" in selected:
+        match = re.search(r"(?:write|create|save)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*)$", task.strip(), re.I)
+        if match and not any(marker in match.group(0).lower() for marker in negative):
+            content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
+            requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
+    if "filesystem.read" in selected:
+        match = re.search(r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)", task.strip(), re.I)
+        if not match:
+            match = re.search(r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b", task.strip(), re.I)
+        if match:
+            requests["filesystem.read"] = {"operation":"read","path":match.group(1).rstrip(".")}
+    return requests or None
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
     prepared = AutonomousTaskCore(registry=registry).prepare(task)
@@ -45,6 +82,13 @@ def run_task(
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
     prepared = core.prepare(task)
+    if workspace_connector is None and any(
+        step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
+        for step in prepared.plan.steps
+    ):
+        workspace_connector = WorkspaceConnector(root)
+    if workspace_request is None:
+        workspace_request = _workspace_request_for_task(task, prepared.plan)
     if not prepared.plan.executable:
         result = ExecutionResult(
             ExecutionState.BLOCKED,
@@ -75,6 +119,8 @@ def run_task(
         gmail_request=gmail_request,
         calendar_connector=calendar_connector,
         calendar_request=calendar_request,
+        rest_connector=rest_connector,
+        rest_request=rest_request,
     )
     append_run_record(
         journal_path,

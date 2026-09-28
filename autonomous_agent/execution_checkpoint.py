@@ -42,6 +42,8 @@ class ExecutionCheckpointStore:
             raise ValueError("execution checkpoint is unreadable") from exc
         if not isinstance(payload, dict):
             raise ValueError("execution checkpoint must be a JSON object")
+        if not isinstance(payload.get("completed_step_ids"), list):
+            raise ValueError("execution checkpoint completed_step_ids must be a list")
         try:
             completed = tuple(str(item) for item in payload["completed_step_ids"])
             checkpoint = ExecutionCheckpoint(
@@ -59,8 +61,22 @@ class ExecutionCheckpointStore:
             raise ValueError("execution checkpoint has an invalid schema") from exc
         if checkpoint.schema_version != SCHEMA_VERSION:
             raise ValueError("unsupported execution checkpoint schema")
+        if not checkpoint.execution_id.strip() or len(checkpoint.execution_id) > 256:
+            raise ValueError("execution checkpoint execution id is invalid")
+        if not checkpoint.task_digest or not checkpoint.plan_digest or not checkpoint.authorization_digest:
+            raise ValueError("execution checkpoint digests are required")
+        if checkpoint.state not in {"running", "failed", "blocked", "verified", "recovery_required"}:
+            raise ValueError("execution checkpoint state is invalid")
         if checkpoint.total_attempts < 0:
             raise ValueError("execution checkpoint attempts cannot be negative")
+        if len(checkpoint.completed_step_ids) > 256 or len(set(checkpoint.completed_step_ids)) != len(checkpoint.completed_step_ids):
+            raise ValueError("execution checkpoint completed steps are invalid")
+        try:
+            updated = datetime.fromisoformat(checkpoint.updated_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("execution checkpoint timestamp is invalid") from exc
+        if updated.tzinfo is None:
+            raise ValueError("execution checkpoint timestamp must include a timezone")
         return checkpoint
 
     def save(
@@ -74,6 +90,15 @@ class ExecutionCheckpointStore:
         completed_step_ids: tuple[str, ...],
         total_attempts: int,
     ) -> ExecutionCheckpoint:
+        if state not in {"running", "failed", "blocked", "verified", "recovery_required"}:
+            raise ValueError("execution checkpoint state is invalid")
+        if not execution_id or len(execution_id) > 256:
+            raise ValueError("execution checkpoint execution id is invalid")
+        if not task_digest or not plan_digest or not authorization_digest:
+            raise ValueError("execution checkpoint digests are required")
+        normalized_steps = tuple(dict.fromkeys(completed_step_ids))
+        if len(normalized_steps) > 256:
+            raise ValueError("execution checkpoint completed steps exceed the limit")
         checkpoint = ExecutionCheckpoint(
             SCHEMA_VERSION,
             execution_id,
@@ -81,7 +106,7 @@ class ExecutionCheckpointStore:
             plan_digest,
             authorization_digest,
             state,
-            tuple(dict.fromkeys(completed_step_ids)),
+            normalized_steps,
             max(0, int(total_attempts)),
             datetime.now(timezone.utc).isoformat(),
         )
@@ -99,7 +124,10 @@ class ExecutionCheckpointStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            with tmp.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp, self.path)
         finally:
             try:

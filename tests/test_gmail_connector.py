@@ -36,12 +36,16 @@ def test_secret_redaction_and_credential_reference_only():
     t=Transport();c=GmailConnector(t,credential_reference="gmail:oauth:user");assert c.credential_reference=="gmail:oauth:user"
     with pytest.raises(GmailError):GmailConnector(t,credential_reference="access_token=abc")
 def test_draft_and_send_use_official_raw_message_contract():
-    t=Transport();c=GmailConnector(t);c.draft(to="a@example.com",subject="Hi",body="hello");draft_body=t.calls[-1][3]["message"];raw=base64.urlsafe_b64decode(draft_body["raw"]+"===");assert b"To: a@example.com" in raw and b"Subject: Hi" in raw and "raw" in draft_body
+    t=Transport();c=GmailConnector(t);c.draft(to="a@example.com",subject="Hi",body="hello",approved=True);draft_body=t.calls[-1][3]["message"];raw=base64.urlsafe_b64decode(draft_body["raw"]+"===");assert b"To: a@example.com" in raw and b"Subject: Hi" in raw and "raw" in draft_body
     key=_fingerprint({"raw":draft_body["raw"]});c.send(to="a@example.com",subject="Hi",body="hello",idempotency_key=key,approved=True);send_body=t.calls[-1][3];assert set(send_body)=={"raw"}
+def test_draft_requires_explicit_approval():
+    t=Transport();c=GmailConnector(t)
+    with pytest.raises(GmailError):c.draft(to="a@example.com",subject="Hi",body="hello",approved=False)
+    assert not t.calls
 def test_draft_never_sends():
-    t=Transport();GmailConnector(t).draft(to="a@example.com",subject="Hi",body="hello");assert not any(url.endswith("/messages/send") for _,url,_,_,_ in t.calls)
+    t=Transport();GmailConnector(t).draft(to="a@example.com",subject="Hi",body="hello",approved=True);assert not any(url.endswith("/messages/send") for _,url,_,_,_ in t.calls)
 def test_send_requires_approval_and_duplicate_is_blocked():
-    t=Transport();c=GmailConnector(t);message=c.draft(to="a@example.com",subject="Hi",body="hello");raw=message.data["draft"]
+    t=Transport();c=GmailConnector(t);message=c.draft(to="a@example.com",subject="Hi",body="hello",approved=True);raw=message.data["draft"]
     key=_fingerprint({"raw":c._request("POST","https://gmail.googleapis.com/gmail/v1/users/me/drafts",body={}) if False else base64.urlsafe_b64encode(b"unused").decode()})
     payload={"raw":base64.urlsafe_b64encode(__import__('email').message.EmailMessage().as_bytes()).decode()}
     # The connector derives the key from the exact outbound message; use its deterministic helper through a known payload.
