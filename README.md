@@ -688,7 +688,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation; Phase 13 verifies the persisted approval-to-real-GitHub-worker mutation path and records the current Actions-token PR-creation policy boundary. None of these layers auto-merge or deploy.
+Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation; Phase 13 now verifies the persisted approval-to-real-GitHub-worker mutation path including a worker-created draft PR. The current environment-gated boundary is successful `pull_request` CI execution when GitHub reports `action_required` for a worker-created PR. None of these layers auto-merge or deploy.
 
 
 
