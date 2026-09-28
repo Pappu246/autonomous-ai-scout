@@ -211,6 +211,20 @@ execution system, ending in the Phase 1 general-purpose digital agent foundation
 | **N28** | Auth / Credential / Permission Broker | Uses non-secret credential references, explicit scopes, and short-lived access without persisting raw secrets |
 | **N29** | Security + Prompt-Injection Defense | Separates untrusted data from authoritative instructions and blocks untrusted content from silently authorizing writes |
 | **N30** | Consequence-Aware Approval | Derives approval mode from risk, side effects, high-impact capabilities, audit requirements, and origin trust |
+| **N31** | Durable External Side-Effect Protection | Persistent side-effect ledger and durable write-boundary deduplication for Gmail, Calendar and bounded REST operations |
+| **N32** | Durable Execution Leases | Single-owner worker execution leases with recovery-safe expiry handling |
+| **N33** | Capability-Scoped Delegation | Explicit delegation scopes with approval and side-effect restrictions |
+| **N34** | Deterministic Self-Evaluation | Bounded execution outcome evaluation without self-authorized policy changes |
+| **N35** | Bounded Goal Loops | Explicitly bounded goal iteration with deterministic termination |
+| **N36** | Resource Budgets | Time/action/resource bounds enforced at execution boundaries |
+| **N37** | Fail-Closed Recovery Classification | Recovery outcomes are classified before retry/resume decisions |
+| **N38** | Secret-Redacted Telemetry | Bounded runtime telemetry with secret-safe records |
+| **N39** | Persistent Trigger State | Durable trigger fingerprints/cooldowns without direct trigger execution |
+| **N40** | Deterministic Benchmark Harness | Reproducible control/evaluation harness for autonomy boundaries |
+| **N41** | Readiness Aggregation | Deterministic readiness gate over required safety evidence |
+| **N42** | Production Safety Evidence | Explicit production-safety evidence contract |
+| **N43-N45** | Canonical Control Integration | Canonical budget, telemetry and trigger-to-queue integration |
+| **N46** | Canonical Admission Gate | Binds readiness, production-audit evidence, task/authorization digests, execution identity, side-effect classification and approval state |
 | **Phase 1** | Universal Digital Agent Foundation | Peer capability domains, a canonical goal → intent → plan → authorize → execute → observe → verify → resume lifecycle, a uniform adapter contract, and data-driven routing so new adapters need no core changes |
 
 ### N9 → N14 flow
@@ -667,7 +681,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter for post-change verification; Phase 8 adds a decision-only controlled release boundary. None of these layers auto-merge or deploy.
+Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence. No layer auto-merges or deploys.
 
 
 
@@ -693,6 +707,7 @@ implemented, tested, and verified.
 ---
 
 ## Documentation
+- [Phase 9 — Tamper-Evident Release Evidence](PHASE9_TAMPER_EVIDENT_RELEASE_EVIDENCE.md)
 - [Phase 8 — Controlled Release Boundary](PHASE8_CONTROLLED_RELEASE_BOUNDARY.md)
 - [Phase 7 — Live GitHub Evidence Adapter](PHASE7_LIVE_GITHUB_EVIDENCE.md)
 

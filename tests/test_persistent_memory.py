@@ -60,3 +60,23 @@ def test_memory_respects_bounded_recall(tmp_path: Path):
     for index in range(5):
         memory.record_episode("project-a", f"parser verification task {index}", outcome="verified")
     assert len(memory.recall("project-a", "parser verification task")) == 2
+
+
+def test_episode_metadata_is_recursively_sanitized(tmp_path: Path):
+    path = tmp_path / "memory.json"
+    memory = PersistentMemory(path)
+    assert memory.record_episode(
+        "project-a",
+        "store safe metadata",
+        outcome="verified",
+        metadata={
+            "token": "api_key=SUPERSECRET",
+            "nested": {"password": "TOPSECRET"},
+            "items": ["authorization=HIDDEN"],
+        },
+    )
+    raw = path.read_text(encoding="utf-8")
+    assert "SUPERSECRET" not in raw
+    assert "TOPSECRET" not in raw
+    assert "HIDDEN" not in raw
+    assert "[REDACTED]" in raw

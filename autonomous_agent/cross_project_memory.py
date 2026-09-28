@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,7 +53,12 @@ class CrossProjectMemory:
         for item in kept:
             clean={"project":item.get("project"),"kind":item.get("kind"),"fingerprint":item.get("fingerprint"),"outcome":item.get("outcome"),"data":item.get("data",{}),"previous_hash":previous};clean["event_hash"]=_entry_hash(clean);sealed.append(clean);previous=clean["event_hash"]
         self.path.parent.mkdir(parents=True,exist_ok=True);temp=self.path.with_suffix(self.path.suffix+".tmp")
-        try:temp.write_text(json.dumps(sealed,sort_keys=True,indent=2)+"\n",encoding="utf-8");temp.replace(self.path)
+        try:
+            with temp.open("w",encoding="utf-8") as handle:
+                handle.write(json.dumps(sealed,sort_keys=True,indent=2)+"\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            temp.replace(self.path)
         except OSError:
             try:temp.unlink(missing_ok=True)
             except OSError:pass

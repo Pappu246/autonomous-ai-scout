@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import shlex
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .execution_engine import ExecutionResult, ExecutionState
+from .filesystem_workspace import WorkspaceConnector
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
 from .task_plan_models import TaskPlan
@@ -15,6 +18,40 @@ from .tool_registry import REGISTRY, ToolRegistry
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
+
+def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] | None:
+    """Derive only a bounded local-workspace request explicitly delimited by the task."""
+    selected = tuple(step.tool_name for step in plan.steps)
+    if "workspace.shell" in selected:
+        match = re.search(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$", task.strip(), re.I)
+        if not match:
+            return None
+        command_text = match.group(1).strip().strip("`")
+        py_compile = re.match(r"python\s+-m\s+py_compile\s+([A-Za-z0-9_./\\-]+)", command_text, re.I)
+        if py_compile:
+            argv = ("python", "-m", "py_compile", py_compile.group(1).rstrip("."))
+        else:
+            simple = re.match(r"(pwd|ls|dir)\b", command_text, re.I)
+            if not simple:
+                return None
+            argv = (simple.group(1).lower(),)
+        return {"workspace.shell": {"argv": argv}}
+    if "filesystem.list" in selected:
+        return {"filesystem.list": {"operation": "list", "path": "."}}
+    if "filesystem.read" in selected:
+        match = re.search(
+            r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)",
+            task.strip(),
+            re.I,
+        )
+        if match:
+            return {
+                "filesystem.read": {
+                    "operation": "read",
+                    "path": match.group(1).rstrip("."),
+                }
+            }
+    return None
 
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
@@ -45,6 +82,13 @@ def run_task(
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
     prepared = core.prepare(task)
+    if workspace_connector is None and any(
+        step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
+        for step in prepared.plan.steps
+    ):
+        workspace_connector = WorkspaceConnector(root)
+    if workspace_request is None:
+        workspace_request = _workspace_request_for_task(task, prepared.plan)
     if not prepared.plan.executable:
         result = ExecutionResult(
             ExecutionState.BLOCKED,
@@ -101,7 +145,15 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(f"execution_id={record.execution_id} state={record.state} task={record.task} attempts={record.attempts} results={record.result_count} recorded_at={record.recorded_at}")
         return 0
 
-    result = run_task(args.task, root=Path(args.root).resolve(), audit_path=Path(args.audit).resolve(), journal_path=Path(args.journal).resolve())
+    root = Path(args.root).resolve()
+    workspace_connector = WorkspaceConnector(root)
+    result = run_task(
+        args.task,
+        root=root,
+        audit_path=Path(args.audit).resolve(),
+        journal_path=Path(args.journal).resolve(),
+        workspace_connector=workspace_connector,
+    )
     print(f"state={result.state.value}"); print(f"reason={result.reason}"); print(f"attempts={result.attempts}")
     for item in result.results:
         print(f"operation={item.operation} success={item.success} verification={item.verification_status}")

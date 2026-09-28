@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 
 from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
@@ -78,6 +79,15 @@ def test_queue_rejects_duplicate_task_id(tmp_path: Path):
     queue.enqueue("inspect repository", task_id="same", execution_id="a")
     with pytest.raises(ValueError, match="already exists"):
         queue.enqueue("inspect repository", task_id="same", execution_id="b")
+
+
+def test_queue_rejects_duplicate_persisted_task_ids(tmp_path: Path):
+    path = tmp_path / "queue.json"
+    item = {"task_id": "same", "task": "inspect repository", "execution_id": "exec-1", "state": "pending", "created_at": "2026-09-23T00:00:00+00:00", "updated_at": "2026-09-23T00:00:00+00:00", "available_at": "2026-09-23T00:00:00+00:00", "attempts": 0, "last_error": ""}
+    duplicate = {**item, "execution_id": "exec-2"}
+    path.write_text(json.dumps({"items": [item, duplicate]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate task_id"):
+        TaskQueueStore(path).list()
 
 
 def test_queued_task_redacts_secret_like_content(tmp_path: Path):

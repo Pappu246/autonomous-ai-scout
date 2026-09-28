@@ -28,3 +28,14 @@ def test_custom_registry_is_the_only_tool_source():
     base=get_tool("tests.run"); registry=ToolRegistry((base,)); plan=plan_task("run tests",granted=[Capability.TEST],registry=registry); assert not plan.executable and "github.inspect" in plan.reason
 def test_plan_is_deterministically_auditable():
     kwargs={"granted":[Capability.INSPECT,Capability.TEST]}; assert plan_task("run tests",**kwargs).audit==plan_task("run tests",**kwargs).audit
+
+
+
+def test_explicit_test_request_with_file_safety_constraints_stays_test_intent():
+    request = (
+        "Run the repository test suite. Do not modify, create, delete, transform, "
+        "or write any file."
+    )
+    plan = plan_task(request, granted=[Capability.INSPECT, Capability.TEST])
+    assert plan.intent is TaskIntent.TEST
+    assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]

@@ -77,6 +77,22 @@ def test_dag_rejects_unbounded_node_count():
     assert "node limit" in result.reason
 
 
+def test_dag_planner_accepts_generator_capability_grants():
+    specs = (
+        DAGTaskSpec("inspect", "inspect repository"),
+        DAGTaskSpec("research", "research this topic"),
+    )
+    result = LongHorizonPlanner().plan(
+        "verify",
+        specs,
+        granted=(capability for capability in (
+            Capability.INSPECT,
+            Capability.WEB_RESEARCH,
+        )),
+    )
+    assert result.executable
+
+
 def test_dag_scheduler_blocks_downstream_after_failure():
     planner = LongHorizonPlanner()
     dag = planner.plan(
@@ -99,10 +115,10 @@ def test_dag_scheduler_blocks_downstream_after_failure():
     result = execute_dag(dag, runner)
 
     assert result.success is False
-    assert result.completed == ()
+    assert result.completed == ("research",)
     assert result.failed_node == "inspect"
     assert "test" in result.blocked
-    assert calls == ["inspect"]
+    assert calls == ["inspect", "research"]
 
 
 def test_dag_scheduler_executes_ready_nodes_in_dependency_order(tmp_path: Path):
@@ -135,8 +151,10 @@ def test_dag_failure_only_blocks_failed_node_and_descendants():
         ),
         granted=[Capability.INSPECT, Capability.TEST, Capability.WEB_RESEARCH],
     )
-    result = execute_dag(dag, lambda node: node.node_id != "inspect")
+    calls: list[str] = []
+    result = execute_dag(dag, lambda node: calls.append(node.node_id) or node.node_id != "inspect")
     assert result.failed_node == "inspect"
-    assert set(result.blocked) == {"test"}
+    assert set(result.blocked) == {"inspect", "test"}
     assert "research" not in result.blocked
     assert "report" not in result.blocked
+    assert calls == ["inspect", "research", "report"]

@@ -1,6 +1,7 @@
+import json
 from pathlib import Path
 
-from autonomous_agent.execution_engine import ExecutionState
+from autonomous_agent.execution_engine import ExecutionResult, ExecutionState
 from autonomous_agent.runtime import _plan_for_request, run_task
 from autonomous_agent.capability_policy import Capability
 
@@ -28,3 +29,85 @@ def test_runtime_fails_closed_for_unknown_request_only_after_safe_inspection():
     plan, grants = _plan_for_request("do something unspecified")
     assert plan.executable is True
     assert grants == (Capability.INSPECT,)
+
+
+def test_runtime_derives_bounded_workspace_shell_request():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_core import AutonomousTaskCore
+
+    task = "Use the canonical local workspace shell to run exactly this safe validation command: python -m py_compile autonomous_agent/runtime.py."
+    prepared = AutonomousTaskCore().prepare(task)
+    request = _workspace_request_for_task(task, prepared.plan)
+    assert request == {"workspace.shell": {"argv": ("python", "-m", "py_compile", "autonomous_agent/runtime.py")}}
+
+
+def test_runtime_executes_workspace_shell_end_to_end(tmp_path: Path):
+    result = run_task(
+        "Use the canonical local workspace shell to run exactly this command: pwd",
+        root=tmp_path,
+        audit_path=tmp_path / "shell-runtime.jsonl",
+        journal_path=tmp_path / "shell-runtime-journal.jsonl",
+        execution_id="workspace-shell-runtime",
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "workspace_shell"
+    payload = json.loads(result.results[-1].output)
+    assert payload["argv"] == ["pwd"]
+    assert payload["exit_status"] == 0
+    assert payload["output"] == str(tmp_path.resolve())
+    assert payload["success"] is True
+
+
+def test_runtime_executes_filesystem_read_end_to_end(tmp_path: Path):
+    (tmp_path / "README.md").write_text("runtime-read-ok", encoding="utf-8")
+    result = run_task(
+        "Read file README.md from the local workspace.",
+        root=tmp_path,
+        audit_path=tmp_path / "read-runtime.jsonl",
+        journal_path=tmp_path / "read-runtime-journal.jsonl",
+        execution_id="filesystem-read-runtime",
+    )
+    assert result.state is ExecutionState.VERIFIED
+    assert result.results[-1].operation == "filesystem_workspace"
+    assert "runtime-read-ok" in result.results[-1].output
+
+
+def test_runtime_derives_bounded_filesystem_read_request():
+    from autonomous_agent.runtime import _workspace_request_for_task
+    from autonomous_agent.task_core import AutonomousTaskCore
+
+    task = "Read file README.md from the local workspace."
+    prepared = AutonomousTaskCore().prepare(task)
+    request = _workspace_request_for_task(task, prepared.plan)
+    assert request == {"filesystem.read": {"operation": "read", "path": "README.md"}}
+
+
+def test_runtime_wires_workspace_connector_for_workspace_task(monkeypatch, tmp_path: Path):
+    from autonomous_agent.runtime import run_task
+    captured = {}
+
+    class FakeConnector:
+        def __init__(self, root):
+            captured["root"] = root
+
+    class FakeCore:
+        def __init__(self, *, registry):
+            self.registry = registry
+
+        def prepare(self, task):
+            from autonomous_agent.task_core import AutonomousTaskCore
+            return AutonomousTaskCore(registry=self.registry).prepare(task)
+
+        def execute(self, prepared, root, **kwargs):
+            captured["connector"] = kwargs.get("workspace_connector")
+            captured["request"] = kwargs.get("workspace_request")
+            return ExecutionResult(ExecutionState.VERIFIED, "ok", 1, (), "audit")
+
+    monkeypatch.setattr("autonomous_agent.runtime.WorkspaceConnector", FakeConnector)
+    monkeypatch.setattr("autonomous_agent.runtime.AutonomousTaskCore", FakeCore)
+    task = "Use the canonical local workspace shell to run exactly this safe validation command: python -m py_compile autonomous_agent/runtime.py."
+    result = run_task(task, root=tmp_path, audit_path=tmp_path / "audit.jsonl", journal_path=tmp_path / "journal.jsonl", execution_id="workspace-runtime-test")
+    assert result.state is ExecutionState.VERIFIED
+    assert captured["root"] == tmp_path
+    assert isinstance(captured["connector"], FakeConnector)
+    assert captured["request"]["workspace.shell"]["argv"] == ("python", "-m", "py_compile", "autonomous_agent/runtime.py")

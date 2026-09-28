@@ -64,10 +64,11 @@ class CommunicationWorkflow:
         explicitly_approved: bool = False,
     ) -> tuple[tuple[str, CapabilityDecision], ...]:
         report = []
+        granted_values = tuple(granted)
         for step in plan.steps:
             decision = self.tools.authorize(
                 step.tool_name,
-                granted,
+                granted_values,
                 explicitly_approved=explicitly_approved,
                 sandbox_available=True,
                 audit_available=True,

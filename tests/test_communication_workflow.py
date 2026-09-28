@@ -21,6 +21,16 @@ def test_read_only_communication_steps_can_be_authorized_without_approval():
     assert all(decision.allowed for _, decision in report)
 
 
+def test_communication_authorization_preserves_generator_grants():
+    workflow = CommunicationWorkflow()
+    plan = workflow.plan_meeting_coordination("coordinate a meeting")
+    report = workflow.authorization_report(
+        plan,
+        granted=(capability for capability in (Capability.EMAIL, Capability.CALENDAR)),
+    )
+    assert all(decision.allowed for _, decision in report)
+
+
 def test_email_draft_and_event_creation_remain_approval_gated():
     workflow = CommunicationWorkflow()
     plan = workflow.plan_meeting_coordination("meeting", draft_email=True, create_event=True)
