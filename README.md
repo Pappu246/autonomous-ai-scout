@@ -667,11 +667,11 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter for post-change verification; it only acquires typed read evidence and never merges or deploys.
+Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident release evidence; N31–N46 add bounded autonomy controls and canonical admission. None of these layers auto-merge or deploy.
 
 
 
-**Implemented through N30, plus the Phase 1 universal digital agent foundation.**
+**Implemented through N46, plus the Phase 1 universal digital agent foundation.**
 
 Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
 single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
@@ -691,6 +691,15 @@ autonomy features remain intentionally unimplemented until their respective phas
 implemented, tested, and verified.
 
 ---
+
+## N31–N46 Bounded Autonomy Controls
+
+The N31–N46 control layer adds durable external-side-effect accounting, execution leases,
+capability-scoped delegation, deterministic self-evaluation, bounded goal loops, resource
+budgets, fail-closed recovery, bounded telemetry, persistent triggers/cooldowns, deterministic
+benchmarking, readiness aggregation, production safety evidence, canonical budget/telemetry
+hooks, trigger-to-queue handoff, and canonical admission binding. These controls narrow
+authority and budget execution; they do not create automatic merge or deployment authority.
 
 ## Documentation
 - [Phase 7 — Live GitHub Evidence Adapter](PHASE7_LIVE_GITHUB_EVIDENCE.md)
