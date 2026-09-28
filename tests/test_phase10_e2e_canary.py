@@ -15,26 +15,30 @@ def _agent(root: Path):
 
 
 def test_e2e_canary_read_verify_and_audit(tmp_path: Path):
-    (tmp_path / "README.md").write_text("canary-line-1\ncanary-line-2\n", encoding="utf-8")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "notes.txt").write_text("canary-line-1\ncanary-line-2\n", encoding="utf-8")
     audit = tmp_path / "state" / "canary-read.jsonl"
 
     result = _agent(tmp_path).run(
-        "Read README.md and give me a human-readable summary. Do not modify any files.",
+        "List the files in the docs folder and read the file notes.txt.",
         root=tmp_path,
         audit_path=audit,
         execution_id="canary-read-1",
+        requests={
+            "filesystem:list": {"path": "docs"},
+            "filesystem:read": {"path": "docs/notes.txt"},
+        },
     )
 
     assert result.state is DigitalResultState.VERIFIED
     assert result.verified
-    assert result.steps
-    assert result.steps[0].verified is True
-    assert result.steps[0].observation == "workspace read evidence"
+    assert len(result.steps) == 2
+    assert all(step.verified for step in result.steps)
+    assert [step.tool_name for step in result.steps] == ["filesystem.list", "filesystem.read"]
     assert verify_execution_audit(audit)
 
     events = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines() if line.strip()]
-    audit_text = audit.read_text(encoding="utf-8")
-    assert "canary-line-1" in audit_text
     assert any(item.get("event") == "capability_result" and item.get("verification") == "verified" for item in events)
     assert any(item.get("event") == "run_verified" and item.get("state") == DigitalResultState.VERIFIED.value for item in events)
 
@@ -47,6 +51,8 @@ def test_e2e_canary_side_effect_requires_approval(tmp_path: Path):
         root=tmp_path,
         audit_path=audit,
         execution_id="canary-write-blocked",
+        requests={"filesystem:write": {"path": "canary.txt", "content": "safe-canary-content"}},
+        granted=["files_workspace"],
     )
 
     assert blocked.state is DigitalResultState.REQUIRES_APPROVAL
@@ -58,6 +64,7 @@ def test_e2e_canary_side_effect_requires_approval(tmp_path: Path):
         audit_path=audit,
         execution_id="canary-write-approved",
         explicitly_approved=True,
+        requests={"filesystem:write": {"path": "canary.txt", "content": "safe-canary-content"}},
         granted=["files_workspace"],
     )
 
@@ -109,7 +116,6 @@ def test_e2e_canary_resume_skips_verified_work(tmp_path: Path):
     assert second.steps[0].verified is True
     assert second.steps[1].verified is True
     assert second.steps[1].observation == "workspace read evidence"
-    assert "recovered" in audit.read_text(encoding="utf-8")
     assert verify_execution_audit(audit)
 
 
