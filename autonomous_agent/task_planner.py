@@ -4,7 +4,7 @@ from typing import Iterable
 from .capability_policy import Capability
 from .task_decomposer import decompose_task
 from .task_intent import classify_intent
-from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep,TaskIntent
+from .task_plan_models import PlanRisk,TaskAuditRecord,TaskPlan,TaskStep
 from .task_risk import aggregate_risk
 from .tool_registry import ToolRegistry,REGISTRY
 from .tool_router import DynamicToolRouter
@@ -51,24 +51,7 @@ def default_grants_for_task(task: str | object, registry: ToolRegistry = REGISTR
 
 
 def plan_task(task:str,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,sandbox_available=True,audit_available=True,registry:ToolRegistry=REGISTRY):
-    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent,registry);selection=_selection(registry,raw,intent)
-    selected_names=list(selection.tool_names)
-    if intent is TaskIntent.WORKSPACE:
-        import re
-        positive_specific = bool(
-            re.search(r"\b(?:read|open)\s+(?:the\s+)?file\b", raw, re.I)
-            or re.search(r"\b(?:write|create|save)\s+(?:a|an|the)?\s*file\b", raw, re.I)
-            or re.search(r"\b(?:transform|modify|replace in)\s+file\b", raw, re.I)
-            or re.search(r"\b(?:run|execute)\s+(?:exactly\s+)?(?:this|the)\s+(?:safe\s+)?command\b", raw, re.I)
-            or "py_compile" in raw.lower()
-        )
-        explicit_workspace_listing=bool(
-            re.search(r"\b(?:list|enumerate)\s+(?:the\s+)?(?:files|directory|folder|workspace)\b",raw,re.I)
-            or re.search(r"\binspect\s+(?:the\s+)?(?:workspace|directory|folder)\b",raw,re.I)
-        )
-        if positive_specific and not explicit_workspace_listing:
-            selected_names=[name for name in selected_names if name != "filesystem.list"]
-    selected=tuple(tool for name in selected_names if (tool:=registry.get(name)) is not None)
+    raw=" ".join(task.strip().split());intent=classify_intent(raw);required=_required_tools(raw,intent,registry);selection=_selection(registry,raw,intent);selected=_select_tools(registry,intent,raw)
     if not required:reason,executable="No registered executable tool mapping exists; plan fails closed.",False
     elif missing:=tuple(name for name in required if registry.get(name) is None):reason,executable=f"Required registered tools are missing: {', '.join(missing)}; plan fails closed.",False
     else:reason,executable="All selected tools are registered; authorization will be checked before execution.",True
