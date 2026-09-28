@@ -2,6 +2,8 @@
 
 ## Status
 
+**Phase 13 is complete.** The worker mutation path and the normal pull-request CI gate have both been live-verified.
+
 Phase 13 verified the real remote mutation boundary of the persisted approval-to-GitHub worker, including a worker-created draft PR after the repository Actions PR-creation permission was enabled.
 
 ## Verified live path
@@ -29,14 +31,11 @@ Inside GitHub Actions, the concrete worker:
 
 This run proves the repository Actions token can cross the approval-gated mutation boundary and create the draft PR itself. No connected control-plane PR creation was needed for this run.
 
-## CI observation boundary
+## CI observation boundary — historical run
 
 The worker then entered its bounded PR-observation loop. The PR's normal CI run was created as workflow run `36454434980`, but GitHub returned the run with conclusion `action_required`. The worker therefore failed closed after its observation budget without merging or deploying.
 
-This is now the remaining environment-dependent boundary:
-
-- **Proven live:** exact-head binding, persisted approval, single-use claim, worker branch creation, worker commit creation, and worker-created draft PR.
-- **Environment-gated:** successful execution of the normal `pull_request` CI workflow for a PR created by `github-actions[bot]` when GitHub reports `action_required`.
+The earlier `action_required` result was an environment-policy observation at the time of run `36454434980`. It is no longer a current blocker: a fresh normal `pull_request` canary completed successfully as run `36458592757`, and the evidence was subsequently persisted to main.
 
 The draft PR was intentionally closed without merge, and the worker/test branches were reset to the verified `main` SHA after evidence collection.
 

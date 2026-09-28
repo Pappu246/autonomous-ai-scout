@@ -1,13 +1,12 @@
 # Phase 1 — Universal Digital Agent Foundation
 
-Phase 1 changes what the product *is*. Before this phase the system was best
-described as an autonomous repository/engineering scout that happened to have
-filesystem, web, mail, calendar and browser connectors bolted on. After this
-phase it is a **bounded general-purpose digital agent** whose capability domains
-are peers, and GitHub is one of them.
+Phase 1 established the bounded general-purpose digital-agent architecture. Subsequent phases
+activated the computer, application, and documents domains on top of that foundation while
+preserving the same registry, sandbox, authorization, audit, approval, and verification
+boundaries.
 
-Phase 1 builds the architecture. It deliberately does **not** implement
-computer control, application adapters or document processing.
+Phase 1 itself did not implement computer control, application adapters, or document processing;
+those capabilities were subsequently delivered by Phases 2 and 4.
 
 ---
 
@@ -82,14 +81,13 @@ Final Result              digital/runtime.py    DigitalResult
 | `calendar` | active | Read-only by default; create/update/cancel need human review |
 | `github` | active | **One connector among many**, not the product |
 | `testing` | active | tests / lint / deterministic metrics |
-| `computer` | **reserved** | Declared, unimplemented. Goals that need it fail closed |
-| `application` | **reserved** | Declared, unimplemented |
-| `documents` | **reserved** | Declared, unimplemented |
+| `computer` | active | Activated by Phase 2; mutating operations remain approval-gated |
+| `application` | active | Activated by Phase 4; mutating operations remain approval-gated |
+| `documents` | active | Activated by Phase 4; mutations remain approval-gated |
 
-Reserved domains are honest. There is no stub executor behind them: the catalog
-reports `usable: false`, routing reports the domain as required-but-unavailable,
-and the run ends `BLOCKED`. A goal is never reported as done when the capability
-that would have done it does not exist.
+Domain availability remains capability-backed. Unsupported external backends still report
+unavailable and fail closed; no goal is reported complete when its required capability is
+missing.
 
 ---
 
@@ -185,8 +183,8 @@ and even then it stays behind its approval gate.
 
 ## What Phase 1 deliberately does not do
 
-- No computer control, screen interaction, application driving or PDF/document
-  content processing. Those domains are declared and blocked.
+- Phase 1 did not itself provide computer control, application driving, or document processing;
+  those capabilities are delivered by the later Phase 2 and Phase 4 layers.
 - No new execution engine, sandbox or shell. `run_safe_operation()` is the only
   execution path.
 - No change to the existing `TaskPlan` / `execute_plan()` engineering pipeline.
@@ -198,15 +196,13 @@ and even then it stays behind its approval gate.
 
 ---
 
-## Known limitations
+## Historical Phase 1 limitations
 
-- A goal that matches a domain but asks for an action no capability in that
-  domain performs (for example "rename these files") is planned against the
-  capabilities that *do* exist. The result reports exactly which steps ran and
-  verified, so it cannot claim to have done more, but the agent does not yet
-  detect the gap and say so.
-- `RetryPolicy.backoff_seconds` is declared metadata; the in-process bounded
-  retry loop does not sleep.
+These were limitations of the original Phase 1 slice and are not a statement of the current
+mainline capability set. Later phases added the computer/application/documents domains and the
+N17–N46 routing, recovery, DAG, queue, memory, security, budget, telemetry, trigger, readiness,
+and admission layers. The current mainline status is documented in the README and the later
+phase documents.
 
 ---
 
