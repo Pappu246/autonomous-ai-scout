@@ -45,7 +45,7 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
         if match:
             requests["filesystem.transform"] = {"operation":"transform","path":match.group(1).rstrip("."),"find":match.group(2),"replace":match.group(3)}
     if "filesystem.write" in selected:
-        match = re.search(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.*)$", text, re.I | re.S)
+        match = re.search(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.+)$", text, re.I | re.S)
         if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
             requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
