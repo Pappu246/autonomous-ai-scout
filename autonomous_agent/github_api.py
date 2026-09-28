@@ -278,6 +278,95 @@ class GitHubApiClient:
         except UnicodeDecodeError as exc:
             raise GitHubApiError("GitHub base file is not UTF-8 text") from exc
 
+    def read_file_bytes_at_ref(self, repository: str, path: str, ref: str) -> bytes:
+        """Read one regular file as bounded raw bytes from an exact Git ref."""
+        ref_value = ref.strip()
+        if not ref_value or len(ref_value) > 128 or any(ch in ref_value for ch in ("\\n", "\\r", "\\x00")):
+            raise GitHubApiError("Git ref is invalid")
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/contents/{quote(_file_path(path), safe='/')}",
+            params={"ref": ref_value},
+        )
+        if not isinstance(result, Mapping) or str(result.get("type", "")) != "file":
+            raise GitHubApiError("GitHub did not return a regular file")
+        encoded = result.get("content")
+        if not isinstance(encoded, str):
+            raise GitHubApiError("GitHub file content is missing")
+        try:
+            raw = base64.b64decode(encoded, validate=False)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise GitHubApiError("GitHub file content is not valid base64") from exc
+        if len(raw) > 50 * 1024 * 1024:
+            raise GitHubApiError("GitHub file exceeds the safe 50 MiB read limit")
+        return raw
+
+    def pull_request_files(
+        self,
+        repository: str,
+        pull_request: str,
+        *,
+        page: int = 1,
+        per_page: int = 100,
+    ) -> list[Mapping[str, Any]]:
+        if isinstance(page, bool) or not isinstance(page, int) or page <= 0 or page > 20:
+            raise GitHubApiError("pull-request file page is invalid")
+        if isinstance(per_page, bool) or not isinstance(per_page, int) or not 1 <= per_page <= 100:
+            raise GitHubApiError("pull-request file page size is invalid")
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/pulls/{_pull_number(pull_request)}/files",
+            params={"page": page, "per_page": per_page},
+        )
+        if not isinstance(result, list):
+            raise GitHubApiError("GitHub returned an invalid pull-request file list")
+        return [item for item in result if isinstance(item, Mapping)]
+
+    def git_tree(
+        self,
+        repository: str,
+        commit_sha: str,
+        *,
+        recursive: bool = True,
+    ) -> Mapping[str, Any]:
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha.strip().lower()):
+            raise GitHubApiError("commit SHA is invalid")
+        params = {"recursive": "1"} if recursive else None
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/git/trees/{quote(commit_sha.strip().lower(), safe='')}",
+            params=params,
+        )
+        if not isinstance(result, Mapping):
+            raise GitHubApiError("GitHub returned an invalid Git tree")
+        return dict(result)
+
+    def workflow_runs(
+        self,
+        repository: str,
+        head_sha: str,
+        *,
+        page: int = 1,
+        per_page: int = 100,
+    ) -> list[Mapping[str, Any]]:
+        if not re.fullmatch(r"[0-9a-f]{40}", head_sha.strip().lower()):
+            raise GitHubApiError("workflow head SHA is invalid")
+        if isinstance(page, bool) or not isinstance(page, int) or page <= 0 or page > 20:
+            raise GitHubApiError("workflow page is invalid")
+        if isinstance(per_page, bool) or not isinstance(per_page, int) or not 1 <= per_page <= 100:
+            raise GitHubApiError("workflow page size is invalid")
+        result = self._request(
+            "GET",
+            f"{_repo_path(repository)}/actions/runs",
+            params={"head_sha": head_sha.strip().lower(), "page": page, "per_page": per_page},
+        )
+        if not isinstance(result, Mapping):
+            raise GitHubApiError("GitHub returned an invalid workflow-run response")
+        runs = result.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise GitHubApiError("GitHub workflow-run collection is missing")
+        return [item for item in runs if isinstance(item, Mapping)]
+
     def commit_files(
         self,
         repository: str,
