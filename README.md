@@ -667,6 +667,10 @@ never auto-merges or deploys.
 
 ## Current status
 
+Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter for post-change verification; it only acquires typed read evidence and never merges or deploys.
+
+
+
 **Implemented through N30, plus the Phase 1 universal digital agent foundation.**
 
 Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
@@ -689,6 +693,7 @@ implemented, tested, and verified.
 ---
 
 ## Documentation
+- [Phase 7 — Live GitHub Evidence Adapter](PHASE7_LIVE_GITHUB_EVIDENCE.md)
 
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [N14 Provider Router](N14_PROVIDER_ROUTER.md)
