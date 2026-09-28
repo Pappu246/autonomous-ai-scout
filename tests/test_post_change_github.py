@@ -187,7 +187,7 @@ def test_malformed_pr_metadata_is_rejected_not_defaulted():
 
 def test_paginated_pull_files_exhaustion_is_incomplete():
     transport = FakeTransport()
-    transport.files = [{"filename": "app.py", "status": "modified"}] * 100
+    transport.files = [{"filename": f"extra{index}.py", "status": "modified"} for index in range(100)]
     original = transport.pull_request_files
     calls = []
 
