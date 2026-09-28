@@ -18,14 +18,19 @@ AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 
 def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] | None:
-    """Derive only bounded workspace requests explicitly delimited by the task."""
+    """Derive bounded workspace requests only for positive operations in the task text."""
     import re
-    selected = tuple(step.tool_name for step in plan.steps)
+    text = task.strip()
+    selected = {step.tool_name for step in plan.steps}
     requests: dict[str, Any] = {}
-    clauses = re.split(r"[.;!?\n]+", task.strip())
-    negative = ("do not", "don't", "never", "without")
+    negative = re.compile(r"\b(?:do not|don't|never|without)\b", re.I)
+    def positive_match(pattern: str) -> re.Match[str] | None:
+        match = re.search(pattern, text, re.I | re.S)
+        if match is None or negative.search(match.group(0)):
+            return None
+        return match
     if "workspace.shell" in selected:
-        match = re.search(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$", task.strip(), re.I)
+        match = positive_match(r"(?:exactly\s+this\s+(?:safe\s+)?validation\s+command|command)\s*:\s*(.+)$")
         if match:
             command_text = match.group(1).strip().strip("`")
             py_compile = re.match(r"python\s+-m\s+py_compile\s+([A-Za-z0-9_./\\-]+)", command_text, re.I)
@@ -35,23 +40,24 @@ def _workspace_request_for_task(task: str, plan: TaskPlan) -> Mapping[str, Any] 
                 simple = re.match(r"(pwd|ls|dir)\b", command_text, re.I)
                 if simple:
                     requests["workspace.shell"] = {"argv": (simple.group(1).lower(),)}
-    if "filesystem.list" in selected:
-        requests["filesystem.list"] = {"operation": "list", "path": "."}
     if "filesystem.transform" in selected:
-        match = re.search(r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$", task.strip(), re.I)
-        if match and not any(marker in match.group(0).lower() for marker in negative):
+        match = positive_match(r"(?:transform|modify|replace in)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*?)\s*->\s*(.*?)$")
+        if match:
             requests["filesystem.transform"] = {"operation":"transform","path":match.group(1).rstrip("."),"find":match.group(2),"replace":match.group(3)}
     if "filesystem.write" in selected:
-        match = re.search(r"(?:write|create|save)\s+file\s+([A-Za-z0-9_./\\-]+)\s*:\s*(.*)$", task.strip(), re.I)
-        if match and not any(marker in match.group(0).lower() for marker in negative):
+        match = positive_match(r"(?:write|create|save)\s+(?:a|an|the)?\s*file\s+(?:at|named|called)?\s*([A-Za-z0-9_./\\-]+)\s*(?:containing|with(?:\s+contents?)?)\s*:?[ \t]*(.*)$")
+        if match:
             content = re.split(r"\s+(?:do not|don't|never)\b", match.group(2), maxsplit=1, flags=re.I)[0].rstrip().rstrip(".")
             requests["filesystem.write"] = {"operation":"write","path":match.group(1).rstrip("."),"content":content}
     if "filesystem.read" in selected:
-        match = re.search(r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)", task.strip(), re.I)
+        match = re.search(r"(?:read|open)\s+(?:the\s+)?file\s+([A-Za-z0-9_./\\-]+)", text, re.I)
         if not match:
-            match = re.search(r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b", task.strip(), re.I)
-        if match:
+            match = re.search(r"(?:read|open)\s+(?:the\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_-]+)\b", text, re.I)
+        if match and not negative.search(match.group(0)):
             requests["filesystem.read"] = {"operation":"read","path":match.group(1).rstrip(".")}
+    if "filesystem.list" in selected:
+        if re.search(r"\b(?:list|enumerate)\s+(?:the\s+)?(?:files|directory|folder|workspace)\b", text, re.I) or re.search(r"\binspect\s+(?:the\s+)?(?:workspace|directory|folder)\b", text, re.I):
+            requests["filesystem.list"] = {"operation":"list","path":"."}
     return requests or None
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
@@ -66,6 +72,7 @@ def run_task(
     journal_path: Path = JOURNAL_PATH,
     execution_id: str | None = None,
     checkpoint_path: Path | None = None,
+    explicitly_approved: bool = False,
     registry: ToolRegistry = REGISTRY,
     browser_connector: Any = None,
     browser_request: Mapping[str, Any] | None = None,
@@ -77,11 +84,13 @@ def run_task(
     gmail_request: Mapping[str, Any] | None = None,
     calendar_connector: Any = None,
     calendar_request: Mapping[str, Any] | None = None,
+    rest_connector: Any = None,
+    rest_request: Mapping[str, Any] | None = None,
 ) -> ExecutionResult:
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
-    prepared = core.prepare(task)
+    prepared = core.prepare(task, explicitly_approved=explicitly_approved)
     if workspace_connector is None and any(
         step.tool_name.startswith("filesystem.") or step.tool_name == "workspace.shell"
         for step in prepared.plan.steps
