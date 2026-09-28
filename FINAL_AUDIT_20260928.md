@@ -28,9 +28,9 @@ Fixed in PR #195 by binding the authorization digest to per-step request argumen
 
 The local doctor now distinguishes configured coding-provider routes from the presence of required credential environment variables without exposing credential values.
 
-**GitHub Actions Node runtime warning**
+**GitHub Actions runtime warning and supply-chain hardening**
 
-The CI workflow was updated from actions/checkout@v4 and actions/setup-python@v5 to v7 majors. Upstream GitHub action repositories document v7 and Node 24 compatibility.
+The CI workflow was first updated from actions/checkout@v4 and actions/setup-python@v5 to v7 majors, then pinned to immutable release commit SHAs. Dependabot is now configured to check GitHub Actions and pip dependencies weekly. GitHub's current security guidance recommends full-length commit-SHA pinning for actions. 
 
 ## Validation evidence
 
@@ -42,13 +42,19 @@ Latest regression CI on the audited PR:
 - test suite: **2299 passed, 6 skipped**
 - workflow job conclusion: **success**
 
-Merged audit-fix commit:
+Post-merge mainline CI for the security hardening commit also completed successfully with the same test job; the CI log reports **2299 passed, 6 skipped**.
+
+Supply-chain hardening merge commit:
+
+`e256b823ae0a76fdd5e93555c51e84b7e6586fb7`
+
+Earlier audited fix commit:
 
 `d292464dce1e982fc8830aff6af9952ecfe341dd`
 
 ## Repository hygiene
 
-Current repository searches found no remaining TODO, FIXME, Node 20 workflow references, stale reserved-status markers from the audited capability model, not-implemented markers, or current known-limitation blockers.
+Current repository searches found no remaining TODO, FIXME, Node 20 workflow references, stale reserved-status markers from the audited capability model, not-implemented markers, or current known-limitation blockers. The CI workflow now uses immutable action SHAs and weekly Dependabot update checks.
 
 There are no open pull requests after the audited fixes.
 
