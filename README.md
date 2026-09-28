@@ -667,7 +667,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter for post-change verification; it only acquires typed read evidence and never merges or deploys.
+Phase 6 now includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter for post-change verification; Phase 8 adds a decision-only controlled release boundary. None of these layers auto-merge or deploy.
 
 
 
@@ -693,6 +693,7 @@ implemented, tested, and verified.
 ---
 
 ## Documentation
+- [Phase 8 — Controlled Release Boundary](PHASE8_CONTROLLED_RELEASE_BOUNDARY.md)
 - [Phase 7 — Live GitHub Evidence Adapter](PHASE7_LIVE_GITHUB_EVIDENCE.md)
 
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
