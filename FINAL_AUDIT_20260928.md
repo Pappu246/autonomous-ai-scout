@@ -48,6 +48,12 @@ Supply-chain hardening merge commit:
 
 `e256b823ae0a76fdd5e93555c51e84b7e6586fb7`
 
+Dependency validation also accepted pytest 9.1.1 by widening the test extra from `pytest>=8,<9` to `pytest>=8,<10`. Mainline CI validated **2299 passed, 6 skipped** with pytest 9.1.1 after the merge.
+
+Current main commit at this documentation update:
+
+`00cb2359a1a7d478242a8f5c1428038e2ab23a7a`
+
 Earlier audited fix commit:
 
 `d292464dce1e982fc8830aff6af9952ecfe341dd`
