@@ -281,6 +281,8 @@ class AutonomousTaskCore:
         calendar_request: Mapping[str, Any] | None = None,
         browser_connector: Any = None,
         browser_request: Mapping[str, Any] | None = None,
+        computer_connector: Any = None,
+        computer_request: Mapping[str, Any] | None = None,
     ) -> ExecutionResult:
         """Execute the prepared plan through the existing execution boundary."""
         return execute_plan(
@@ -308,6 +310,8 @@ class AutonomousTaskCore:
             calendar_request=calendar_request,
             browser_connector=browser_connector,
             browser_request=browser_request,
+            computer_connector=computer_connector,
+            computer_request=computer_request,
         )
 
 
