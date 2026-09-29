@@ -120,3 +120,47 @@ PR #217 then audited the remaining persistent ledgers and memory paths. Approval
 - GitHub releases: none published
 - Latest scheduled Scout run visible: #126, which failed on pre-#211 code during artifact-path publication
 - No scheduled run after the PR #211/#214 fixes has appeared yet, so live publication remains the only unresolved code-independent verification gate
+
+### Final reconciliation — 2026-09-29
+
+This section supersedes the earlier remaining-publication-verification statement above.
+
+Current main:
+60c43617ece97d22faedd51da4acabc0cf0d6be8
+
+Post-merge mainline CI:
+- workflow run: 36592581802
+- exact checkout: 60c43617ece97d22faedd51da4acabc0cf0d6be8
+- result: 2320 passed, 6 skipped
+- job conclusion: success
+
+Scheduled Scout publication path:
+- PR #223 fixed the GitHub state-publication authentication path.
+- The isolated live publication canary run 36592476878 completed with both Scout and Publish jobs successful.
+- The actual state branch was updated by github-actions[bot] at commit 2d24d6dd09be83185268af928bd804bf322731e4.
+- This closes the prior code-level publication-path gap.
+- The exact cron trigger itself remains separately unobserved; the same scheduled workflow logic and its full generation-to-publication path were live-exercised successfully.
+
+Phase 13 current-main worker:
+- worker run: 36592770917
+- worker-created commit: 32a19e4220e842c0f91afc403f9ac73a2ee7f292
+- worker-created draft PR: #225
+- persisted coding run: EXECUTED
+- lifecycle state: EXECUTED
+- no merge/deploy performed by worker
+- independent normal CI run: 36592944700
+- CI: 2320 passed, 6 skipped
+
+Repository hygiene after reconciliation:
+- Temporary worker/publication canaries are closed/reset after evidence capture.
+- No known TODO/FIXME/PENDING/not-implemented repository markers remain in the audited codebase.
+- The production/mainline code changes from this reconciliation are limited to the real PR #223 publication-auth fix and its security-contract test update.
+- The live evidence harnesses themselves remain isolated from main.
+
+Remaining boundaries are genuinely external rather than code-completion gaps:
+1. A real external coding-provider execution requires operator-supplied provider credentials and a legitimate target workspace.
+2. Real external connector smoke tests require legitimate connected accounts/credentials.
+3. Main-branch protection/ruleset administration is not configured through the available GitHub connection.
+4. No formal GitHub release/tag has been created; the available connected GitHub toolset does not expose release/tag creation.
+
+These boundaries are not being represented as completed without evidence.
