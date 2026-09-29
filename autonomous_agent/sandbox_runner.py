@@ -44,10 +44,36 @@ class LocalSandboxTestRunner:
 
     @staticmethod
     def _network_prefix():
-        unshare = shutil.which("unshare")
-        if not unshare or os.name != "posix":
+        if os.name != "posix":
             return None
-        return (unshare, "--user", "--map-root-user", "--net", "--mount-proc", "--")
+        unshare = shutil.which("unshare")
+        if not unshare:
+            return None
+        prefixes = (
+            (unshare, "--user", "--map-root-user", "--net", "--mount-proc", "--"),
+            (unshare, "--net", "--mount-proc", "--"),
+        )
+        sudo = shutil.which("sudo")
+        if sudo:
+            prefixes = prefixes + (
+                (sudo, "-n", unshare, "--net", "--mount-proc", "--"),
+            )
+        for prefix in prefixes:
+            try:
+                probe = subprocess.run(
+                    prefix + ("true",),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    shell=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if probe.returncode == 0:
+                return prefix
+        return None
 
     @staticmethod
     def _safe_env(root):
