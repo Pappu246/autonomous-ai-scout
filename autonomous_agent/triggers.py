@@ -39,10 +39,10 @@ class TriggerRegistry:
         self._load()
 
     def _load(self) -> None:
-        self._triggers.clear()
-        self._last_fired.clear()
         if self.path is None or not self.path.exists():
             return
+        self._triggers.clear()
+        self._last_fired.clear()
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
