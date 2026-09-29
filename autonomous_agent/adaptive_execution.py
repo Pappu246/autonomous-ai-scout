@@ -120,6 +120,8 @@ def execute_adaptive_plan(
     calendar_request: Mapping[str, object] | None = None,
     browser_connector: object | None = None,
     browser_request: Mapping[str, object] | None = None,
+    computer_connector: object | None = None,
+    computer_request: Mapping[str, object] | None = None,
     replanner: Replanner | None = None,
 ) -> AdaptiveExecutionResult:
     if not execution_id.strip():
@@ -173,6 +175,8 @@ def execute_adaptive_plan(
                 calendar_request=calendar_request,
                 browser_connector=browser_connector,
                 browser_request=browser_request,
+                computer_connector=computer_connector,
+                computer_request=computer_request,
                 origin_trust=TrustLevel.TOOL_RESULT if replan_count > 0 else TrustLevel.USER,
             )
             total_attempts += max(1, child.attempts)
