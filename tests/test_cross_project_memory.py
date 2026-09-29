@@ -85,3 +85,36 @@ def test_learning_returns_only_recorded_evidence(tmp_path: Path):
     memory.record_improvement("owner/repo", "remove obsolete check", status="rejected")
     outcomes = {item["outcome"] for item in memory.learn("owner/repo", kind="improvement")}
     assert outcomes == {"accepted", "rejected"}
+
+
+def _record_memory_events(path_str: str, worker: int) -> None:
+    from pathlib import Path
+    from autonomous_agent.cross_project_memory import CrossProjectMemory, MemoryEvent
+    memory = CrossProjectMemory(Path(path_str))
+    for index in range(20):
+        memory.record(
+            MemoryEvent(
+                f"owner/repo-{worker}",
+                "task",
+                f"{worker}-{index}",
+                "success",
+                {"index": index},
+            )
+        )
+
+
+def test_cross_project_memory_survives_concurrent_processes(tmp_path: Path):
+    from multiprocessing import Process
+    path = tmp_path / "memory.json"
+    workers = [Process(target=_record_memory_events, args=(str(path), worker)) for worker in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(10)
+        assert worker.exitcode == 0
+    memory = CrossProjectMemory(path)
+    entries, valid = memory._load()
+    assert valid
+    assert len(entries) == 80
+    for worker in range(4):
+        assert len(memory.learn(f"owner/repo-{worker}", kind="task")) == 20
