@@ -42,6 +42,21 @@ All 17 computer capabilities are registered in the central `ToolRegistry` and bo
 
 ---
 
+### Canonical runtime entry point
+
+Real computer-use tasks run through the same task planner and execution engine as the other digital capabilities:
+
+~~~bash
+autonomous-scout-run --computer --approve --max-turns 20 --action-budget 50 "control the computer and complete this task"
+~~~
+
+`--approve` is the explicit operator gate for state-changing computer actions. The native model loop
+is bounded by both turn count and desktop action budget. The final state is not considered verified
+until the dedicated visual verification pass confirms the task from the latest screenshot.
+
+Linux/macOS execution remains fail-closed. The repository also contains a manual
+`windows-computer-smoke.yml` workflow for real Win32 integration checks on a Windows runner.
+
 ### Native model-directed computer use
 
 The `computer.use` capability connects the bounded desktop connector to the OpenAI Responses API computer tool.
