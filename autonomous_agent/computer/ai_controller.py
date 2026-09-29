@@ -8,6 +8,7 @@ existing coordinate, credential, replay, budget, approval, and platform guards.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -57,12 +58,16 @@ class OpenAIComputerUseController:
         model: str | None = None,
         endpoint: str = "https://api.openai.com/v1/responses",
         timeout_seconds: float = 90.0,
+        request_retries: int = 2,
+        retry_base_seconds: float = 0.5,
     ) -> None:
         self._connector = connector
         self._api_key_env = api_key_env
         self._model = model or os.getenv("OPENAI_COMPUTER_MODEL", "gpt-5.6-sol")
         self._endpoint = endpoint
         self._timeout = max(5.0, min(float(timeout_seconds), 180.0))
+        self._request_retries = max(0, min(int(request_retries), 3))
+        self._retry_base_seconds = max(0.0, min(float(retry_base_seconds), 5.0))
 
     @staticmethod
     def _headers(api_key: str) -> dict[str, str]:
@@ -128,28 +133,75 @@ class OpenAIComputerUseController:
                 acknowledgements.append(ack)
         return acknowledgements
 
+    @staticmethod
+    def _retry_safe_payload(payload: Mapping[str, Any]) -> bool:
+        input_value = payload.get("input")
+        if not isinstance(input_value, list):
+            return True
+        return not any(
+            isinstance(item, Mapping) and item.get("type") == "computer_call_output"
+            for item in input_value
+        )
+
+    def _retry_delay(self, response: httpx.Response | None, attempt: int) -> float:
+        if response is not None:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return max(0.0, min(float(retry_after), 5.0))
+                except ValueError:
+                    pass
+        return min(5.0, self._retry_base_seconds * (2 ** max(0, attempt - 1)))
+
+    @staticmethod
+    def _retryable_status(status_code: int) -> bool:
+        return status_code in {429, 500, 502, 503, 504}
+
     def _post(self, payload: Mapping[str, Any], api_key: str) -> Mapping[str, Any]:
-        try:
-            response = httpx.post(
-                self._endpoint,
-                headers=self._headers(api_key),
-                json=dict(payload),
-                timeout=self._timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise ComputerUseError(f"OpenAI computer-use request failed: {type(exc).__name__}") from exc
+        can_retry = self._retry_safe_payload(payload)
+        max_attempts = 1 + (self._request_retries if can_retry else 0)
+        last_error: Exception | None = None
 
-        if response.status_code >= 400:
-            detail = response.text[:1000]
-            raise ComputerUseError(f"OpenAI computer-use API returned HTTP {response.status_code}: {detail}")
+        for attempt in range(1, max_attempts + 1):
+            response: httpx.Response | None = None
+            try:
+                response = httpx.post(
+                    self._endpoint,
+                    headers=self._headers(api_key),
+                    json=dict(payload),
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if not can_retry or attempt >= max_attempts:
+                    raise ComputerUseError(
+                        f"OpenAI computer-use request failed: {type(exc).__name__}"
+                    ) from exc
+                time.sleep(self._retry_delay(None, attempt))
+                continue
 
-        try:
-            decoded = response.json()
-        except ValueError as exc:
-            raise ComputerUseError("OpenAI computer-use response was not valid JSON") from exc
-        if not isinstance(decoded, Mapping):
-            raise ComputerUseError("OpenAI computer-use response has an invalid top-level shape")
-        return decoded
+            if response.status_code >= 400:
+                detail = response.text[:1000]
+                if (
+                    can_retry
+                    and self._retryable_status(response.status_code)
+                    and attempt < max_attempts
+                ):
+                    time.sleep(self._retry_delay(response, attempt))
+                    continue
+                raise ComputerUseError(
+                    f"OpenAI computer-use API returned HTTP {response.status_code}: {detail}"
+                )
+
+            try:
+                decoded = response.json()
+            except ValueError as exc:
+                raise ComputerUseError("OpenAI computer-use response was not valid JSON") from exc
+            if not isinstance(decoded, Mapping):
+                raise ComputerUseError("OpenAI computer-use response has an invalid top-level shape")
+            return decoded
+
+        raise ComputerUseError("OpenAI computer-use request exhausted its bounded retry budget") from last_error
 
     def run(
         self,
