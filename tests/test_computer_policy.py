@@ -262,7 +262,7 @@ def test_validate_click_default(standard_display):
     assert action.clicks == 1
 
 
-@pytest.mark.parametrize("button", ["left", "right", "middle"])
+@pytest.mark.parametrize("button", ["left", "right", "middle", "wheel", "back", "forward"])
 def test_validate_click_buttons(button, standard_display):
     action = validate_click(50, 50, button, 1, standard_display)
     assert action.button == button
@@ -270,7 +270,7 @@ def test_validate_click_buttons(button, standard_display):
 
 def test_validate_click_invalid_button(standard_display):
     with pytest.raises(ComputerSecurityError, match="unsupported mouse button"):
-        validate_click(50, 50, "wheel", 1, standard_display)
+        validate_click(50, 50, "unsupported", 1, standard_display)
 
 
 @pytest.mark.parametrize("clicks", [1, 2, 3])
