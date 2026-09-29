@@ -42,6 +42,7 @@ class ComputerUseResult:
             "actions": self.actions,
             "response_id": self.response_id,
             "final_text": self.final_text,
+            "verified": self.state == "completed_verified",
         }
 
 
@@ -175,8 +176,6 @@ class OpenAIComputerUseController:
         previous_response_id: str | None = None
         next_input: Any = task
         total_actions = 0
-        final_screenshot: Mapping[str, Any] | None = None
-
         for turn in range(1, max_turns + 1):
             payload: dict[str, Any] = {
                 "model": self._model,
@@ -295,7 +294,6 @@ class OpenAIComputerUseController:
                     image_base64 = screenshot.get("image_base64")
                     if not isinstance(image_base64, str) or not image_base64:
                         raise ComputerUseError("computer screenshot did not include image data")
-                    final_screenshot = screenshot
                 except Exception as exc:
                     return ComputerUseResult(
                         "failed",
