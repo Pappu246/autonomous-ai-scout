@@ -123,6 +123,7 @@ class TriggerRegistry:
 
     def fire(self, trigger_id: str) -> bool:
         with self._lock, self._guard():
+            self._load()
             trigger = self._triggers.get(str(trigger_id))
             if trigger is None or not trigger.enabled:
                 return False
@@ -136,6 +137,7 @@ class TriggerRegistry:
 
     def disable(self, trigger_id: str) -> None:
         with self._lock, self._guard():
+            self._load()
             trigger = self._triggers.get(str(trigger_id))
             if trigger is not None:
                 self._triggers[trigger.trigger_id] = Trigger(
