@@ -309,7 +309,6 @@ class OpenAIComputerUseController:
                     "output": {
                         "type": "computer_screenshot",
                         "image_url": f"data:image/png;base64,{image_base64}",
-                        "detail": "original",
                     },
                 }
                 if pending_checks:
