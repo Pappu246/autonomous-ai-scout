@@ -237,7 +237,16 @@ class OpenAIComputerUseController:
             if previous_response_id:
                 payload["previous_response_id"] = previous_response_id
 
-            response = self._post(payload, api_key)
+            try:
+                response = self._post(payload, api_key)
+            except ComputerUseError as exc:
+                return ComputerUseResult(
+                    "failed",
+                    str(exc),
+                    turn,
+                    total_actions,
+                    response_id=previous_response_id,
+                )
             response_id = response.get("id")
             response_id = response_id if isinstance(response_id, str) else previous_response_id
             calls = self._computer_calls(response)
@@ -251,14 +260,23 @@ class OpenAIComputerUseController:
                         "complete. Otherwise reply with NOT_VERIFIED followed by a brief reason. Do not perform "
                         "any additional computer actions during verification."
                     )
-                    verification_response = self._post(
-                        {
-                            "model": self._model,
-                            "input": verification_prompt,
-                            "previous_response_id": response_id,
-                        },
-                        api_key,
-                    )
+                    try:
+                        verification_response = self._post(
+                            {
+                                "model": self._model,
+                                "input": verification_prompt,
+                                "previous_response_id": response_id,
+                            },
+                            api_key,
+                        )
+                    except ComputerUseError as exc:
+                        return ComputerUseResult(
+                            "failed",
+                            f"final verification request failed: {exc}",
+                            turn,
+                            total_actions,
+                            response_id=response_id,
+                        )
                     verification_text = self._final_text(verification_response).strip()
                     upper = verification_text.upper()
                     if upper.startswith("VERIFIED"):
