@@ -173,33 +173,87 @@ class WindowsBackend(BaseComputerBackend):
             virtual_height=int(vh or h),
         )
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         display = self.get_display_info()
         x = region.x if region else 0
         y = region.y if region else 0
         w = region.width if region else display.width
         h = region.height if region else display.height
+        if w * h > 16_000_000:
+            raise PlatformNotSupportedError("screen capture exceeds the 16 megapixel safety bound")
 
-        # Minimal bitmap capture via GDI
         hdc_screen = self._user32.GetDC(0)
+        if not hdc_screen:
+            raise PlatformNotSupportedError("unable to acquire the desktop device context")
         hdc_mem = self._gdi32.CreateCompatibleDC(hdc_screen)
+        if not hdc_mem:
+            self._user32.ReleaseDC(0, hdc_screen)
+            raise PlatformNotSupportedError("unable to create a compatible device context")
         hbm = self._gdi32.CreateCompatibleBitmap(hdc_screen, w, h)
+        if not hbm:
+            self._gdi32.DeleteDC(hdc_mem)
+            self._user32.ReleaseDC(0, hdc_screen)
+            raise PlatformNotSupportedError("unable to allocate a compatible bitmap")
         hbm_old = self._gdi32.SelectObject(hdc_mem, hbm)
 
-        # SRCCOPY = 0x00CC0020
-        self._gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, 0x00CC0020)
+        class BITMAPINFOHEADER(self._ctypes.Structure):
+            _fields_ = [
+                ("biSize", self._wintypes.DWORD),
+                ("biWidth", self._wintypes.LONG),
+                ("biHeight", self._wintypes.LONG),
+                ("biPlanes", self._wintypes.WORD),
+                ("biBitCount", self._wintypes.WORD),
+                ("biCompression", self._wintypes.DWORD),
+                ("biSizeImage", self._wintypes.DWORD),
+                ("biXPelsPerMeter", self._wintypes.LONG),
+                ("biYPelsPerMeter", self._wintypes.LONG),
+                ("biClrUsed", self._wintypes.DWORD),
+                ("biClrImportant", self._wintypes.DWORD),
+            ]
 
-        # Cleanup GDI handles
-        self._gdi32.SelectObject(hdc_mem, hbm_old)
-        self._gdi32.DeleteObject(hbm)
-        self._gdi32.DeleteDC(hdc_mem)
-        self._user32.ReleaseDC(0, hdc_screen)
+        class RGBQUAD(self._ctypes.Structure):
+            _fields_ = [
+                ("rgbBlue", self._wintypes.BYTE),
+                ("rgbGreen", self._wintypes.BYTE),
+                ("rgbRed", self._wintypes.BYTE),
+                ("rgbReserved", self._wintypes.BYTE),
+            ]
 
-        return {
-            "format": "png_metadata",
+        class BITMAPINFO(self._ctypes.Structure):
+            _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", RGBQUAD * 1)]
+
+        raw = self._ctypes.create_string_buffer(w * h * 4)
+        bmi = BITMAPINFO()
+        bmi.bmiHeader.biSize = self._ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.bmiHeader.biWidth = w
+        bmi.bmiHeader.biHeight = -h
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biBitCount = 32
+        bmi.bmiHeader.biCompression = 0
+        try:
+            if not self._gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, 0x00CC0020):
+                raise PlatformNotSupportedError("desktop BitBlt capture failed")
+            copied = self._gdi32.GetDIBits(hdc_mem, hbm, 0, h, raw, self._ctypes.byref(bmi), 0)
+            if copied != h:
+                raise PlatformNotSupportedError("desktop pixel extraction failed")
+            rgba = bgra_to_rgba(raw.raw)
+            png_bytes = encode_rgba_png(w, h, rgba)
+        finally:
+            self._gdi32.SelectObject(hdc_mem, hbm_old)
+            self._gdi32.DeleteObject(hbm)
+            self._gdi32.DeleteDC(hdc_mem)
+            self._user32.ReleaseDC(0, hdc_screen)
+
+        result = {
+            "format": "png",
+            "media_type": "image/png",
             "region": {"x": x, "y": y, "width": w, "height": h},
             "captured": True,
+            "byte_length": len(png_bytes),
         }
+        if include_image:
+            result["image_base64"] = base64.b64encode(png_bytes).decode("ascii")
+        return result
 
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]:
         windows: list[WindowInfo] = []
