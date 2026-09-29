@@ -56,3 +56,39 @@ def test_sandbox_runner_accepts_python3_alias_with_prose_validation_strategy(tmp
         PatchCandidate("", {}, "python alias", ("python3 -m pytest -q test_ok.py",)),
     )
     assert result.passed
+
+
+def test_sandbox_runner_refuses_validation_without_network_isolation(tmp_path, monkeypatch):
+    runner = LocalSandboxTestRunner(tmp_path)
+    monkeypatch.setattr(runner, "_network_prefix", lambda: None)
+    proposal = type("P", (), {"validation_strategy": ("python -m pytest -q",)})()
+    result = runner.validate(
+        proposal,
+        PatchCandidate("", {}, "network boundary", ("python -m pytest -q",)),
+    )
+    assert not result.passed
+    assert "network-isolated validation is unavailable" in result.detail
+
+
+def test_network_prefix_fails_closed_when_all_isolation_candidates_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.shutil.which", lambda name: "sudo" if name == "sudo" else ("unshare" if name == "unshare" else None))
+    def fail(*args, **kwargs):
+        class Result:
+            returncode = 1
+        return Result()
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.subprocess.run", fail)
+    assert LocalSandboxTestRunner._network_prefix() is None
+
+
+def test_restore_ownership_is_skipped_without_sudo(tmp_path):
+    assert LocalSandboxTestRunner._restore_ownership(
+        tmp_path, ("/usr/bin/unshare", "--net", "--")
+    )
+
+
+def test_restore_ownership_fails_closed_when_sudo_chown_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(LocalSandboxTestRunner, "_uses_sudo", staticmethod(lambda prefix: True))
+    class Result:
+        returncode = 1
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.subprocess.run", lambda *args, **kwargs: Result())
+    assert not LocalSandboxTestRunner._restore_ownership(tmp_path, ("/usr/bin/sudo", "-n", "unshare", "--net", "--"))

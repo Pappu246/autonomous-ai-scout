@@ -1,12 +1,12 @@
 from __future__ import annotations
-import os, shlex, shutil, subprocess, tempfile
+import os, shlex, shutil, signal, subprocess, sys, tempfile
 from pathlib import Path
 from .self_improvement import PatchCandidate, ValidationResult
 
 _ALLOWED=("python -m pytest","python -m unittest","python -m compileall")
 
 class LocalSandboxTestRunner:
-    """Run bounded non-shell test commands against a temporary workspace."""
+    """Run bounded validation inside a temporary workspace with network isolation."""
     def __init__(self, workspace: str|Path, *, timeout_seconds:int=120):
         self.workspace=Path(workspace).resolve(); self.timeout_seconds=max(1,min(int(timeout_seconds),300))
     def _normalize_command(self, command:str)->str:
@@ -41,6 +41,102 @@ class LocalSandboxTestRunner:
             if drive_like or traversal:
                 return False
         return True
+
+    @staticmethod
+    def _network_prefix():
+        if os.name != "posix":
+            return None
+        unshare = shutil.which("unshare")
+        if not unshare:
+            return None
+        prefixes = (
+            (unshare, "--user", "--map-root-user", "--net", "--mount-proc", "--"),
+            (unshare, "--net", "--mount-proc", "--"),
+        )
+        sudo = shutil.which("sudo")
+        if sudo:
+            prefixes = prefixes + (
+                (sudo, "-n", unshare, "--net", "--mount-proc", "--"),
+            )
+        for prefix in prefixes:
+            try:
+                probe = subprocess.run(
+                    prefix + ("true",),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    shell=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if probe.returncode == 0:
+                return prefix
+        return None
+
+
+    @staticmethod
+    def _uses_sudo(prefix):
+        return bool(prefix and Path(prefix[0]).name == "sudo")
+
+    @staticmethod
+    def _restore_ownership(root, prefix):
+        if not LocalSandboxTestRunner._uses_sudo(prefix) or not hasattr(os, "getuid"):
+            return True
+        sudo = prefix[0]
+        try:
+            result = subprocess.run(
+                (
+                    sudo,
+                    "-n",
+                    "chown",
+                    "-R",
+                    f"{os.getuid()}:{os.getgid()}",
+                    str(root),
+                ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+                shell=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0
+
+    @staticmethod
+    def _safe_env(root):
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONHASHSEED": "0",
+            "PYTHONNOUSERSITE": "1",
+            "HOME": str(root),
+            "USERPROFILE": str(root),
+        }
+        if "SYSTEMROOT" in os.environ:
+            env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+        if "WINDIR" in os.environ:
+            env["WINDIR"] = os.environ["WINDIR"]
+        return env
+
+    @staticmethod
+    def _kill(process):
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                return
+            except (OSError, ProcessLookupError):
+                pass
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError):
+            pass
+
     def validate(self, proposal, candidate:PatchCandidate, *, context=None)->ValidationResult:
         candidate_commands = tuple(self._normalize_command(command) for command in candidate.test_commands)
         approved = tuple(getattr(proposal, "validation_strategy", ()) or ()) if proposal is not None else ()
@@ -59,6 +155,9 @@ class LocalSandboxTestRunner:
         for command in commands:
             if not self._allowed(command):
                 return ValidationResult(False,f"test command is not allowlisted: {command[:120]}")
+        prefix = self._network_prefix()
+        if prefix is None:
+            return ValidationResult(False, "network-isolated validation is unavailable; sandbox refused subprocess execution")
         with tempfile.TemporaryDirectory(prefix="autonomous-scout-test-") as tmp:
             root=Path(tmp)
             shutil.copytree(self.workspace, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", ".env", ".env.*", "state", "__pycache__"))
@@ -66,33 +165,30 @@ class LocalSandboxTestRunner:
                 target=(root/path).resolve()
                 if root not in target.parents: return ValidationResult(False,"candidate path escapes sandbox")
                 target.parent.mkdir(parents=True,exist_ok=True); target.write_text(content,encoding="utf-8")
-            for command in commands:
-                try:
-                    env = {
-                        key: os.environ[key]
-                        for key in (
-                            "PATH",
-                            "PATHEXT",
-                            "SYSTEMROOT",
-                            "WINDIR",
-                            "TEMP",
-                            "TMP",
-                            "TMPDIR",
-                            "HOME",
-                            "USERPROFILE",
-                            "VIRTUAL_ENV",
-                        )
-                        if key in os.environ
-                    }
-                    env.update({
-                        "PYTHONNOUSERSITE": "1",
-                        "PYTHONDONTWRITEBYTECODE": "1",
-                        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-                    })
-                    completed=subprocess.run(command.split(),cwd=root,capture_output=True,text=True,timeout=self.timeout_seconds,shell=False,env=env)
-                except subprocess.TimeoutExpired: return ValidationResult(False,f"validation timed out: {command[:120]}")
-                except OSError as exc: return ValidationResult(False,f"validation could not start: {type(exc).__name__}")
-                if completed.returncode!=0:
-                    detail=(completed.stdout+"\n"+completed.stderr).strip()
-                    return ValidationResult(False,f"{command[:120]} failed: {detail[-2000:]}")
-        return ValidationResult(True,"sandbox validation passed")
+            env = self._safe_env(root)
+            env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+            result = ValidationResult(True, "sandbox validation passed")
+            try:
+                for command in commands:
+                    try:
+                        argv = tuple(shlex.split(command, posix=os.name != "nt"))
+                        if argv and argv[0] in {"python", "python3"}:
+                            argv = (sys.executable,) + argv[1:]
+                        process = subprocess.Popen(prefix + argv,cwd=root,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,shell=False,env=env,start_new_session=(os.name == "posix"))
+                        output,_ = process.communicate(timeout=self.timeout_seconds)
+                    except subprocess.TimeoutExpired:
+                        self._kill(process)
+                        output,_ = process.communicate()
+                        result = ValidationResult(False,f"validation timed out: {command[:120]}")
+                        break
+                    except OSError as exc:
+                        result = ValidationResult(False,f"validation could not start: {type(exc).__name__}")
+                        break
+                    if process.returncode!=0:
+                        detail=(output or "").strip()
+                        result = ValidationResult(False,f"{command[:120]} failed: {detail[-2000:]}")
+                        break
+            finally:
+                if not self._restore_ownership(root, prefix):
+                    result = ValidationResult(False, "sandbox cleanup ownership reset failed")
+            return result
