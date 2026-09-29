@@ -102,4 +102,5 @@ jobs:
           git add state/latest_report.md state/scout_state.json state/project_registry.json state/project_profiles.json state/project_intelligence.json
           git diff --cached --quiet && exit 0
           git commit -m "chore: update autonomous scout state"
-          git -c "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" push origin HEAD:refs/heads/autonomous-scout-state
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:refs/heads/autonomous-scout-state
