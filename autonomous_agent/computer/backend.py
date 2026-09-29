@@ -26,7 +26,7 @@ class BaseComputerBackend(ABC):
     def get_display_info(self) -> DisplayInfo: ...
 
     @abstractmethod
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]: ...
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]: ...
 
     @abstractmethod
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]: ...
@@ -86,7 +86,7 @@ class UnsupportedPlatformBackend(BaseComputerBackend):
         self._fail_closed()
         return DisplayInfo(0, 0)
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
@@ -519,17 +519,24 @@ class MockComputerBackend(BaseComputerBackend):
     def get_display_info(self) -> DisplayInfo:
         return self.display
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         x = region.x if region else 0
         y = region.y if region else 0
         w = region.width if region else self.display.width
         h = region.height if region else self.display.height
-        return {
-            "format": "png_metadata",
+        rgba = bytes((35, 35, 35, 255)) * (w * h)
+        png = encode_rgba_png(w, h, rgba)
+        result = {
+            "format": "png",
+            "media_type": "image/png",
             "region": {"x": x, "y": y, "width": w, "height": h},
             "captured": True,
             "screen_hash": "mock_screen_hash_12345",
+            "byte_length": len(png),
         }
+        if include_image:
+            result["image_base64"] = base64.b64encode(png).decode("ascii")
+        return result
 
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]:
         if not filter_title:
@@ -610,9 +617,29 @@ class MockComputerBackend(BaseComputerBackend):
         self.click_history.append(rec)
         return rec
 
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self.mouse_pos = (x, y)
+        return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+        if len(path) < 2:
+            raise ValueError("drag path requires at least two points")
+        self.mouse_pos = path[-1]
+        rec = {"action": "drag", "path": list(path), "button": button, "duration_ms": duration_ms, "success": True}
+        self.click_history.append(rec)
+        return rec
+
     def keyboard_type(self, text: str) -> dict[str, Any]:
         self.type_history.append(text)
         return {"action": "type", "text": text, "length": len(text), "success": True}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        self.hotkey_history.append(tuple(keys))
+        return {"action": "keypress", "keys": list(keys), "success": True}
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
+        bounded = max(0, min(int(milliseconds), 10_000))
+        return {"action": "wait", "milliseconds": bounded, "success": True}
 
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
         self.hotkey_history.append(tuple(keys))
