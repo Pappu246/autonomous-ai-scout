@@ -93,3 +93,35 @@ def test_summarize_run_records_counts_supported_states():
         "blocked": 1,
         "failed": 1,
     }
+
+
+def _append_journal_records(path_str: str, worker: int) -> None:
+    from pathlib import Path
+    from autonomous_agent.run_journal import RunJournalRecord, append_run_record
+    path = Path(path_str)
+    for index in range(30):
+        append_run_record(
+            path,
+            RunJournalRecord(
+                execution_id=f"{worker}-{index}",
+                task="inspect repository",
+                state="verified",
+                reason="ok",
+                attempts=1,
+                result_count=1,
+                recorded_at="2026-01-01T00:00:00+00:00",
+            ),
+        )
+
+
+def test_run_journal_survives_concurrent_processes(tmp_path):
+    from multiprocessing import Process
+    path = tmp_path / "runs.jsonl"
+    workers = [Process(target=_append_journal_records, args=(str(path), worker)) for worker in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(10)
+        assert worker.exitcode == 0
+    records = read_run_records(path, limit=1000)
+    assert len(records) == 120
