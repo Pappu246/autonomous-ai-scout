@@ -191,6 +191,22 @@ def validate_keypress(keys: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+def validate_screen_region(
+    region: ScreenRegion, display: DisplayInfo, *, max_pixels: int = 16_000_000
+) -> ScreenRegion:
+    if not isinstance(region, ScreenRegion):
+        raise ComputerSecurityError("screen region must be a ScreenRegion")
+    if region.x + region.width > display.width or region.y + region.height > display.height:
+        raise ComputerSecurityError(
+            "screen region exceeds display bounds"
+        )
+    if region.width * region.height > max_pixels:
+        raise ComputerSecurityError(
+            f"screen region exceeds {max_pixels} pixel safety bound"
+        )
+    return region
+
+
 def validate_coordinates(x: int, y: int, display: DisplayInfo) -> tuple[int, int]:
     """Ensure coordinates are within physical screen boundaries."""
     try:
@@ -310,6 +326,7 @@ __all__ = [
     "validate_click",
     "validate_clipboard_text",
     "validate_coordinates",
+    "validate_screen_region",
     "validate_hotkey",
     "validate_typed_text",
 ]
