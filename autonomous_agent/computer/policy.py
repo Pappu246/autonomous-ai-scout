@@ -71,7 +71,7 @@ FORBIDDEN_METACHARS: frozenset[str] = frozenset({
     ";", "&", "|", "`", "$", ">", "<", "\n", "\r", "\x00",
 })
 
-ALLOWED_BUTTONS: frozenset[str] = frozenset({"left", "right", "middle"})
+ALLOWED_BUTTONS: frozenset[str] = frozenset({"left", "right", "middle", "wheel", "back", "forward"})
 
 ALLOWED_KEYS: frozenset[str] = frozenset({
     "ctrl", "control", "alt", "shift", "win", "windows", "enter", "return",
