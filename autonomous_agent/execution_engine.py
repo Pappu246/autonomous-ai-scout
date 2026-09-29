@@ -23,7 +23,7 @@ from .observability import TelemetryBuffer
 class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
 class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
-_CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.REST_API:"rest",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser",Capability.DOCUMENTS:"documents",Capability.APPLICATION:"application"}
+_CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.REST_API:"rest",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser",Capability.COMPUTER:"computer",Capability.DOCUMENTS:"documents",Capability.APPLICATION:"application"}
 MAX_RETRIES=2
 def _now():return datetime.now(timezone.utc).isoformat()
 def _telemetry(buffer,name,**fields):
