@@ -52,6 +52,8 @@ jobs:
           REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
         run: python -m autonomous_agent.main
       - name: Publish state and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
