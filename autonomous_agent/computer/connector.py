@@ -186,16 +186,19 @@ class BoundedComputerConnector:
         path: Sequence[tuple[int, int]],
         button: str = "left",
         duration_ms: int = 250,
+        keys: Sequence[str] = (),
     ) -> dict[str, Any]:
         self._budget.consume(1)
         display = self._backend.get_display_info()
         normalized = validate_drag_path(path, display)
         if button not in {"left", "right", "middle"}:
             raise ComputerSecurityError(f"unsupported mouse button: {button}")
+        valid_keys = validate_keypress(keys) if keys else ()
         return self._backend.mouse_drag(
             normalized,
             button,
             max(0, min(int(duration_ms), 5000)),
+            valid_keys,
         )
 
     def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
