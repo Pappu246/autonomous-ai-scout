@@ -1,3 +1,11 @@
+from pathlib import Path
+
+from autonomous_agent.adaptive_execution import execute_adaptive_plan
+from autonomous_agent.capability_policy import Capability
+from autonomous_agent.execution_engine import ExecutionResult, ExecutionState
+from autonomous_agent.sandbox import SandboxResult
+from autonomous_agent.task_planner import plan_task
+
 def test_adaptive_execution_forwards_computer_connector(monkeypatch, tmp_path: Path):
     plan = plan_task(
         "control the computer and complete this task",
@@ -9,7 +17,7 @@ def test_adaptive_execution_forwards_computer_connector(monkeypatch, tmp_path: P
 
     def fake_execute_plan(plan, root, **kwargs):
         captured.update(kwargs)
-        return __import__("autonomous_agent.execution_engine", fromlist=["ExecutionResult"]).ExecutionResult(
+        return ExecutionResult(
             ExecutionState.VERIFIED,
             "verified",
             1,
