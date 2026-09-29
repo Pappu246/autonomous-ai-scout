@@ -207,6 +207,7 @@ def test_openai_current_safety_checks_are_acknowledged(monkeypatch):
         "perform the approved click",
         approved=True,
         max_turns=3,
+        verify_final_state=False,
     )
 
     assert result.state == "completed"
@@ -266,6 +267,8 @@ def test_openai_dedicated_final_verification_marks_verified(monkeypatch):
     assert result.safe_dict()["verified"] is True
     assert len(calls) == 3
     assert calls[2]["previous_response_id"] == "resp-v2"
+
+
 def test_openai_pending_safety_checks_stop_unapproved_run(monkeypatch):
     connector = make_connector()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
