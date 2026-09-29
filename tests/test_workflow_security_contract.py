@@ -17,14 +17,20 @@ def test_ci_workflow_uses_immutable_action_commits() -> None:
     assert "actions/setup-python@v" not in workflow
 
 
-def test_hourly_workflow_uses_immutable_actions_and_safe_state_publication() -> None:
+def test_hourly_workflow_uses_immutable_actions_and_least_privilege_publish() -> None:
     workflow = _workflow("hourly-scout.yml")
 
+    assert "permissions:\n  contents: read" in workflow
+    assert "scout:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    permissions:\n      contents: read" in workflow
+    assert "publish:\n    needs: scout" in workflow
+    assert "permissions:\n      contents: write" in workflow
     assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1" in workflow
     assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0" in workflow
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" in workflow
+    assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in workflow
     assert "persist-credentials: false" in workflow
-    assert 'expected="${{ github.sha }}"' in workflow
-    assert 'git fetch origin refs/heads/autonomous-scout-state:refs/remotes/origin/autonomous-scout-state' in workflow
-    assert "git switch --detach origin/autonomous-scout-state" in workflow
-    assert "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" in workflow
+    assert 'expected="\${{ github.sha }}"' in workflow
+    assert "ref: autonomous-ai-scout-state" in workflow
+    assert "http.extraheader=AUTHORIZATION: bearer \${GITHUB_TOKEN}" in workflow
     assert "git push --force-with-lease" not in workflow
+    assert "git fetch origin refs/heads/autonomous-ai-scout-state:refs/remotes/origin/autonomous-ai-scout-state" not in workflow
