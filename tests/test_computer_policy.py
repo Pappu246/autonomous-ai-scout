@@ -27,6 +27,7 @@ from autonomous_agent.computer.policy import (
     is_windows,
     validate_app_launch,
     validate_click,
+    validate_screen_region,
     validate_clipboard_text,
     validate_coordinates,
     validate_hotkey,
@@ -239,6 +240,19 @@ def test_screen_region_negative_height():
 # =========================================================================
 # 3. Mouse Click Validation Tests (10 tests)
 # =========================================================================
+
+def test_validate_screen_region_within_display(standard_display):
+    from autonomous_agent.computer.models import ScreenRegion
+    region = validate_screen_region(ScreenRegion(10, 20, 300, 200), standard_display)
+    assert region.width == 300
+    assert region.height == 200
+
+
+def test_validate_screen_region_out_of_bounds(standard_display):
+    from autonomous_agent.computer.models import ScreenRegion
+    with pytest.raises(ComputerSecurityError, match="exceeds display bounds"):
+        validate_screen_region(ScreenRegion(900, 700, 200, 200), standard_display)
+
 
 def test_validate_click_default(standard_display):
     action = validate_click(100, 200, "left", 1, standard_display)
