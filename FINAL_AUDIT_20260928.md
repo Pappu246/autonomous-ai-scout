@@ -81,3 +81,12 @@ Fixed in PR #203 by hardening the hourly workflow (immutable action SHAs, checko
 A workflow-security regression contract was added in PR #205. Its CI run completed with **2301 passed, 6 skipped** and the post-merge mainline CI also passed.
 
 The repository connector cannot manually dispatch the scheduled workflow, so the live scheduled publication path will receive its next real verification at the next hourly run. Until that run completes, the publication fix is validated by CI and by the previous failure evidence, but not yet by a post-fix scheduled-run result.
+
+
+### Follow-up security hardening — 2026-09-29 (PR #207)
+
+The hourly workflow was further tightened so that the scout job runs with `contents: read` only. Generated state is transferred through a one-day artifact, and a separate `publish` job is the only job granted `contents: write`. The publisher checks out the dedicated `autonomous-ai-scout-state` branch directly and performs a normal authenticated fast-forward push. The artifact upload/download actions are pinned to immutable release commit SHAs, and the workflow-security contract now enforces the least-privilege split.
+
+PR #207 merged to main as `d482835f1f267a6689e6f3808db9c01f46905ae5`'s child commit `d482835f1f267a6689e6f3808db9c01f46905ae5`. The PR validation job passed **2301 passed, 6 skipped**. Post-merge mainline CI is running for this merge at the time of this documentation update.
+
+The latest known scheduled worker run remains **36530410005** (#125), which failed only in the old state-publication step before PRs #203/#204/#207. No post-fix scheduled run has appeared yet; the next scheduled execution remains the definitive live verification of the hardened publication path.
