@@ -180,7 +180,7 @@ class TaskQueueStore:
             return item
 
     def recover_running(self) -> tuple[QueueItem, ...]:
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             recovered: list[QueueItem] = []
             changed = False
@@ -195,7 +195,7 @@ class TaskQueueStore:
             return tuple(item for item in recovered if item.state is QueueState.RECOVERY_REQUIRED)
 
     def confirm_recovery(self, task_id: str) -> QueueItem:
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
@@ -208,7 +208,7 @@ class TaskQueueStore:
         raise KeyError(task_id)
 
     def claim_next(self) -> QueueItem | None:
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.state is QueueState.PENDING and item.ready:
@@ -219,7 +219,7 @@ class TaskQueueStore:
             return None
 
     def complete(self, task_id: str, *, success: bool, error: str = "") -> QueueItem:
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
@@ -233,7 +233,7 @@ class TaskQueueStore:
         raise KeyError(task_id)
 
     def cancel(self, task_id: str) -> QueueItem:
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
