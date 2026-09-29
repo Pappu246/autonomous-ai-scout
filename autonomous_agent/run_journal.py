@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .file_lock import InterProcessFileLock
+
 MAX_RECORD_BYTES = 16_384
 MAX_READ_RECORDS = 1_000
 MAX_JOURNAL_BYTES = 1_048_576
@@ -59,9 +61,11 @@ def append_run_record(path: Path, record: RunJournalRecord) -> None:
     if len(payload_bytes) > MAX_RECORD_BYTES:
         raise ValueError("run journal record exceeds size limit")
     line = payload_bytes + b"\n"
-    _compact_for_append(path, len(line))
-    with path.open("ab") as handle:
-        handle.write(line)
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        _compact_for_append(path, len(line))
+        with path.open("ab") as handle:
+            handle.write(line)
 
 def make_run_record(*, execution_id: str, task: str, result: Any) -> RunJournalRecord:
     return RunJournalRecord(
