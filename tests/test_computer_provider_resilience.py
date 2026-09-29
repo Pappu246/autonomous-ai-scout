@@ -97,16 +97,21 @@ def test_final_verification_provider_failure_is_bounded(monkeypatch):
         FakeResponse(
             {
                 "id": "resp-final-1",
-                "output": [],
-                "output_text": "done",
+                "output": [
+                    {
+                        "type": "computer_call",
+                        "call_id": "call-final-1",
+                        "action": {"type": "click", "x": 2, "y": 3, "button": "left"},
+                        "pending_safety_checks": [],
+                    }
+                ],
             }
         )
     ]
 
     def fake_post(url, headers, json, timeout):
         if responses:
-            responses.pop(0)
-            return FakeResponse({"id": "resp-final-1", "output": [], "output_text": "done"})
+            return responses.pop(0)
         raise httpx.ReadTimeout("verification timeout")
 
     monkeypatch.setattr(httpx, "post", fake_post)
