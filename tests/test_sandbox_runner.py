@@ -68,3 +68,13 @@ def test_sandbox_runner_refuses_validation_without_network_isolation(tmp_path, m
     )
     assert not result.passed
     assert "network-isolated validation is unavailable" in result.detail
+
+
+def test_network_prefix_fails_closed_when_all_isolation_candidates_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.shutil.which", lambda name: "sudo" if name == "sudo" else ("unshare" if name == "unshare" else None))
+    def fail(*args, **kwargs):
+        class Result:
+            returncode = 1
+        return Result()
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.subprocess.run", fail)
+    assert LocalSandboxTestRunner._network_prefix() is None
