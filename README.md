@@ -108,6 +108,27 @@ Full design, guarantees and limitations:
 
 ---
 
+
+
+## Local runtime server security
+
+The optional local runtime server listens on 127.0.0.1 by default. Loopback-only binds do not require a request token.
+
+A non-loopback bind is treated as an externally reachable service and is refused unless SCOUT_SERVER_TOKEN is configured. When enabled, requests to /run must include the X-Autonomous-Scout-Token header. /health remains available without authentication for health checks.
+
+Example local use:
+
+~~~text
+python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+~~~
+
+For a deliberately exposed bind, configure the token in the environment rather than in source code:
+
+~~~text
+SCOUT_SERVER_TOKEN=<operator-supplied-secret>
+python -m autonomous_agent.server --host 0.0.0.0 --port 8000
+~~~
+
 ## Architecture
 
 The system is deliberately layered. Each layer has a narrower responsibility and a clear boundary.

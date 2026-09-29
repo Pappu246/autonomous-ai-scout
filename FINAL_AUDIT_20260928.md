@@ -74,48 +74,29 @@ No known repository-level regression remains in the audited areas. The concrete 
 
 
 
-## Current repository status — 2026-09-29
 
-**Main:** \`546f026c4d32e98a2b90d182ab6555088d38826d\`
 
-**Repository hygiene:** 0 open pull requests and 0 open issues at the time of this reconciliation.
+### Runtime server security hardening — 2026-09-29 (PR #214)
 
-**CI:** Mainline CI for the current main commit passed after PR #212. The final PR #212 validation run passed **2309 passed, 6 skipped**. Earlier live validation also passed after PRs #210 and #211.
+A deep audit of the optional HTTP runtime server found that /run could execute a natural-language task without authentication if an operator changed the bind address from the safe loopback default to a non-loopback host. PR #214 closes that configuration hazard: loopback binds remain local and unauthenticated, while non-loopback binds now require SCOUT_SERVER_TOKEN, and /run requires the matching X-Autonomous-Scout-Token request header. The task input is also bounded before runtime invocation.
 
-**Branch protection:** the main branch is currently reported by GitHub as unprotected. No repository rulesets are currently returned by the available GitHub API connection. This is an administrative control still requiring repository-owner configuration; it is not claimed as completed by the codebase.
+PR #214 merged as 5e7db45f929f6e67d2afa12fc7c4b87f9300be52. Its validation job passed; the post-merge mainline CI was still running at the time this documentation update was prepared.
 
-**Releases:** no GitHub releases are currently published. A formal release/tag is an optional release-management step, not a runtime blocker.
+### Current verified boundary after PR #214
 
-## Deep live workflow evidence — 2026-09-29
+The repository-level implementation currently has:
+- immutable GitHub Actions supply-chain pins and weekly Dependabot checks;
+- approval-gated writes and permanently denied merge/deploy/billing/destructive paths;
+- request-bound durable resume checkpoints;
+- network-isolated coding validation with fail-closed behavior;
+- inter-process serialization for durable queue/lease/side-effect/trigger state;
+- a least-privilege scheduled scout publisher with artifact transfer;
+- non-loopback runtime-server authentication;
+- 0 open pull requests and 0 open issues at the time of reconciliation.
 
-The scheduled workflow has now produced an additional real failure after the least-privilege split. Run **36575216337** (#126) reached the end of the \`scout\` job successfully: checkout, Python setup, install, integrity check, tests, scout execution, and state-artifact upload all passed. The separate \`publish\` job checked out the state branch and downloaded the artifact successfully, including digest verification, but failed during state copy because the artifact action input used the literal string \`$RUNNER_TEMP/scout-state\`. GitHub Actions action inputs do not perform shell expansion, so the publisher looked for a literal path containing \`$RUNNER_TEMP\` and could not find \`latest_report.md\`.
-
-PR **#211** corrected this to the GitHub Actions expression \`\${{ runner.temp }}/scout-state\` and added a regression contract that rejects the broken form. PR #211 merged as \`8b3f1c1d2da92b4894efac20ed13cf766df65c65\`, and its mainline CI passed.
-
-This live failure is valuable evidence: the scout execution path itself is working, and the remaining defect was isolated to the publisher's transfer-path syntax rather than the agent or artifact generation.
-
-## Deep security/runtime hardening — 2026-09-29
-
-### PR #210 — network-isolated coding validation
-
-The AI coding validation runner previously used a restricted command allowlist, \`shell=False\`, a filtered environment, and temporary workspaces, but did not require Linux network isolation. The validator was hardened to fail closed when isolation cannot be established, to probe supported Linux isolation modes on GitHub-hosted runners, to reuse the configured Python interpreter, and to restore temporary-workspace ownership after privileged validation. Final PR validation passed **2309 passed, 6 skipped** before merge.
-
-### PR #212 — cross-process durable-state serialization
-
-A deeper runtime audit found that \`threading.Lock\` only protects one Python process. The durable queue, concurrency leases, external-side-effect ledger, and persistent trigger registry are shared through files and therefore also require inter-process coordination when multiple worker processes are active. PR #212 added a portable standard-library inter-process file lock and bound it to those state stores. The trigger registry also reloads persistent state while holding the process lock so separate workers do not make decisions from stale in-memory cooldown data.
-
-PR #212 merged as \`546f026c4d32e98a2b90d182ab6555088d38826d\`. Final validation passed **2309 passed, 6 skipped** and the post-merge mainline CI passed.
-
-## Remaining work, explicitly bounded
-
-### Live verification still pending
-
-The latest scheduled run visible from GitHub is still run **#126**, which ran on the pre-#211 commit \`0932f20afa8fd4fdb28e183df7f3e74e1b0856f\`. The next natural hourly run after PR #211/PR #212 is therefore still the definitive end-to-end proof of the corrected publisher path. The available GitHub connector cannot manually dispatch this workflow, so no artificial live success is claimed.
-
-### Environment-dependent work
-
-A real external coding-provider execution still requires operator-supplied provider credentials and a target workspace. Gmail, Calendar, browser/computer, and other real external connectors likewise require legitimate credentials and an appropriate runtime environment. The repository does not fabricate any of these prerequisites.
-
-### Administrative release hardening
-
-Main branch protection/rulesets and a formal GitHub release/tag are not currently configured. These are repository-administration/release-management tasks rather than missing agent-core implementation, and the available GitHub connection cannot configure them from this session.
+Still pending outside the code-only boundary:
+- the next natural scheduled Scout run after PR #211/#214 for live end-to-end publication proof;
+- operator-supplied coding-provider credentials and real target workspace;
+- real external connector smoke tests with legitimate accounts;
+- main branch protection/ruleset administration;
+- formal GitHub release/tag creation.
