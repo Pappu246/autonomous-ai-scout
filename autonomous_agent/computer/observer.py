@@ -130,7 +130,15 @@ class ComputerPostConditionObserver:
 
         # 5. Mutating input events (click, type, hotkey)
         # Input event success alone must never produce VERIFIED without observable state change
-        if cap_id in {"computer:mouse.click", "computer:keyboard.type", "computer:keyboard.hotkey"}:
+        if cap_id in {
+            "computer:mouse.click",
+            "computer:mouse.double_click",
+            "computer:mouse.drag",
+            "computer:mouse.scroll",
+            "computer:keyboard.type",
+            "computer:keyboard.hotkey",
+            "computer:keyboard.press",
+        }:
             evidence = execution.evidence
             has_observable_change = (
                 bool(evidence.get("post_condition"))
@@ -150,6 +158,30 @@ class ComputerPostConditionObserver:
                 True,
                 evidence,
                 "input event produced observable UI state change",
+            )
+
+        if cap_id == "computer:wait":
+            return CapabilityObservation(
+                cap_id,
+                execution.has_evidence,
+                execution.evidence,
+                "bounded wait completed and was durably observed",
+            )
+
+        if cap_id == "computer:use":
+            verified = bool(execution.evidence.get("verified"))
+            if not verified:
+                return CapabilityObservation(
+                    cap_id,
+                    False,
+                    execution.evidence,
+                    "native computer-use result lacks dedicated final visual verification",
+                )
+            return CapabilityObservation(
+                cap_id,
+                True,
+                execution.evidence,
+                "native computer-use task passed the dedicated final visual verification",
             )
 
         return CapabilityObservation(cap_id, execution.has_evidence, execution.evidence)
