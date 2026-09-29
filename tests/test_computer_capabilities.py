@@ -11,7 +11,7 @@ from autonomous_agent.digital.builtins import (
     DEFAULT_CAPABILITIES,
     build_capabilities,
 )
-from autonomous_agent.digital.catalog import CapabilityCatalog
+from autonomous_agent.digital.catalog import CapabilityCatalog, signal_matches
 from autonomous_agent.digital.contract import (
     CapabilityAvailability,
     CapabilityDescriptor,
@@ -313,7 +313,13 @@ def test_route_keypress(computer_catalog):
 
 
 def test_route_native_computer_task(computer_catalog):
-    res = computer_catalog.route("control the computer and complete this task")
+    goal = "control the computer and complete this task"
+    cap = computer_catalog.get("computer:task.execute")
+    assert cap is not None
+    assert cap.discover().availability is CapabilityAvailability.AVAILABLE
+    assert "control the computer" in cap.discover().signals
+    assert signal_matches("control the computer", goal)
+    res = computer_catalog.route(goal)
     assert "computer:task.execute" in res.selected
 
 
