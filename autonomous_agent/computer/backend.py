@@ -160,6 +160,24 @@ class WindowsBackend(BaseComputerBackend):
         self._user32 = ctypes.windll.user32
         self._gdi32 = ctypes.windll.gdi32
         self._kernel32 = ctypes.windll.kernel32
+        self._set_dpi_awareness()
+
+    def _set_dpi_awareness(self) -> None:
+        """Make screenshot pixels and pointer coordinates use one physical-pixel space."""
+        try:
+            # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
+            setter = getattr(self._user32, "SetProcessDpiAwarenessContext", None)
+            if setter is not None:
+                if setter(self._ctypes.c_void_p(-4)):
+                    return
+        except (AttributeError, OSError):
+            pass
+        try:
+            fallback = getattr(self._user32, "SetProcessDPIAware", None)
+            if fallback is not None:
+                fallback()
+        except (AttributeError, OSError):
+            pass
 
     def get_display_info(self) -> DisplayInfo:
         w = self._user32.GetSystemMetrics(0)  # SM_CXSCREEN
