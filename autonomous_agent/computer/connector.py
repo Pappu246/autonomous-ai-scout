@@ -28,6 +28,7 @@ from .policy import (
     validate_coordinates,
     validate_drag_path,
     validate_hotkey,
+    validate_screen_region,
     validate_keypress,
     validate_scroll,
     validate_typed_text,
@@ -89,6 +90,10 @@ class BoundedComputerConnector:
                 y=int(region.get("y", 0)),
                 width=int(region.get("width", 100)),
                 height=int(region.get("height", 100)),
+            )
+            parsed_region = validate_screen_region(
+                parsed_region,
+                self._backend.get_display_info(),
             )
         result = self._backend.screen_capture(parsed_region, include_image=include_image)
         safe = {
