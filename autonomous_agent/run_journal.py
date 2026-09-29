@@ -86,28 +86,30 @@ def read_run_records(path: Path, *, limit: int = 100) -> tuple[RunJournalRecord,
         return ()
 
     records: list[RunJournalRecord] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for raw in handle:
-            if len(records) >= limit:
-                break
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-                records.append(
-                    RunJournalRecord(
-                        execution_id=str(payload["execution_id"]),
-                        task=str(payload["task"]),
-                        state=str(payload["state"]),
-                        reason=str(payload["reason"]),
-                        attempts=int(payload["attempts"]),
-                        result_count=int(payload["result_count"]),
-                        recorded_at=str(payload["recorded_at"]),
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw in handle:
+                if len(records) >= limit:
+                    break
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                    records.append(
+                        RunJournalRecord(
+                            execution_id=str(payload["execution_id"]),
+                            task=str(payload["task"]),
+                            state=str(payload["state"]),
+                            reason=str(payload["reason"]),
+                            attempts=int(payload["attempts"]),
+                            result_count=int(payload["result_count"]),
+                            recorded_at=str(payload["recorded_at"]),
+                        )
                     )
-                )
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                continue
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    continue
     return tuple(records)
 
 def summarize_run_records(records: tuple[RunJournalRecord, ...]) -> dict[str, int]:
