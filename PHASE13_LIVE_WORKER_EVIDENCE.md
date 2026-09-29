@@ -58,3 +58,46 @@ A fresh harmless draft PR canary was run after the repository Actions permission
 - The canary PR was closed without merge.
 
 This revalidates that the repository's normal pull-request CI path now executes successfully under the updated Actions configuration. It does not retroactively change the earlier worker observation run `36454434980`, which remains an `action_required` historical run.
+
+## Current final live-worker revalidation — 2026-09-29
+
+The current main head was bound and exercised after the repository Actions permission was enabled.
+
+- Current main HEAD: 60c43617ece97d22faedd51da4acabc0cf0d6be8
+- Worker workflow run: 36592770917
+- Worker branch: improvement/phase13-live-worker-36592770917
+- Worker-created commit: 32a19e4220e842c0f91afc403f9ac73a2ee7f292
+- Worker-created draft PR: #225
+- PR author: github-actions[bot]
+- Approval: explicit and single-use claim
+- Persisted coding run: EXECUTED
+- Lifecycle state: EXECUTED
+- Worker merge/deploy: not performed
+
+The worker-created PR initially observed CI as pending because the originating mutation used GITHUB_TOKEN. An independent no-file-change follow-up commit was then added to the same PR head solely to trigger the ordinary CI path:
+
+- CI-trigger commit: 384291d8b9d16835bf22a82be541c5a4803e3d5f
+- Normal CI run: 36592944700
+- CI result: success
+- CI test result: 2320 passed, 6 skipped
+- Exact CI checkout: 384291d8b9d16835bf22a82be541c5a4803e3d5f
+
+This current-main run is the authoritative Phase 13 evidence. The draft PR was intentionally not merged.
+
+## Current live scheduled-publication-path revalidation — 2026-09-29
+
+The scheduled Scout full generation-to-publication path was exercised in an isolated canary after the publication-auth fix in PR #223:
+
+- Fix PR: #223
+- Fix merge commit: 60c43617ece97d22faedd51da4acabc0cf0d6be8
+- Publication canary run: 36592476878
+- Scout job: success
+- Publish job: success
+- Published state branch: autonomous-scout-state
+- Published state commit: 2d24d6dd09be83185268af928bd804bf322731e4
+
+The live path covered exact checkout integrity, dependency installation, full regression tests, Scout execution, generated-state verification, artifact transfer, state-branch checkout, and the final GitHub state/report push. The exact cron-trigger event was not separately observed; the actual Scout and publication path itself was live-verified.
+
+## Final safety boundary
+
+Temporary live-canary branches and draft PRs are closed/reset after evidence collection. No production deployment, merge, billing, destructive action, or credential material was performed by the worker.
