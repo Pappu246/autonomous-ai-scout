@@ -2,6 +2,16 @@ name: Windows Computer Smoke
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "autonomous_agent/computer/**"
+      - "tests/test_computer_windows_integration.py"
+      - ".github/workflows/windows-computer-smoke.yml"
+  pull_request:
+    paths:
+      - "autonomous_agent/computer/**"
+      - "tests/test_computer_windows_integration.py"
+      - ".github/workflows/windows-computer-smoke.yml"
 
 jobs:
   windows-computer:
