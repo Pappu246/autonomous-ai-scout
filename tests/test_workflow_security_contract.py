@@ -29,8 +29,8 @@ def test_hourly_workflow_uses_immutable_actions_and_least_privilege_publish() ->
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" in workflow
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in workflow
     assert "persist-credentials: false" in workflow
-    assert 'expected="\${{ github.sha }}"' in workflow
+    assert 'expected="${{ github.sha }}"' in workflow
     assert "ref: autonomous-ai-scout-state" in workflow
-    assert "http.extraheader=AUTHORIZATION: bearer \${GITHUB_TOKEN}" in workflow
+    assert "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" in workflow
     assert "git push --force-with-lease" not in workflow
     assert "git fetch origin refs/heads/autonomous-ai-scout-state:refs/remotes/origin/autonomous-ai-scout-state" not in workflow
