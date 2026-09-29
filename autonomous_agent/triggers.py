@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+from contextlib import nullcontext
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -38,6 +39,8 @@ class TriggerRegistry:
         self._load()
 
     def _load(self) -> None:
+        self._triggers.clear()
+        self._last_fired.clear()
         if self.path is None or not self.path.exists():
             return
         try:
@@ -64,6 +67,9 @@ class TriggerRegistry:
                 raise TriggerError("duplicate trigger id")
             self._triggers[trigger.trigger_id] = trigger
         self._last_fired = {str(key): float(value) for key, value in list(raw_fired.items())[: self.max_triggers]}
+
+    def _guard(self):
+        return self._process_lock if self._process_lock is not None else nullcontext()
 
     def _save(self) -> None:
         if self.path is None:
@@ -96,7 +102,8 @@ class TriggerRegistry:
             json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
         ).hexdigest()
         trigger_id = hashlib.sha256((event + "\0" + fingerprint).encode()).hexdigest()[:32]
-        with self._lock, self._process_lock:
+        with self._lock, self._guard():
+            self._load()
             if trigger_id not in self._triggers and len(self._triggers) >= self.max_triggers:
                 raise TriggerError("trigger registry is full")
             trigger = Trigger(trigger_id, event, fingerprint, cooldown_seconds)
@@ -105,7 +112,8 @@ class TriggerRegistry:
             return trigger
 
     def ready(self, trigger_id: str) -> bool:
-        with self._lock, self._process_lock:
+        with self._lock, self._guard():
+            self._load()
             trigger = self._triggers.get(str(trigger_id))
             if trigger is None or not trigger.enabled:
                 return False
@@ -114,7 +122,7 @@ class TriggerRegistry:
             return now - last >= trigger.cooldown_seconds
 
     def fire(self, trigger_id: str) -> bool:
-        with self._lock, self._process_lock:
+        with self._lock, self._guard():
             trigger = self._triggers.get(str(trigger_id))
             if trigger is None or not trigger.enabled:
                 return False
@@ -127,7 +135,7 @@ class TriggerRegistry:
             return True
 
     def disable(self, trigger_id: str) -> None:
-        with self._lock, self._process_lock:
+        with self._lock, self._guard():
             trigger = self._triggers.get(str(trigger_id))
             if trigger is not None:
                 self._triggers[trigger.trigger_id] = Trigger(
