@@ -171,6 +171,9 @@ class BoundedComputerConnector:
         action = validate_click(x, y, button, clicks, display)
         return self._backend.mouse_click(action.x, action.y, action.button, action.clicks)
 
+    def mouse_double_click(self, x: int, y: int, button: str = "left") -> dict[str, Any]:
+        return self.mouse_click(x, y, button, 2)
+
     def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
         self._budget.consume(1)
         display = self._backend.get_display_info()
