@@ -31,8 +31,14 @@ COMPUTER_CAPABILITY_IDS = (
     "computer:app.launch",
     "computer:mouse.move",
     "computer:mouse.click",
+    "computer:mouse.double_click",
+    "computer:mouse.scroll",
+    "computer:mouse.drag",
     "computer:keyboard.type",
     "computer:keyboard.hotkey",
+    "computer:keyboard.press",
+    "computer:wait",
+    "computer:task.execute",
     "computer:clipboard.read",
     "computer:clipboard.write",
 )
@@ -45,8 +51,14 @@ COMPUTER_TOOL_NAMES = (
     "computer.app.launch",
     "computer.mouse.move",
     "computer.mouse.click",
+    "computer.mouse.double_click",
+    "computer.mouse.scroll",
+    "computer.mouse.drag",
     "computer.keyboard.type",
     "computer.keyboard.hotkey",
+    "computer.keyboard.press",
+    "computer.wait",
+    "computer.use",
     "computer.clipboard.read",
     "computer.clipboard.write",
 )
@@ -162,7 +174,7 @@ def test_catalog_by_tool_name(computer_catalog):
 
 def test_catalog_discover_domain_computer(computer_catalog):
     caps = computer_catalog.discover(domain=CapabilityDomain.COMPUTER)
-    assert len(caps) == 11
+    assert len(caps) == 17
     ids = {c.capability_id for c in caps}
     assert ids == set(COMPUTER_CAPABILITY_IDS)
 
@@ -185,7 +197,7 @@ def test_catalog_discover_by_query_clipboard(computer_catalog):
 def test_domain_status_with_mock_connector_reports_usable(computer_catalog):
     status = {item["domain"]: item for item in computer_catalog.domain_status()}
     assert status["computer"]["usable"] is True
-    assert status["computer"]["registered_capabilities"] == 11
+    assert status["computer"]["registered_capabilities"] == 17
 
 
 def test_catalog_documentation_includes_computer_domain(computer_catalog):
