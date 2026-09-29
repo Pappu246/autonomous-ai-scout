@@ -639,7 +639,7 @@ class MockComputerBackend(BaseComputerBackend):
         if len(path) < 2:
             raise ValueError("drag path requires at least two points")
         self.mouse_pos = path[-1]
-        rec = {"action": "drag", "path": list(path), "button": button, "duration_ms": duration_ms, "success": True}
+        rec = {"action": "drag", "path": list(path), "button": button, "duration_ms": duration_ms, "keys": list(keys), "success": True}
         self.click_history.append(rec)
         return rec
 
