@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .action_lifecycle import LifecycleState, can_transition
+from .file_lock import InterProcessFileLock
 
 
 @dataclass(frozen=True)
@@ -50,49 +51,7 @@ def _read_events(path: Path) -> list[dict[str, str]]:
     return events
 
 
-def append_transition(path: Path, action_id: str, current: LifecycleState | str, target: LifecycleState | str) -> LifecycleEvent:
-    """Append one valid lifecycle transition to an integrity-chained ledger."""
-    action_id = action_id.strip() if isinstance(action_id, str) else ""
-    if not action_id:
-        raise ValueError("action_id must not be empty")
-    decision = can_transition(current, target)
-    if not decision.allowed:
-        raise ValueError(decision.reason)
-
-    current_state = LifecycleState(current).value
-    target_state = LifecycleState(target).value
-    existing = _read_events(path)
-    if path.exists() and not existing and path.read_text(encoding="utf-8").strip():
-        raise ValueError("lifecycle ledger is unreadable")
-
-    action_events = [event for event in existing if event.get("action_id") == action_id]
-    expected_from = action_events[-1]["to_state"] if action_events else LifecycleState.PROPOSED.value
-    if action_events and expected_from != current_state:
-        raise ValueError("ledger current state does not match requested transition")
-    if not action_events and current_state != LifecycleState.PROPOSED.value:
-        raise ValueError("first ledger transition must begin at proposed state")
-
-    sequence = len(action_events) + 1
-    previous_hash = action_events[-1]["event_hash"] if action_events else ""
-    timestamp = datetime.now(timezone.utc).isoformat()
-    event: dict[str, str] = {
-        "action_id": action_id,
-        "sequence": str(sequence),
-        "from_state": current_state,
-        "to_state": target_state,
-        "timestamp": timestamp,
-        "previous_hash": previous_hash,
-    }
-    event_hash = hashlib.sha256(_canonical_payload(event).encode("utf-8")).hexdigest()
-    event["event_hash"] = event_hash
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, sort_keys=True) + "\n")
-    return LifecycleEvent(action_id, sequence, current_state, target_state, timestamp, previous_hash, event_hash)
-
-
-def verify_ledger(path: Path) -> bool:
-    """Verify hash links, sequence monotonicity, and valid state transitions for every action."""
+def _verify_ledger_unlocked(path: Path) -> bool:
     if not path.exists():
         return True
     events = _read_events(path)
@@ -107,7 +66,15 @@ def verify_ledger(path: Path) -> bool:
     sequence_by_action: dict[str, int] = {}
     state_by_action: dict[str, str] = {}
     for event in events:
-        required = {"action_id", "sequence", "from_state", "to_state", "timestamp", "previous_hash", "event_hash"}
+        required = {
+            "action_id",
+            "sequence",
+            "from_state",
+            "to_state",
+            "timestamp",
+            "previous_hash",
+            "event_hash",
+        }
         if not required <= event.keys() or not event["action_id"].strip():
             return False
         try:
@@ -130,7 +97,9 @@ def verify_ledger(path: Path) -> bool:
         decision = can_transition(event["from_state"], event["to_state"])
         if not decision.allowed:
             return False
-        expected_hash = hashlib.sha256(_canonical_payload({key: value for key, value in event.items()}).encode("utf-8")).hexdigest()
+        expected_hash = hashlib.sha256(
+            _canonical_payload(event).encode("utf-8")
+        ).hexdigest()
         if not hmac.compare_digest(event["event_hash"], expected_hash):
             return False
         previous_by_action[action_id] = event["event_hash"]
@@ -139,29 +108,100 @@ def verify_ledger(path: Path) -> bool:
     return True
 
 
+def append_transition(
+    path: Path,
+    action_id: str,
+    current: LifecycleState | str,
+    target: LifecycleState | str,
+) -> LifecycleEvent:
+    """Append one valid lifecycle transition under an inter-process lock."""
+    action_id = action_id.strip() if isinstance(action_id, str) else ""
+    if not action_id:
+        raise ValueError("action_id must not be empty")
+    decision = can_transition(current, target)
+    if not decision.allowed:
+        raise ValueError(decision.reason)
+
+    current_state = LifecycleState(current).value
+    target_state = LifecycleState(target).value
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        existing = _read_events(path)
+        if path.exists() and not existing and path.read_text(encoding="utf-8").strip():
+            raise ValueError("lifecycle ledger is unreadable")
+
+        action_events = [event for event in existing if event.get("action_id") == action_id]
+        expected_from = (
+            action_events[-1]["to_state"]
+            if action_events
+            else LifecycleState.PROPOSED.value
+        )
+        if action_events and expected_from != current_state:
+            raise ValueError("ledger current state does not match requested transition")
+        if not action_events and current_state != LifecycleState.PROPOSED.value:
+            raise ValueError("first ledger transition must begin at proposed state")
+
+        sequence = len(action_events) + 1
+        previous_hash = action_events[-1]["event_hash"] if action_events else ""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        event: dict[str, str] = {
+            "action_id": action_id,
+            "sequence": str(sequence),
+            "from_state": current_state,
+            "to_state": target_state,
+            "timestamp": timestamp,
+            "previous_hash": previous_hash,
+        }
+        event_hash = hashlib.sha256(_canonical_payload(event).encode("utf-8")).hexdigest()
+        event["event_hash"] = event_hash
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        return LifecycleEvent(
+            action_id,
+            sequence,
+            current_state,
+            target_state,
+            timestamp,
+            previous_hash,
+            event_hash,
+        )
+
+
+def verify_ledger(path: Path) -> bool:
+    """Verify hash links, sequence monotonicity, and valid state transitions."""
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        return _verify_ledger_unlocked(path)
+
+
 def load_action_events(path: Path, action_id: str) -> tuple[LifecycleEvent, ...]:
     """Return one action's ordered ledger events; invalid ledgers return no events."""
-    if not verify_ledger(path):
-        return ()
-    result: list[LifecycleEvent] = []
-    for event in _read_events(path):
-        if event.get("action_id") != action_id:
-            continue
-        result.append(LifecycleEvent(
-            event["action_id"],
-            int(event["sequence"]),
-            event["from_state"],
-            event["to_state"],
-            event["timestamp"],
-            event["previous_hash"],
-            event["event_hash"],
-        ))
-    return tuple(result)
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        if not _verify_ledger_unlocked(path):
+            return ()
+        result: list[LifecycleEvent] = []
+        for event in _read_events(path):
+            if event.get("action_id") != action_id:
+                continue
+            result.append(
+                LifecycleEvent(
+                    event["action_id"],
+                    int(event["sequence"]),
+                    event["from_state"],
+                    event["to_state"],
+                    event["timestamp"],
+                    event["previous_hash"],
+                    event["event_hash"],
+                )
+            )
+        return tuple(result)
 
 
 def action_state(path: Path, action_id: str) -> LifecycleState | None:
     """Return the last trusted state for an action, or None for missing/invalid history."""
-    if not isinstance(action_id, str) or not action_id.strip() or not verify_ledger(path):
+    if not isinstance(action_id, str) or not action_id.strip():
         return None
     events = load_action_events(path, action_id)
     if not events:
@@ -172,8 +212,12 @@ def action_state(path: Path, action_id: str) -> LifecycleState | None:
         return None
 
 
-def verify_action_state(path: Path, action_id: str, expected: LifecycleState | str) -> bool:
-    """Fail closed unless the trusted ledger ends exactly at the expected action state."""
+def verify_action_state(
+    path: Path,
+    action_id: str,
+    expected: LifecycleState | str,
+) -> bool:
+    """Fail closed unless the trusted ledger ends exactly at the expected state."""
     try:
         expected_state = LifecycleState(expected)
     except (TypeError, ValueError):
