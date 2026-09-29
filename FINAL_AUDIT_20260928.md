@@ -90,3 +90,9 @@ The hourly workflow was further tightened so that the scout job runs with `conte
 PR #207 merged to main as `d482835f1f267a6689e6f3808db9c01f46905ae5`'s child commit `d482835f1f267a6689e6f3808db9c01f46905ae5`. The PR validation job passed **2301 passed, 6 skipped**. Post-merge mainline CI is running for this merge at the time of this documentation update.
 
 The latest known scheduled worker run remains **36530410005** (#125), which failed only in the old state-publication step before PRs #203/#204/#207. No post-fix scheduled run has appeared yet; the next scheduled execution remains the definitive live verification of the hardened publication path.
+
+### Deep workflow audit — 2026-09-29
+
+A deeper post-merge inspection found two latent workflow defects in the newly split hourly worker path before its next scheduled execution: the publisher referenced `autonomous-ai-scout-state` while the real persisted branch is `autonomous-scout-state`, and the checkout-integrity shell comparison contained escaped shell substitutions that prevented actual `git rev-parse` evaluation. These defects were caught by repository inspection rather than by a scheduled production run and are fixed together in PR #209. The regression contract now asserts the exact executable integrity check and the canonical state-branch name.
+
+This is why the next natural scheduled run is still treated as a live verification gate rather than inferred from unit CI alone.
