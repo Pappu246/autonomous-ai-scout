@@ -40,11 +40,19 @@ def run_task(
     gmail_request: Mapping[str, Any] | None = None,
     calendar_connector: Any = None,
     calendar_request: Mapping[str, Any] | None = None,
+    computer_connector: Any = None,
+    computer_request: Mapping[str, Any] | None = None,
+    granted: Iterable[Capability | str] | None = None,
+    explicitly_approved: bool = False,
 ) -> ExecutionResult:
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
-    prepared = core.prepare(task)
+    prepared = core.prepare(
+        task,
+        granted=granted,
+        explicitly_approved=explicitly_approved,
+    )
     if not prepared.plan.executable:
         result = ExecutionResult(
             ExecutionState.BLOCKED,
@@ -75,6 +83,9 @@ def run_task(
         gmail_request=gmail_request,
         calendar_connector=calendar_connector,
         calendar_request=calendar_request,
+        computer_connector=computer_connector,
+        computer_request=computer_request,
+        explicitly_approved=explicitly_approved,
     )
     append_run_record(
         journal_path,
@@ -88,6 +99,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--root", default=str(ROOT)); parser.add_argument("--audit", default=str(AUDIT_PATH)); parser.add_argument("--journal", default=str(JOURNAL_PATH))
     parser.add_argument("--history", action="store_true", help="print bounded runtime history summary and recent records")
     parser.add_argument("--history-limit", type=int, default=20, help="number of recent valid history records to print")
+    parser.add_argument("--computer", action="store_true", help="enable the bounded Windows computer connector")
+    parser.add_argument("--approve", action="store_true", help="explicitly approve state-changing actions for this run")
+    parser.add_argument("--max-turns", type=int, default=20, help="maximum native computer-use model turns")
+    parser.add_argument("--action-budget", type=int, default=50, help="maximum bounded desktop actions")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.history:
@@ -101,7 +116,34 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(f"execution_id={record.execution_id} state={record.state} task={record.task} attempts={record.attempts} results={record.result_count} recorded_at={record.recorded_at}")
         return 0
 
-    result = run_task(args.task, root=Path(args.root).resolve(), audit_path=Path(args.audit).resolve(), journal_path=Path(args.journal).resolve())
+    computer_connector = None
+    computer_request = None
+    granted = None
+    if args.computer:
+        from .computer.connector import BoundedComputerConnector
+        from .computer.models import ActionBudget
+        computer_connector = BoundedComputerConnector(
+            budget=ActionBudget(limit=max(1, min(int(args.action_budget), 200)))
+        )
+        from .capability_policy import Capability as _Capability
+        granted = (_Capability.COMPUTER,)
+        computer_request = {
+            "computer.use": {
+                "task": args.task,
+                "max_turns": max(1, min(int(args.max_turns), 20)),
+            },
+            "computer.use:credref": None,
+        }
+    result = run_task(
+        args.task,
+        root=Path(args.root).resolve(),
+        audit_path=Path(args.audit).resolve(),
+        journal_path=Path(args.journal).resolve(),
+        computer_connector=computer_connector,
+        computer_request=computer_request,
+        granted=granted,
+        explicitly_approved=bool(args.approve),
+    )
     print(f"state={result.state.value}"); print(f"reason={result.reason}"); print(f"attempts={result.attempts}")
     for item in result.results:
         print(f"operation={item.operation} success={item.success} verification={item.verification_status}")
