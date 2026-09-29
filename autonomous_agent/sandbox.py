@@ -164,7 +164,11 @@ def _run_computer(connector,request,limit):
         if hasattr(res,"safe_dict"):payload=res.safe_dict()
         elif isinstance(res,list):payload=[item.safe_dict() if hasattr(item,"safe_dict") else item for item in res]
         else:payload=res
-        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit);return True,text,("COMPUTER",op),truncated
+        text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit)
+        if op=="computer_use":
+            succeeded=isinstance(payload,Mapping) and payload.get("state")=="completed"
+            return succeeded,text,("COMPUTER",op),truncated
+        return True,text,("COMPUTER",op),truncated
     except Exception as exc:return False,f"computer operation failed: {type(exc).__name__}: {exc}",("COMPUTER",op),False
 def _run_documents(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"documents requires an approved injected connector and structured request",(),False
@@ -249,7 +253,10 @@ def run_safe_operation(operation,root,target=None,*,timeout_seconds=30,output_li
     if op=="browser":
         success,output,command,truncated=_run_browser(browser_connector,browser_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,False)
     if op=="computer":
-        success,output,command,truncated=_run_computer(computer_connector,computer_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
+        success,output,command,truncated=_run_computer(computer_connector,computer_request or {},limit)
+        finished=datetime.now(timezone.utc).isoformat()
+        network_disabled=not (isinstance(computer_request,Mapping) and str(computer_request.get("operation","")).lower()=="computer_use")
+        return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,network_disabled)
     if op=="documents":
         success,output,command,truncated=_run_documents(documents_connector,documents_request or {},limit);finished=datetime.now(timezone.utc).isoformat();return SandboxResult(op,success,0 if success else 1,output,truncated,command,"verified" if success else "failed",started,finished,True)
     if op=="application":
