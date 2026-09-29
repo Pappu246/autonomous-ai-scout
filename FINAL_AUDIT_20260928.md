@@ -164,3 +164,55 @@ Remaining boundaries are genuinely external rather than code-completion gaps:
 4. No formal GitHub release/tag has been created; the available connected GitHub toolset does not expose release/tag creation.
 
 These boundaries are not being represented as completed without evidence.
+
+
+## Current mainline reconciliation — 2026-09-30
+
+This section supersedes earlier status snapshots where they conflict with the current mainline.
+
+### Current repository baseline
+
+- Baseline main before this reconciliation: `11a51492efb1c41ee0da8428ded800d1859f3f38`
+- Open pull requests: **0**
+- Open issues: **0**
+- Latest baseline CI: **2352 passed, 6 skipped**
+- Latest baseline Windows computer smoke: **5 passed, 1 skipped**
+- Latest merged computer-control work: PRs **#228–#232**
+
+### Computer-control completion
+
+The current mainline now includes:
+
+- real native computer-use control rather than metadata-only computer capability;
+- PNG desktop screenshots and bounded input actions;
+- canonical task-runtime integration;
+- adaptive execution propagation;
+- bounded provider retries and fail-closed provider errors;
+- dedicated final visual verification;
+- automatic Windows smoke coverage.
+
+### Documentation / supply-chain finding
+
+The audit identified two maintenance gaps after the feature work:
+
+1. repository status documentation lagged behind the latest mainline;
+2. the Windows computer smoke workflow still used mutable `actions/checkout@v4` and
+   `actions/setup-python@v5` while the primary CI workflow was already pinned.
+
+This hardening change addresses both:
+
+- the current readiness baseline is recorded in `docs/OPERATIONAL_READINESS_20260930.md`;
+- the stale next-phase note is replaced with the real readiness gates;
+- the Windows computer workflow is pinned to the same immutable v7 action SHAs used by primary CI;
+- regression coverage now rejects the old mutable action references.
+
+### External boundaries that remain genuinely external
+
+The following are intentionally not marked complete without live evidence:
+
+- real external coding-provider execution;
+- real Gmail/Calendar/application/document account smoke tests;
+- GitHub main-branch protection/ruleset administration;
+- formal GitHub release/tag publication.
+
+These are environment or administrative boundaries, not hidden implementation claims.

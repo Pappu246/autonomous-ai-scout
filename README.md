@@ -744,55 +744,48 @@ never auto-merges or deploys.
 
 ## Current status
 
-Phase 6 includes controlled, approval-gated real workflow execution, durable recovery and security/release gates. Phase 7 adds a bounded live GitHub evidence adapter; Phase 8 adds a decision-only controlled release boundary; Phase 9 adds tamper-evident immutable release evidence; N31–N46 add bounded autonomy controls and canonical admission; Phase 10 adds an end-to-end lifecycle canary; Phase 11 verifies the remote GitHub branch/commit/draft-PR/CI boundary; Phase 12 reconciles operational readiness and documentation against the active implementation; Phase 13 now verifies the persisted approval-to-real-GitHub-worker mutation path including a worker-created draft PR. Phase 13 has now live-verified both the worker-created draft-PR path and the normal `pull_request` CI path after the repository Actions permission change. None of these layers auto-merge or deploy.
+**Current mainline baseline:** `11a51492efb1c41ee0da8428ded800d1859f3f38`
 
+The current repository is **implementation-complete for the audited autonomy/control layers**, with
+the remaining gaps explicitly separated into live-environment and GitHub-administration boundaries.
 
+### Verified repository state
 
-**Implemented through N46, plus the Phase 1 universal digital agent foundation.**
+- Core canonical autonomous lifecycle: **verified**
+- Durable queue/lease/side-effect/trigger/audit/lifecycle/memory coordination: **verified**
+- Native Windows computer control: **verified**
+- Adaptive computer execution: **verified**
+- Bounded provider failure/retry handling: **verified**
+- Dedicated computer final visual verification: **verified**
+- Automatic Windows computer smoke workflow: **verified**
+- Open pull requests: **0**
+- Open issues: **0**
+- Baseline CI: **2352 passed, 6 skipped**
+- Baseline Windows smoke: **5 passed, 1 skipped**
 
-### Verified mainline snapshot — 2026-09-29
+### Live evidence already established
 
-This is the current repository evidence snapshot, not a claim that external operator dependencies
-are configured:
+- Scheduled Scout generation + publication path: **live-verified**
+- Approval-gated GitHub worker branch/commit/draft-PR path: **live-verified**
+- Normal pull-request CI path after worker-created change: **live-verified**
 
-- **Main:** `253927faaacb7ef84077036be8c14f38180084f2`
-- **Final CI:** **2320 passed, 6 skipped**; exact checkout integrity verified
-- **Open PRs / issues:** **0 / 0**
-- **Scheduled publication canary:** run `36592476878`; Scout and Publish both succeeded, and the
-  state branch was updated at commit `2d24d6dd09be83185268af928bd804bf322731e4`
-- **Phase 13 worker canary:** run `36592770917`; created draft PR **#225**, persisted as
-  `EXECUTED`, and did not merge or deploy
+### Still requiring real external evidence
 
-The remaining boundaries are external by design: a real coding-provider execution needs operator
-credentials and a legitimate target workspace; external connector smoke tests need connected
-accounts; branch-protection/ruleset administration requires GitHub-side configuration; and no
-formal GitHub release/tag is claimed without a creation path.
+- Coding-provider execution needs operator credentials and a legitimate target workspace.
+- Gmail/Calendar/application/document external-account smoke tests need legitimate connected accounts.
+- Main branch protection and required-check administration require GitHub repository administration.
+- No formal GitHub release/tag is currently published.
 
+These boundaries are deliberately reported as **not verified**, rather than being represented as
+completed by deterministic tests alone.
 
+### Readiness gate
 
-Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
-single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
-planned, authorized, executed, observed and verified result. Computer control, application
-adapters and document processing are implemented as bounded domains. Their registered
-capabilities remain subject to the same authorization, sandbox, approval, replay and
-verification boundaries as every other domain.
+The authoritative current gate matrix is:
+[Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
 
-N14 adds the production coding-provider routing layer. The repository now also contains a concrete GitHub REST worker backend and a local end-to-end coding CLI. A real external-model run and the persisted coding worker require operator-supplied provider/GitHub credentials and a target workspace; repository-level canary evidence is verified independently through GitHub Actions.
-
-N15–N30 contributed the unified task core, durable checkpoints and resume, deterministic tool
-selection, the bounded observe/verify/retry/adapt loop, DAG planning, the background queue, the
-universal digital tool layer, browser and workspace-shell boundaries, web knowledge acquisition,
-communication workflows, persistent and working-context memory, credential brokering,
-prompt-injection trust boundaries, and consequence-aware approval. N31–N46 then added durable
-side-effect protection, execution leases, scoped delegation, deterministic self-evaluation, bounded
-goal loops, resource budgets, recovery classification, telemetry, persistent triggers, benchmark
-harnesses, readiness and production-safety gates, and the canonical admission gate. These controls
-are implemented and covered by the current regression suite; external credentials, connected
-accounts, and GitHub administrator configuration remain explicit operational boundaries rather
-than fabricated capabilities.
-
----
-
+Do not start another feature phase by skipping a gate. Finish the current gate, verify it with
+evidence, then advance.
 
 ### Runtime readiness check
 
@@ -809,6 +802,7 @@ implicit fallback.
 
 ## Documentation
 - [Phase 13 — Live GitHub Worker Evidence](PHASE13_LIVE_WORKER_EVIDENCE.md)
+- [Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
 - [Phase 12 — Operational Readiness Reconciliation](PHASE12_OPERATIONAL_READINESS.md)
 - [Phase 11 — Real GitHub Execution Canary](PHASE11_GITHUB_EXECUTION_CANARY.md)
 - [Phase 10 — End-to-End Canary](PHASE10_END_TO_END_CANARY.md)
