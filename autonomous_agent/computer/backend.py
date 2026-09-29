@@ -398,33 +398,46 @@ class WindowsBackend(BaseComputerBackend):
                     self._user32.keybd_event(0x10, 0, 2, 0)
         return {"action": "type", "length": len(text), "success": True}
 
-    def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
+    def _key_codes(self, keys: Sequence[str]) -> list[int]:
         key_map = {
-            "ctrl": 0x11, "control": 0x11,
-            "alt": 0x12,
-            "shift": 0x10,
-            "win": 0x5B, "windows": 0x5B,
-            "enter": 0x0D, "return": 0x0D,
-            "tab": 0x09,
-            "esc": 0x1B, "escape": 0x1B,
-            "space": 0x20,
-            "backspace": 0x08,
-            "delete": 0x2E,
+            "ctrl": 0x11, "control": 0x11, "alt": 0x12, "shift": 0x10,
+            "win": 0x5B, "windows": 0x5B, "enter": 0x0D, "return": 0x0D,
+            "tab": 0x09, "esc": 0x1B, "escape": 0x1B, "space": 0x20,
+            "backspace": 0x08, "delete": 0x2E, "insert": 0x2D,
+            "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+            "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+            "capslock": 0x14, "numlock": 0x90, "scrolllock": 0x91,
+            "printscreen": 0x2C, "pause": 0x13,
         }
-        vk_codes: list[int] = []
-        for k in keys:
-            lk = k.lower()
+        codes: list[int] = []
+        for key in keys:
+            lk = key.lower()
             if lk in key_map:
-                vk_codes.append(key_map[lk])
+                codes.append(key_map[lk])
             elif len(lk) == 1:
-                vk_codes.append(ord(lk.upper()))
+                codes.append(ord(lk.upper()))
+            elif lk.startswith("f") and lk[1:].isdigit() and 1 <= int(lk[1:]) <= 24:
+                codes.append(0x70 + int(lk[1:]) - 1)
+            else:
+                raise ValueError(f"unsupported Windows key: {key}")
+        return codes
 
+    def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
+        vk_codes = self._key_codes(keys)
         for code in vk_codes:
             self._user32.keybd_event(code, 0, 0, 0)
         for code in reversed(vk_codes):
             self._user32.keybd_event(code, 0, 2, 0)
-
         return {"action": "hotkey", "keys": list(keys), "success": True}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        return self.keyboard_hotkey(keys)
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
+        import time
+        bounded = max(0, min(int(milliseconds), 10_000))
+        time.sleep(bounded / 1000.0)
+        return {"action": "wait", "milliseconds": bounded, "success": True}
 
     def clipboard_read(self) -> str:
         if not self._user32.OpenClipboard(0):
