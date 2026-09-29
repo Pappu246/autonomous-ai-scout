@@ -34,7 +34,8 @@ def test_hourly_workflow_uses_immutable_actions_and_least_privilege_publish() ->
     assert 'test "\\$(git rev-parse HEAD)" = "\\$expected"' not in workflow
     assert "ref: autonomous-scout-state" in workflow
     assert "refs/heads/autonomous-scout-state" in workflow
-    assert "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" in workflow
+    assert 'git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"' in workflow
+    assert "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" not in workflow
     assert "git push --force-with-lease" not in workflow
     assert "git fetch origin refs/heads/autonomous-ai-scout-state:refs/remotes/origin/autonomous-ai-scout-state" not in workflow
 
