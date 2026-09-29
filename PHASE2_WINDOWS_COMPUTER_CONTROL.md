@@ -47,7 +47,7 @@ All 17 computer capabilities are registered in the central `ToolRegistry` and bo
 Real computer-use tasks run through the same task planner and execution engine as the other digital capabilities:
 
 ~~~bash
-autonomous-scout-run --computer --approve --max-turns 20 --action-budget 50 "control the computer and complete this task"
+autonomous-scout-task --computer --approve --max-turns 20 --action-budget 50 "control the computer and complete this task"
 ~~~
 
 `--approve` is the explicit operator gate for state-changing computer actions. The native model loop
