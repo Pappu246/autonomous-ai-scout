@@ -74,8 +74,13 @@ class BoundedComputerConnector:
 
     # -- 11 bounded capabilities ------------------------------------------
 
-    def screen_capture(self, region: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Capture screen image or sub-region."""
+    def screen_capture(
+        self,
+        region: Mapping[str, Any] | None = None,
+        *,
+        include_image: bool = False,
+    ) -> dict[str, Any]:
+        """Capture screen metadata and optionally a real PNG payload."""
         self._budget.consume(1)
         parsed_region: ScreenRegion | None = None
         if region:
@@ -85,13 +90,18 @@ class BoundedComputerConnector:
                 width=int(region.get("width", 100)),
                 height=int(region.get("height", 100)),
             )
-        result = self._backend.screen_capture(parsed_region)
-        return {
-            "format": result.get("format", "png_metadata"),
+        result = self._backend.screen_capture(parsed_region, include_image=include_image)
+        safe = {
+            "format": result.get("format", "png"),
+            "media_type": result.get("media_type", "image/png"),
             "region": result.get("region", {}),
-            "captured": True,
-            "verification_status": "verified",
+            "captured": bool(result.get("captured")),
+            "byte_length": result.get("byte_length", 0),
+            "verification_status": "verified" if result.get("captured") else "failed",
         }
+        if include_image and isinstance(result.get("image_base64"), str):
+            safe["image_base64"] = result["image_base64"]
+        return safe
 
     def window_list(self, filter: str | None = None) -> list[dict[str, Any]]:
         """List active windows matching an optional filter string."""
