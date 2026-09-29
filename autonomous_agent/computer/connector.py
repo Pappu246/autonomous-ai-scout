@@ -285,6 +285,29 @@ class BoundedComputerConnector:
             return self.wait(int(duration))
         raise ComputerSecurityError(f"unsupported computer action type: {action_type}")
 
+    def computer_use(
+        self,
+        task: str,
+        *,
+        approved: bool = False,
+        max_turns: int = 20,
+    ) -> dict[str, Any]:
+        """Run a model-directed native computer-use task through this connector."""
+        if not approved:
+            return {
+                "state": "requires_approval",
+                "reason": "native computer-use can generate state-changing UI actions",
+                "turns": 0,
+                "actions": 0,
+            }
+        from .ai_controller import OpenAIComputerUseController
+        result = OpenAIComputerUseController(self).run(
+            task,
+            approved=True,
+            max_turns=max_turns,
+        )
+        return result.safe_dict()
+
     def clipboard_read(self) -> dict[str, Any]:
         """Read clipboard content with secret redaction."""
         self._budget.consume(1)
