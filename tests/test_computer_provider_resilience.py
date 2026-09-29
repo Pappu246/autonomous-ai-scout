@@ -88,3 +88,36 @@ def test_provider_does_not_retry_computer_call_output_submission(monkeypatch):
     assert result.state == "failed"
     assert "ReadTimeout" in result.reason
     assert calls["count"] == 2
+
+
+def test_final_verification_provider_failure_is_bounded(monkeypatch):
+    connector = make_connector()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    responses = [
+        FakeResponse(
+            {
+                "id": "resp-final-1",
+                "output": [],
+                "output_text": "done",
+            }
+        )
+    ]
+
+    def fake_post(url, headers, json, timeout):
+        responses.pop(0)
+        raise httpx.ReadTimeout("verification timeout")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result = OpenAIComputerUseController(
+        connector,
+        timeout_seconds=5,
+        request_retries=1,
+        retry_base_seconds=0,
+    ).run(
+        "inspect the desktop",
+        approved=True,
+        verify_final_state=True,
+    )
+
+    assert result.state == "failed"
+    assert result.reason.startswith("final verification request failed:")
