@@ -251,7 +251,7 @@ def test_validate_screen_region_within_display(standard_display):
 def test_validate_screen_region_out_of_bounds(standard_display):
     from autonomous_agent.computer.models import ScreenRegion
     with pytest.raises(ComputerSecurityError, match="exceeds display bounds"):
-        validate_screen_region(ScreenRegion(900, 700, 200, 200), standard_display)
+        validate_screen_region(ScreenRegion(1900, 1000, 100, 100), standard_display)
 
 
 def test_validate_click_default(standard_display):
