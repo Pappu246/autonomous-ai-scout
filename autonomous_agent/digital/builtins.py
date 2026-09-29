@@ -502,7 +502,9 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         signals=(
             "use computer",
             "control computer",
+            "control the computer",
             "operate computer",
+            "operate the computer",
             "control the desktop",
             "desktop task",
             "computer task",
