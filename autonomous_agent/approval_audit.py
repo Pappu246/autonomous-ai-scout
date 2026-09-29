@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .file_lock import InterProcessFileLock
+
 
 VALID_DECISIONS = {"approved", "rejected"}
 
@@ -18,57 +20,7 @@ def _canonical_payload(record: dict[str, str]) -> str:
     )
 
 
-def append_decision(path: Path, action_id: str, decision: str) -> None:
-    """Append a tamper-evident, metadata-only record of an approval decision."""
-    decision = decision.strip().lower()
-    action_id = action_id.strip()
-    if decision not in VALID_DECISIONS:
-        raise ValueError("decision must be approved or rejected")
-    if not action_id:
-        raise ValueError("action_id must not be empty")
-    previous_hash = ""
-    if path.exists():
-        if not verify_audit_chain(path):
-            raise ValueError("approval audit chain is invalid")
-        try:
-            for line in reversed(path.read_text(encoding="utf-8").splitlines()):
-                if not line.strip():
-                    continue
-                previous = json.loads(line)
-                if not isinstance(previous, dict):
-                    raise ValueError("approval audit contains an invalid record")
-                previous_hash = str(previous.get("hash", ""))
-                break
-        except (OSError, ValueError):
-            raise ValueError("approval audit chain is invalid")
-    record: dict[str, str] = {
-        "action_id": action_id,
-        "decision": decision,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "previous_hash": previous_hash,
-    }
-    record["hash"] = hashlib.sha256(_canonical_payload(record).encode("utf-8")).hexdigest()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
-
-
-def read_audit(path: Path) -> list[dict[str, str]]:
-    if not path.exists():
-        return []
-    records: list[dict[str, str]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            item = json.loads(line)
-        except (ValueError, TypeError):
-            continue
-        if isinstance(item, dict):
-            records.append({str(k): str(v) for k, v in item.items()})
-    return records
-
-
-def verify_audit_chain(path: Path) -> bool:
-    """Verify every audit record hash and its link to the previous record."""
+def _verify_audit_chain_unlocked(path: Path) -> bool:
     if not path.exists():
         return True
     previous_hash = ""
@@ -94,6 +46,69 @@ def verify_audit_chain(path: Path) -> bool:
             return False
         previous_hash = stored_hash
     return True
+
+
+def append_decision(path: Path, action_id: str, decision: str) -> None:
+    """Append a tamper-evident, metadata-only record under an inter-process lock."""
+    decision = decision.strip().lower()
+    action_id = action_id.strip()
+    if decision not in VALID_DECISIONS:
+        raise ValueError("decision must be approved or rejected")
+    if not action_id:
+        raise ValueError("action_id must not be empty")
+
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        previous_hash = ""
+        if path.exists():
+            if not _verify_audit_chain_unlocked(path):
+                raise ValueError("approval audit chain is invalid")
+            try:
+                for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+                    if not line.strip():
+                        continue
+                    previous = json.loads(line)
+                    if not isinstance(previous, dict):
+                        raise ValueError("approval audit contains an invalid record")
+                    previous_hash = str(previous.get("hash", ""))
+                    break
+            except (OSError, ValueError):
+                raise ValueError("approval audit chain is invalid")
+
+        record: dict[str, str] = {
+            "action_id": action_id,
+            "decision": decision,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "previous_hash": previous_hash,
+        }
+        record["hash"] = hashlib.sha256(_canonical_payload(record).encode("utf-8")).hexdigest()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def read_audit(path: Path) -> list[dict[str, str]]:
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        if not path.exists():
+            return []
+        lines = path.read_text(encoding="utf-8").splitlines()
+    records: list[dict[str, str]] = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(item, dict):
+            records.append({str(k): str(v) for k, v in item.items()})
+    return records
+
+
+def verify_audit_chain(path: Path) -> bool:
+    """Verify every audit record hash and its link to the previous record."""
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        return _verify_audit_chain_unlocked(path)
 
 
 def load_audit_log(path: Path) -> list[dict[str, str]]:

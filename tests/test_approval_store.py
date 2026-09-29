@@ -82,3 +82,32 @@ def test_invalid_action_id_is_rejected(tmp_path: Path):
         assert "invalid action id" in str(exc)
     else:
         raise AssertionError("path traversal action id must be rejected")
+
+
+def _decide_concurrently(queue_path: str, decision: str, result_path: str) -> None:
+    from pathlib import Path
+    from autonomous_agent.approval import set_decision
+    try:
+        result = set_decision(Path(queue_path), "action-1", decision)
+        Path(result_path).write_text(result.status, encoding="utf-8")
+    except Exception as exc:
+        Path(result_path).write_text(type(exc).__name__, encoding="utf-8")
+
+
+def test_approval_decision_is_single_winner_across_processes(tmp_path: Path):
+    from multiprocessing import Process
+    queue = tmp_path / "queue.json"
+    write_queue(queue)
+    result_files = []
+    workers = []
+    for index, decision in enumerate(("approved", "rejected")):
+        result = tmp_path / f"result-{index}.txt"
+        result_files.append(result)
+        workers.append(Process(target=_decide_concurrently, args=(str(queue), decision, str(result))))
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(10)
+        assert worker.exitcode == 0
+    outcomes = [path.read_text(encoding="utf-8") for path in result_files]
+    assert sorted(outcomes) == ["ValueError", "approved"] or sorted(outcomes) == ["ValueError", "rejected"]

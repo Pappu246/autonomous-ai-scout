@@ -63,3 +63,27 @@ def test_ledger_rejects_wrong_first_state(tmp_path: Path):
         assert "first ledger transition" in str(exc)
     else:
         raise AssertionError("ledger accepted a non-proposed first state")
+
+
+def _append_lifecycle_records(path_str: str, worker: int) -> None:
+    from pathlib import Path
+    from autonomous_agent.lifecycle_ledger import append_transition
+    path = Path(path_str)
+    action_id = f"action-{worker}"
+    append_transition(path, action_id, "proposed", "validated")
+    append_transition(path, action_id, "validated", "tested")
+
+
+def test_lifecycle_ledger_survives_concurrent_processes(tmp_path: Path):
+    from multiprocessing import Process
+    path = tmp_path / "lifecycle.jsonl"
+    workers = [Process(target=_append_lifecycle_records, args=(str(path), worker)) for worker in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(10)
+        assert worker.exitcode == 0
+    assert verify_ledger(path)
+    for worker in range(4):
+        events = load_action_events(path, f"action-{worker}")
+        assert [event.sequence for event in events] == [1, 2]
