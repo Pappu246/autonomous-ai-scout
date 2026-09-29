@@ -54,8 +54,7 @@ autonomous-scout-task --computer --approve --max-turns 20 --action-budget 50 "co
 is bounded by both turn count and desktop action budget. The final state is not considered verified
 until the dedicated visual verification pass confirms the task from the latest screenshot.
 
-Linux/macOS execution remains fail-closed. The repository also contains a manual
-`windows-computer-smoke.yml` workflow for real Win32 integration checks on a Windows runner.
+Linux/macOS execution remains fail-closed. The repository also contains a `windows-computer-smoke.yml` workflow that runs automatically when computer-control code changes and can also be dispatched manually. Hosted Windows runners now validate display metrics, active-window enumeration, window listing, real PNG screenshots, and cursor movement. Clipboard round-trip is kept opt-in because hosted runners do not guarantee an interactive clipboard; set `RUN_WINDOWS_CLIPBOARD_SMOKE=1` on an interactive Windows runner to exercise that check.
 
 ### Native model-directed computer use
 
