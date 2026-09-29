@@ -56,3 +56,15 @@ def test_sandbox_runner_accepts_python3_alias_with_prose_validation_strategy(tmp
         PatchCandidate("", {}, "python alias", ("python3 -m pytest -q test_ok.py",)),
     )
     assert result.passed
+
+
+def test_sandbox_runner_refuses_validation_without_network_isolation(tmp_path, monkeypatch):
+    runner = LocalSandboxTestRunner(tmp_path)
+    monkeypatch.setattr(runner, "_network_prefix", lambda: None)
+    proposal = type("P", (), {"validation_strategy": ("python -m pytest -q",)})()
+    result = runner.validate(
+        proposal,
+        PatchCandidate("", {}, "network boundary", ("python -m pytest -q",)),
+    )
+    assert not result.passed
+    assert "network-isolated validation is unavailable" in result.detail
