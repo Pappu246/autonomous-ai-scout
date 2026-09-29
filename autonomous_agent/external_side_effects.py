@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from threading import Lock
+
+from .file_lock import InterProcessFileLock
 from typing import Any
 
 
@@ -85,6 +87,7 @@ class ExternalSideEffectStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._lock = Lock()
+        self._process_lock = InterProcessFileLock(self.path.with_name(self.path.name + ".lock"))
 
     def _validate(self, record: SideEffectRecord) -> None:
         if not record.key or len(record.key) > 512:
@@ -171,7 +174,7 @@ class ExternalSideEffectStore:
                 pass
 
     def get(self, key: str) -> SideEffectRecord | None:
-        with self._lock:
+        with self._lock, self._process_lock:
             return self._load_unlocked().get(key)
 
     def claim(self, *, key: str, operation: str, request_digest: str) -> SideEffectDecision:
@@ -185,7 +188,7 @@ class ExternalSideEffectStore:
             updated_at=now,
         )
         self._validate(candidate)
-        with self._lock:
+        with self._lock, self._process_lock:
             records = self._load_unlocked()
             existing = records.get(candidate.key)
             if existing is None:
@@ -208,7 +211,7 @@ class ExternalSideEffectStore:
         result_digest: str = "",
         reason: str = "",
     ) -> SideEffectRecord:
-        with self._lock:
+        with self._lock, self._process_lock:
             records = self._load_unlocked()
             current = records.get(key)
             if current is None:
