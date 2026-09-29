@@ -1,11 +1,9 @@
-"""Real capability wiring for the domains that exist in this phase.
+"""Real capability wiring for the active digital-agent domains.
 
-Every entry here binds to a tool that is *already* registered in
-:data:`autonomous_agent.tool_registry.REGISTRY` and to a sandbox operation that
-already exists. No capability in this file is a placeholder: reserved domains
-(computer control, application adapters, document processing) are declared in
-:mod:`autonomous_agent.digital.domains` and deliberately have **no** entry
-here, so the catalog reports them as unregistered and the planner fails closed.
+Every entry here binds to a tool already registered in
+:mod:`autonomous_agent.tool_registry` and to an existing sandbox operation.
+Computer control, application adapters, and document processing are represented
+by explicit bounded declarations; unavailable platform backends still fail closed.
 """
 
 from __future__ import annotations
