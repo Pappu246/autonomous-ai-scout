@@ -292,8 +292,33 @@ def test_route_write_clipboard(computer_catalog):
     assert "computer:clipboard.write" in res.selected
 
 
+def test_route_double_click(computer_catalog):
+    res = computer_catalog.route("double click the file")
+    assert "computer:mouse.double_click" in res.selected
+
+
+def test_route_scroll(computer_catalog):
+    res = computer_catalog.route("scroll down")
+    assert "computer:mouse.scroll" in res.selected
+
+
+def test_route_drag(computer_catalog):
+    res = computer_catalog.route("drag this file to the folder")
+    assert "computer:mouse.drag" in res.selected
+
+
+def test_route_keypress(computer_catalog):
+    res = computer_catalog.route("press enter")
+    assert "computer:keyboard.press" in res.selected
+
+
+def test_route_native_computer_task(computer_catalog):
+    res = computer_catalog.route("control the computer and complete this task")
+    assert "computer:task.execute" in res.selected
+
+
 # =========================================================================
-# 5. Input Validation across all 11 capabilities (21 tests)
+# 5. Input Validation across all 17 capabilities (21 tests)
 # =========================================================================
 
 def test_validate_input_screen_capture_valid(computer_catalog):
