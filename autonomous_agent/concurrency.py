@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
+from .file_lock import InterProcessFileLock
+
 
 @dataclass(frozen=True)
 class ExecutionLease:
@@ -34,6 +36,7 @@ class ExecutionLeaseStore:
         self.max_active = max_active
         self.ttl_seconds = ttl_seconds
         self._lock = Lock()
+        self._process_lock = InterProcessFileLock(self.path.with_name(self.path.name + ".lock"))
 
     def _load(self) -> list[ExecutionLease]:
         if not self.path.exists():
@@ -82,7 +85,7 @@ class ExecutionLeaseStore:
         owner = str(owner).strip()
         if not resource or not owner or len(resource) > 256 or len(owner) > 256:
             raise ConcurrencyError("resource and owner are required and bounded")
-        with self._lock:
+        with self._lock, self._process_lock:
             leases = self._load()
             if any(item.resource == resource for item in leases):
                 return None
@@ -94,7 +97,7 @@ class ExecutionLeaseStore:
             return lease
 
     def release(self, lease_id: str) -> bool:
-        with self._lock:
+        with self._lock, self._process_lock:
             leases = self._load()
             remaining = [lease for lease in leases if lease.lease_id != str(lease_id)]
             if len(remaining) == len(leases):
@@ -103,7 +106,7 @@ class ExecutionLeaseStore:
             return True
 
     def active(self) -> tuple[ExecutionLease, ...]:
-        with self._lock:
+        with self._lock, self._process_lock:
             leases = self._load()
             self._save(leases)
             return tuple(leases)
