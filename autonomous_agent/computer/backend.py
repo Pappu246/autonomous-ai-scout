@@ -373,6 +373,9 @@ class WindowsBackend(BaseComputerBackend):
         self.mouse_move(*path[0])
         down_flag = 0x0002 if button == "left" else (0x0008 if button == "right" else 0x0020)
         up_flag = 0x0004 if button == "left" else (0x0010 if button == "right" else 0x0040)
+        modifier_codes = self._key_codes(keys) if keys else []
+        for code in modifier_codes:
+            self._user32.keybd_event(code, 0, 0, 0)
         self._user32.mouse_event(down_flag, 0, 0, 0, 0)
         per_step = max(0.0, min(duration_ms, 5000) / max(1, len(path) - 1) / 1000.0)
         for x_point, y_point in path[1:]:
@@ -381,7 +384,9 @@ class WindowsBackend(BaseComputerBackend):
                 import time
                 time.sleep(per_step)
         self._user32.mouse_event(up_flag, 0, 0, 0, 0)
-        return {"action": "drag", "path_length": len(path), "button": button, "success": True}
+        for code in reversed(modifier_codes):
+            self._user32.keybd_event(code, 0, 0x0002, 0)
+        return {"action": "drag", "path_length": len(path), "button": button, "keys": list(keys), "success": True}
 
     def keyboard_type(self, text: str) -> dict[str, Any]:
         skipped = 0
