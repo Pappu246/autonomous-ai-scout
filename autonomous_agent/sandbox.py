@@ -155,7 +155,7 @@ def _run_browser(connector,request,limit):
 def _run_computer(connector,request,limit):
     if connector is None or not isinstance(request,Mapping):return False,"computer requires an approved injected connector and structured request",(),False
     op=str(request.get("operation","")).strip().lower()
-    allowed_ops={"screen_capture","window_list","window_active","window_focus","app_launch","mouse_move","mouse_click","keyboard_type","keyboard_hotkey","clipboard_read","clipboard_write"}
+    allowed_ops={"screen_capture","window_list","window_active","window_focus","app_launch","mouse_move","mouse_click","mouse_double_click","mouse_scroll","mouse_drag","keyboard_type","keyboard_hotkey","keyboard_press","wait","computer_use","clipboard_read","clipboard_write"}
     if op not in allowed_ops:return False,f"sandbox computer allowlist does not support operation: {op}",(),False
     try:
         method=getattr(connector,op)
