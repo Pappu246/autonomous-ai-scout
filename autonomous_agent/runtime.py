@@ -48,11 +48,14 @@ def run_task(
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
-    prepared = core.prepare(
-        task,
-        granted=granted,
-        explicitly_approved=explicitly_approved,
-    )
+    if granted is None and not explicitly_approved:
+        prepared = core.prepare(task)
+    else:
+        prepared = core.prepare(
+            task,
+            granted=granted,
+            explicitly_approved=explicitly_approved,
+        )
     if not prepared.plan.executable:
         result = ExecutionResult(
             ExecutionState.BLOCKED,
