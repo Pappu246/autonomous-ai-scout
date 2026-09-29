@@ -715,6 +715,26 @@ Phase 6 includes controlled, approval-gated real workflow execution, durable rec
 
 **Implemented through N46, plus the Phase 1 universal digital agent foundation.**
 
+### Verified mainline snapshot — 2026-09-29
+
+This is the current repository evidence snapshot, not a claim that external operator dependencies
+are configured:
+
+- **Main:** `253927faaacb7ef84077036be8c14f38180084f2`
+- **Final CI:** **2320 passed, 6 skipped**; exact checkout integrity verified
+- **Open PRs / issues:** **0 / 0**
+- **Scheduled publication canary:** run `36592476878`; Scout and Publish both succeeded, and the
+  state branch was updated at commit `2d24d6dd09be83185268af928bd804bf322731e4`
+- **Phase 13 worker canary:** run `36592770917`; created draft PR **#225**, persisted as
+  `EXECUTED`, and did not merge or deploy
+
+The remaining boundaries are external by design: a real coding-provider execution needs operator
+credentials and a legitimate target workspace; external connector smoke tests need connected
+accounts; branch-protection/ruleset administration requires GitHub-side configuration; and no
+formal GitHub release/tag is claimed without a creation path.
+
+
+
 Phase 1 repositions the product: capability domains are peers, GitHub is one of them, and a
 single canonical lifecycle (`autonomous_agent/digital/`) turns a natural-language goal into a
 planned, authorized, executed, observed and verified result. Computer control, application
@@ -728,10 +748,13 @@ N15–N30 contributed the unified task core, durable checkpoints and resume, det
 selection, the bounded observe/verify/retry/adapt loop, DAG planning, the background queue, the
 universal digital tool layer, browser and workspace-shell boundaries, web knowledge acquisition,
 communication workflows, persistent and working-context memory, credential brokering,
-prompt-injection trust boundaries, and consequence-aware approval. Phase 1 composes those
-primitives into one general-purpose digital agent surface without weakening any of them. Later
-autonomy features remain intentionally unimplemented until their respective phases are defined,
-implemented, tested, and verified.
+prompt-injection trust boundaries, and consequence-aware approval. N31–N46 then added durable
+side-effect protection, execution leases, scoped delegation, deterministic self-evaluation, bounded
+goal loops, resource budgets, recovery classification, telemetry, persistent triggers, benchmark
+harnesses, readiness and production-safety gates, and the canonical admission gate. These controls
+are implemented and covered by the current regression suite; external credentials, connected
+accounts, and GitHub administrator configuration remain explicit operational boundaries rather
+than fabricated capabilities.
 
 ---
 
