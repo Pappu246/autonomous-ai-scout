@@ -156,6 +156,7 @@ class OpenAIComputerUseController:
         *,
         approved: bool = False,
         max_turns: int = 20,
+        verify_final_state: bool = True,
     ) -> ComputerUseResult:
         task = str(task).strip()
         if not task:
@@ -174,6 +175,7 @@ class OpenAIComputerUseController:
         previous_response_id: str | None = None
         next_input: Any = task
         total_actions = 0
+        final_screenshot: Mapping[str, Any] | None = None
 
         for turn in range(1, max_turns + 1):
             payload: dict[str, Any] = {
@@ -191,6 +193,44 @@ class OpenAIComputerUseController:
 
             if not calls:
                 final_text = self._final_text(response)
+                if total_actions > 0 and verify_final_state:
+                    verification_prompt = (
+                        "Verify the original desktop task using the latest screenshot and the actions "
+                        "already performed. Reply with exactly VERIFIED when the requested task is visibly "
+                        "complete. Otherwise reply with NOT_VERIFIED followed by a brief reason. Do not perform "
+                        "any additional computer actions during verification."
+                    )
+                    verification_response = self._post(
+                        {
+                            "model": self._model,
+                            "input": verification_prompt,
+                            "previous_response_id": response_id,
+                        },
+                        api_key,
+                    )
+                    verification_text = self._final_text(verification_response).strip()
+                    upper = verification_text.upper()
+                    if upper.startswith("VERIFIED"):
+                        return ComputerUseResult(
+                            "completed_verified",
+                            "model completed the task and a dedicated final screenshot verification passed",
+                            turn + 1,
+                            total_actions,
+                            response_id=(
+                                verification_response.get("id")
+                                if isinstance(verification_response.get("id"), str)
+                                else response_id
+                            ),
+                            final_text=verification_text[:16_384],
+                        )
+                    return ComputerUseResult(
+                        "completed_unverified",
+                        f"dedicated final screenshot verification did not confirm completion: {verification_text[:1000]}",
+                        turn + 1,
+                        total_actions,
+                        response_id=response_id,
+                        final_text=verification_text[:16_384],
+                    )
                 return ComputerUseResult(
                     "completed",
                     "model completed without another computer action",
@@ -255,6 +295,7 @@ class OpenAIComputerUseController:
                     image_base64 = screenshot.get("image_base64")
                     if not isinstance(image_base64, str) or not image_base64:
                         raise ComputerUseError("computer screenshot did not include image data")
+                    final_screenshot = screenshot
                 except Exception as exc:
                     return ComputerUseResult(
                         "failed",
