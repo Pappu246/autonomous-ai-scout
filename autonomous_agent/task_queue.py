@@ -11,6 +11,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Iterable
 
+from .file_lock import InterProcessFileLock
+
 
 class QueueState(str, Enum):
     PENDING = "pending"
@@ -68,6 +70,7 @@ class TaskQueueStore:
     def __init__(self, path: str | Path = "state/task_queue.json") -> None:
         self.path = Path(path)
         self._lock = Lock()
+        self._process_lock = InterProcessFileLock(self.path.with_name(self.path.name + ".lock"))
 
     @staticmethod
     def _validate_timestamp(value: str, label: str) -> None:
@@ -153,7 +156,7 @@ class TaskQueueStore:
                 pass
 
     def list(self) -> tuple[QueueItem, ...]:
-        with self._lock:
+        with self._lock, self._process_lock:
             return tuple(self._load_unlocked())
 
     def enqueue(
@@ -166,7 +169,7 @@ class TaskQueueStore:
             raise ValueError("task_id and execution_id are required and bounded")
         scheduled = available_at or _now()
         self._validate_timestamp(scheduled, "available_at")
-        with self._lock:
+        with self._lock, self._process_lock:
             items = self._load_unlocked()
             if any(item.task_id == task_id for item in items):
                 raise ValueError("task_id already exists")
