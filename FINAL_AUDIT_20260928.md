@@ -100,3 +100,23 @@ Still pending outside the code-only boundary:
 - real external connector smoke tests with legitimate accounts;
 - main branch protection/ruleset administration;
 - formal GitHub release/tag creation.
+
+
+### Deep persistent-state hardening — 2026-09-29 (PRs #216 and #217)
+
+The multi-process audit was extended beyond the queue/lease/side-effect/trigger stores.
+
+PR #216 found that the hash-chained execution audit and bounded run journal were still file-backed shared state. Concurrent writers could derive the same chain predecessor or race journal compaction. The existing inter-process lock was therefore reused for audit append/verify and run-journal append/read operations. Final PR validation reached **2320 passed, 6 skipped**.
+
+PR #217 then audited the remaining persistent ledgers and memory paths. Approval-audit hash chains, lifecycle-ledger transitions, approval decisions, and the cross-project persistent memory log all had read-modify-write or check-then-write race windows. These paths now share the same inter-process locking model, and process-level regression tests cover concurrent writers and single-winner approval decisions. PR #217 merged as \`cdcaba9a3220ca108d73e4d82e4a9e3efb61cba9\`; mainline CI is running for that merge at the time of this update.
+
+### Current repository status after PR #217
+
+- Main: \`cdcaba9a3220ca108d73e4d82e4a9e3efb61cba9\`
+- Open pull requests: 0
+- Open issues: 0
+- Main branch protection: not configured/reported as unprotected
+- Repository rulesets: none returned by the available GitHub connection
+- GitHub releases: none published
+- Latest scheduled Scout run visible: #126, which failed on pre-#211 code during artifact-path publication
+- No scheduled run after the PR #211/#214 fixes has appeared yet, so live publication remains the only unresolved code-independent verification gate
