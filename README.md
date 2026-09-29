@@ -466,6 +466,41 @@ The worker observes CI and PR state, but it does not turn a successful CI run in
 
 ---
 
+## Live Windows computer use
+
+The canonical runtime can now drive a Windows desktop through the same planner, authorization,
+sandbox, audit, replay, and verification boundary used by the other digital capabilities.
+
+Configure the provider credential and optionally choose the computer-use model:
+
+~~~text
+OPENAI_API_KEY=<operator-supplied-key>
+OPENAI_COMPUTER_MODEL=gpt-5.6-sol
+~~~
+
+Run a bounded computer task from the canonical runtime:
+
+~~~bash
+autonomous-scout-run --computer --approve "control the computer and complete this task"
+~~~
+
+Useful runtime controls:
+
+~~~text
+--computer       enable the bounded Windows desktop connector
+--approve        explicitly authorize state-changing computer actions
+--max-turns N    cap the native model-use loop
+--action-budget N
+                 cap desktop actions for the run
+~~~
+
+Without --approve, state-changing desktop actions remain blocked. Native computer use also requires
+an interactive Windows desktop; non-Windows environments fail closed.
+
+The agent performs a dedicated final visual verification pass after computer actions. Bare input
+dispatch is not treated as proof of success. When the final verification does not confirm the task,
+the run remains unverified instead of being reported as success.
+
 ## Runtime model
 
 ```text
