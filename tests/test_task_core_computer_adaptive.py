@@ -1,3 +1,9 @@
+from pathlib import Path
+
+from autonomous_agent.capability_policy import Capability
+from autonomous_agent.execution_engine import ExecutionState
+from autonomous_agent.task_core import AutonomousTaskCore
+
 
 
 def test_execute_adaptive_forwards_computer_connector(monkeypatch, tmp_path: Path) -> None:
