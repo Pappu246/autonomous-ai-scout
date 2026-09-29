@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, shlex, shutil, signal, subprocess, tempfile
+import os, shlex, shutil, signal, subprocess, sys, tempfile
 from pathlib import Path
 from .self_improvement import PatchCandidate, ValidationResult
 
@@ -139,6 +139,8 @@ class LocalSandboxTestRunner:
             for command in commands:
                 try:
                     argv = tuple(shlex.split(command, posix=os.name != "nt"))
+                    if argv and argv[0] in {"python", "python3"}:
+                        argv = (sys.executable,) + argv[1:]
                     process = subprocess.Popen(prefix + argv,cwd=root,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,shell=False,env=env,start_new_session=(os.name == "posix"))
                     output,_ = process.communicate(timeout=self.timeout_seconds)
                 except subprocess.TimeoutExpired:
