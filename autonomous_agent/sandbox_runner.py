@@ -75,6 +75,37 @@ class LocalSandboxTestRunner:
                 return prefix
         return None
 
+
+    @staticmethod
+    def _uses_sudo(prefix):
+        return bool(prefix and Path(prefix[0]).name == "sudo")
+
+    @staticmethod
+    def _restore_ownership(root, prefix):
+        if not LocalSandboxTestRunner._uses_sudo(prefix) or not hasattr(os, "getuid"):
+            return True
+        sudo = prefix[0]
+        try:
+            result = subprocess.run(
+                (
+                    sudo,
+                    "-n",
+                    "chown",
+                    "-R",
+                    f"{os.getuid()}:{os.getgid()}",
+                    str(root),
+                ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+                shell=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0
+
     @staticmethod
     def _safe_env(root):
         env = {
@@ -136,20 +167,28 @@ class LocalSandboxTestRunner:
                 target.parent.mkdir(parents=True,exist_ok=True); target.write_text(content,encoding="utf-8")
             env = self._safe_env(root)
             env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-            for command in commands:
-                try:
-                    argv = tuple(shlex.split(command, posix=os.name != "nt"))
-                    if argv and argv[0] in {"python", "python3"}:
-                        argv = (sys.executable,) + argv[1:]
-                    process = subprocess.Popen(prefix + argv,cwd=root,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,shell=False,env=env,start_new_session=(os.name == "posix"))
-                    output,_ = process.communicate(timeout=self.timeout_seconds)
-                except subprocess.TimeoutExpired:
-                    self._kill(process)
-                    output,_ = process.communicate()
-                    return ValidationResult(False,f"validation timed out: {command[:120]}")
-                except OSError as exc:
-                    return ValidationResult(False,f"validation could not start: {type(exc).__name__}")
-                if process.returncode!=0:
-                    detail=(output or "").strip()
-                    return ValidationResult(False,f"{command[:120]} failed: {detail[-2000:]}")
-        return ValidationResult(True,"sandbox validation passed")
+            result = ValidationResult(True, "sandbox validation passed")
+            try:
+                for command in commands:
+                    try:
+                        argv = tuple(shlex.split(command, posix=os.name != "nt"))
+                        if argv and argv[0] in {"python", "python3"}:
+                            argv = (sys.executable,) + argv[1:]
+                        process = subprocess.Popen(prefix + argv,cwd=root,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,shell=False,env=env,start_new_session=(os.name == "posix"))
+                        output,_ = process.communicate(timeout=self.timeout_seconds)
+                    except subprocess.TimeoutExpired:
+                        self._kill(process)
+                        output,_ = process.communicate()
+                        result = ValidationResult(False,f"validation timed out: {command[:120]}")
+                        break
+                    except OSError as exc:
+                        result = ValidationResult(False,f"validation could not start: {type(exc).__name__}")
+                        break
+                    if process.returncode!=0:
+                        detail=(output or "").strip()
+                        result = ValidationResult(False,f"{command[:120]} failed: {detail[-2000:]}")
+                        break
+            finally:
+                if not self._restore_ownership(root, prefix):
+                    result = ValidationResult(False, "sandbox cleanup ownership reset failed")
+            return result
