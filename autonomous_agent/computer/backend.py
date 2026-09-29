@@ -384,19 +384,28 @@ class WindowsBackend(BaseComputerBackend):
         return {"action": "drag", "path_length": len(path), "button": button, "success": True}
 
     def keyboard_type(self, text: str) -> dict[str, Any]:
-        # Send characters via SendInput or keybd_event
+        skipped = 0
+        unicode_flag = 0x0004  # KEYEVENTF_UNICODE
+        keyup = 0x0002
         for ch in text:
             vk = self._user32.VkKeyScanW(ord(ch))
-            if vk != -1:
-                code = vk & 0xFF
-                shift = (vk >> 8) & 1
-                if shift:
-                    self._user32.keybd_event(0x10, 0, 0, 0)  # VK_SHIFT down
-                self._user32.keybd_event(code, 0, 0, 0)
-                self._user32.keybd_event(code, 0, 2, 0)  # KEYEVENTF_KEYUP = 2
-                if shift:
-                    self._user32.keybd_event(0x10, 0, 2, 0)
-        return {"action": "type", "length": len(text), "success": True}
+            if vk == -1:
+                codepoint = ord(ch)
+                if codepoint > 0xFFFF:
+                    skipped += 1
+                    continue
+                self._user32.keybd_event(0, codepoint, unicode_flag, 0)
+                self._user32.keybd_event(0, codepoint, unicode_flag | keyup, 0)
+                continue
+            code = vk & 0xFF
+            shift = (vk >> 8) & 1
+            if shift:
+                self._user32.keybd_event(0x10, 0, 0, 0)
+            self._user32.keybd_event(code, 0, 0, 0)
+            self._user32.keybd_event(code, 0, keyup, 0)
+            if shift:
+                self._user32.keybd_event(0x10, 0, keyup, 0)
+        return {"action": "type", "length": len(text), "skipped": skipped, "success": skipped == 0}
 
     def _key_codes(self, keys: Sequence[str]) -> list[int]:
         key_map = {
