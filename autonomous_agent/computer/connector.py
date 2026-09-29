@@ -171,6 +171,38 @@ class BoundedComputerConnector:
         action = validate_click(x, y, button, clicks, display)
         return self._backend.mouse_click(action.x, action.y, action.button, action.clicks)
 
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self._budget.consume(1)
+        display = self._backend.get_display_info()
+        ix, iy = validate_coordinates(x, y, display)
+        sx, sy = validate_scroll(scroll_x, scroll_y)
+        return self._backend.mouse_scroll(ix, iy, sx, sy)
+
+    def mouse_drag(
+        self,
+        path: Sequence[tuple[int, int]],
+        button: str = "left",
+        duration_ms: int = 250,
+    ) -> dict[str, Any]:
+        self._budget.consume(1)
+        display = self._backend.get_display_info()
+        normalized = validate_drag_path(path, display)
+        if button not in {"left", "right", "middle"}:
+            raise ComputerSecurityError(f"unsupported mouse button: {button}")
+        return self._backend.mouse_drag(
+            normalized,
+            button,
+            max(0, min(int(duration_ms), 5000)),
+        )
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        self._budget.consume(1)
+        return self._backend.keyboard_press(validate_keypress(keys))
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
+        self._budget.consume(1)
+        return self._backend.wait(max(0, min(int(milliseconds), 10_000)))
+
     def keyboard_type(self, text: str, idempotency_key: str | None = None) -> dict[str, Any]:
         """Type safe text into the currently active control."""
         self._budget.consume(1)
