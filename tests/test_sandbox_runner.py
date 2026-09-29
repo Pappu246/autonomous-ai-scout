@@ -78,3 +78,17 @@ def test_network_prefix_fails_closed_when_all_isolation_candidates_fail(tmp_path
         return Result()
     monkeypatch.setattr("autonomous_agent.sandbox_runner.subprocess.run", fail)
     assert LocalSandboxTestRunner._network_prefix() is None
+
+
+def test_restore_ownership_is_skipped_without_sudo(tmp_path):
+    assert LocalSandboxTestRunner._restore_ownership(
+        tmp_path, ("/usr/bin/unshare", "--net", "--")
+    )
+
+
+def test_restore_ownership_fails_closed_when_sudo_chown_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(LocalSandboxTestRunner, "_uses_sudo", staticmethod(lambda prefix: True))
+    class Result:
+        returncode = 1
+    monkeypatch.setattr("autonomous_agent.sandbox_runner.subprocess.run", lambda *args, **kwargs: Result())
+    assert not LocalSandboxTestRunner._restore_ownership(tmp_path, ("/usr/bin/sudo", "-n", "unshare", "--net", "--"))
