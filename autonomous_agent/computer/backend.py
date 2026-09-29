@@ -357,14 +357,31 @@ class WindowsBackend(BaseComputerBackend):
         for _ in range(clicks):
             self._user32.mouse_event(down_flag, 0, 0, 0, 0)
             self._user32.mouse_event(up_flag, 0, 0, 0, 0)
-        return {
-            "action": "click",
-            "x": x,
-            "y": y,
-            "button": button,
-            "clicks": clicks,
-            "success": True,
-        }
+        return {"action": "click", "x": x, "y": y, "button": button, "clicks": clicks, "success": True}
+
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self.mouse_move(x, y)
+        if scroll_y:
+            self._user32.mouse_event(0x0800, 0, 0, int(scroll_y), 0)
+        if scroll_x:
+            self._user32.mouse_event(0x01000, 0, 0, int(scroll_x), 0)
+        return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+        if len(path) < 2:
+            raise ValueError("drag path requires at least two points")
+        self.mouse_move(*path[0])
+        down_flag = 0x0002 if button == "left" else (0x0008 if button == "right" else 0x0020)
+        up_flag = 0x0004 if button == "left" else (0x0010 if button == "right" else 0x0040)
+        self._user32.mouse_event(down_flag, 0, 0, 0, 0)
+        per_step = max(0.0, min(duration_ms, 5000) / max(1, len(path) - 1) / 1000.0)
+        for x_point, y_point in path[1:]:
+            self._user32.SetCursorPos(int(x_point), int(y_point))
+            if per_step:
+                import time
+                time.sleep(per_step)
+        self._user32.mouse_event(up_flag, 0, 0, 0, 0)
+        return {"action": "drag", "path_length": len(path), "button": button, "success": True}
 
     def keyboard_type(self, text: str) -> dict[str, Any]:
         # Send characters via SendInput or keybd_event
