@@ -231,6 +231,60 @@ class BoundedComputerConnector:
         valid_keys = validate_hotkey(keys)
         return self._backend.keyboard_hotkey(valid_keys)
 
+    def execute_cua_action(
+        self,
+        action: Mapping[str, Any],
+        *,
+        approved: bool = False,
+    ) -> dict[str, Any]:
+        """Execute one structured computer-tool action through this connector."""
+        action_type = str(action.get("type", "")).strip().lower()
+        if not action_type:
+            raise ComputerSecurityError("computer action type is required")
+        mutating = action_type in {"click", "double_click", "drag", "type", "keypress"}
+        if mutating and not approved:
+            raise ComputerSecurityError("state-changing computer action requires explicit approval")
+
+        if action_type == "screenshot":
+            return self.screen_capture(include_image=True)
+        if action_type == "click":
+            return self.mouse_click(int(action["x"]), int(action["y"]), str(action.get("button", "left")), 1)
+        if action_type == "double_click":
+            return self.mouse_click(int(action["x"]), int(action["y"]), str(action.get("button", "left")), 2)
+        if action_type == "move":
+            return self.mouse_move(int(action["x"]), int(action["y"]))
+        if action_type == "scroll":
+            return self.mouse_scroll(
+                int(action["x"]),
+                int(action["y"]),
+                int(action.get("scroll_x", 0)),
+                int(action.get("scroll_y", 0)),
+            )
+        if action_type == "drag":
+            raw_path = action.get("path")
+            if not isinstance(raw_path, (list, tuple)):
+                raise ComputerSecurityError("drag action requires a path")
+            path = tuple(
+                (int(point["x"]), int(point["y"]))
+                if isinstance(point, Mapping)
+                else (int(point[0]), int(point[1]))
+                for point in raw_path
+            )
+            return self.mouse_drag(path, str(action.get("button", "left")), int(action.get("duration_ms", 250)))
+        if action_type == "type":
+            return self.keyboard_type(str(action.get("text", "")))
+        if action_type == "keypress":
+            raw_keys = action.get("keys")
+            if not isinstance(raw_keys, (list, tuple)):
+                raise ComputerSecurityError("keypress action requires a keys array")
+            return self.keyboard_press(tuple(str(key) for key in raw_keys))
+        if action_type == "wait":
+            duration = action.get("duration", action.get("milliseconds", 500))
+            if isinstance(duration, float) and duration <= 10:
+                duration = int(duration * 1000)
+            return self.wait(int(duration))
+        raise ComputerSecurityError(f"unsupported computer action type: {action_type}")
+
     def clipboard_read(self) -> dict[str, Any]:
         """Read clipboard content with secret redaction."""
         self._budget.consume(1)
