@@ -114,11 +114,27 @@ class UnsupportedPlatformBackend(BaseComputerBackend):
         self._fail_closed()
         return {}
 
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
     def keyboard_type(self, text: str) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
