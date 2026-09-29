@@ -106,7 +106,8 @@ def test_final_verification_provider_failure_is_bounded(monkeypatch):
                     }
                 ],
             }
-        )
+        ),
+        FakeResponse({"id": "resp-final-2", "output": [], "output_text": "done"}),
     ]
 
     def fake_post(url, headers, json, timeout):
