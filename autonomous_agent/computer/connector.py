@@ -26,7 +26,10 @@ from .policy import (
     validate_click,
     validate_clipboard_text,
     validate_coordinates,
+    validate_drag_path,
     validate_hotkey,
+    validate_keypress,
+    validate_scroll,
     validate_typed_text,
 )
 from .replay import ComputerReplayProtector
