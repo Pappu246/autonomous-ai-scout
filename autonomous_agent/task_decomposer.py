@@ -11,6 +11,13 @@ def decompose_task(task: str, intent: TaskIntent) -> tuple[str, ...]:
         return ("Identify the requested information source.", "Retrieve and analyze the requested information.", "Verify the result and record sources.")
     if intent is TaskIntent.INSPECT:
         return ("Inspect the relevant project or workspace state.", "Evaluate deterministic findings.", "Verify and summarize the result.")
+    if intent is TaskIntent.COMPUTER:
+        return (
+            "Inspect the current desktop state without mutating it.",
+            "Use only the bounded computer-use capability and its explicit approval boundary.",
+            "Execute the requested desktop actions with the configured turn and action budgets.",
+            "Run the dedicated final visual verification before reporting success.",
+        )
     if intent is TaskIntent.TEST:
         return ("Inspect the testable project state.", "Run the registered testing capability.", "Verify test status and summarize failures.")
     if intent in {TaskIntent.CHANGE, TaskIntent.IMPROVE}:
