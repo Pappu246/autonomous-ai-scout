@@ -71,3 +71,13 @@ A real external coding-provider execution still requires operator-supplied provi
 ## Audit conclusion
 
 No known repository-level regression remains in the audited areas. The concrete correctness issue found by this audit was fixed, covered by a regression test, passed CI, and merged to main.
+
+### Follow-up live workflow finding — 2026-09-29
+
+The hourly scheduled workflow produced a real operational failure in run **36530410005**. The scout itself completed successfully; publication failed because the prior `git push --force-with-lease` used a stale remote-tracking reference and Git rejected the update with `stale info`.
+
+Fixed in PR #203 by hardening the hourly workflow (immutable action SHAs, checkout credential isolation, checkout-integrity verification, and removal of force-push). PR #204 then fixed the state-branch publication model by snapshotting generated state, fetching the current `autonomous-scout-state` branch, overlaying only the five state/report files, and pushing a normal fast-forward commit.
+
+A workflow-security regression contract was added in PR #205. Its CI run completed with **2301 passed, 6 skipped** and the post-merge mainline CI also passed.
+
+The repository connector cannot manually dispatch the scheduled workflow, so the live scheduled publication path will receive its next real verification at the next hourly run. Until that run completes, the publication fix is validated by CI and by the previous failure evidence, but not yet by a post-fix scheduled-run result.
