@@ -5,34 +5,44 @@ import hmac
 import json
 from pathlib import Path
 
+from .file_lock import InterProcessFileLock
+
 
 def _canonical(record: dict[str, str]) -> str:
     return json.dumps({k: v for k, v in record.items() if k != "hash"}, sort_keys=True, separators=(",", ":"))
 
 
 def append_execution_record(path: Path, record: dict[str, str]) -> None:
-    """Append one hash-chained execution record without extending a corrupted chain."""
+    """Append one hash-chained record under an inter-process lock."""
     safe = {str(k): str(v) for k, v in record.items() if k != "hash"}
-    previous_hash = ""
-    if path.exists():
-        if not verify_execution_audit(path):
-            raise ValueError("execution audit chain is invalid")
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for line in reversed(lines):
-            if line.strip():
-                previous = json.loads(line)
-                if not isinstance(previous, dict):
-                    raise ValueError("execution audit contains an invalid record")
-                previous_hash = str(previous.get("hash", ""))
-                break
-    safe["previous_hash"] = previous_hash
-    safe["hash"] = hashlib.sha256(_canonical(safe).encode("utf-8")).hexdigest()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(safe, sort_keys=True) + "\n")
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        previous_hash = ""
+        if path.exists():
+            if not _verify_execution_audit_unlocked(path):
+                raise ValueError("execution audit chain is invalid")
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line in reversed(lines):
+                if line.strip():
+                    previous = json.loads(line)
+                    if not isinstance(previous, dict):
+                        raise ValueError("execution audit contains an invalid record")
+                    previous_hash = str(previous.get("hash", ""))
+                    break
+        safe["previous_hash"] = previous_hash
+        safe["hash"] = hashlib.sha256(_canonical(safe).encode("utf-8")).hexdigest()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(safe, sort_keys=True) + "\n")
 
 
 def verify_execution_audit(path: Path) -> bool:
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        return _verify_execution_audit_unlocked(path)
+
+
+def _verify_execution_audit_unlocked(path: Path) -> bool:
     if not path.exists():
         return True
     previous_hash = ""

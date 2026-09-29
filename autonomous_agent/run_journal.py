@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .file_lock import InterProcessFileLock
+
 MAX_RECORD_BYTES = 16_384
 MAX_READ_RECORDS = 1_000
 MAX_JOURNAL_BYTES = 1_048_576
@@ -59,9 +61,11 @@ def append_run_record(path: Path, record: RunJournalRecord) -> None:
     if len(payload_bytes) > MAX_RECORD_BYTES:
         raise ValueError("run journal record exceeds size limit")
     line = payload_bytes + b"\n"
-    _compact_for_append(path, len(line))
-    with path.open("ab") as handle:
-        handle.write(line)
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        _compact_for_append(path, len(line))
+        with path.open("ab") as handle:
+            handle.write(line)
 
 def make_run_record(*, execution_id: str, task: str, result: Any) -> RunJournalRecord:
     return RunJournalRecord(
@@ -82,28 +86,30 @@ def read_run_records(path: Path, *, limit: int = 100) -> tuple[RunJournalRecord,
         return ()
 
     records: list[RunJournalRecord] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for raw in handle:
-            if len(records) >= limit:
-                break
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-                records.append(
-                    RunJournalRecord(
-                        execution_id=str(payload["execution_id"]),
-                        task=str(payload["task"]),
-                        state=str(payload["state"]),
-                        reason=str(payload["reason"]),
-                        attempts=int(payload["attempts"]),
-                        result_count=int(payload["result_count"]),
-                        recorded_at=str(payload["recorded_at"]),
+    lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
+    with lock:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw in handle:
+                if len(records) >= limit:
+                    break
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                    records.append(
+                        RunJournalRecord(
+                            execution_id=str(payload["execution_id"]),
+                            task=str(payload["task"]),
+                            state=str(payload["state"]),
+                            reason=str(payload["reason"]),
+                            attempts=int(payload["attempts"]),
+                            result_count=int(payload["result_count"]),
+                            recorded_at=str(payload["recorded_at"]),
+                        )
                     )
-                )
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                continue
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    continue
     return tuple(records)
 
 def summarize_run_records(records: tuple[RunJournalRecord, ...]) -> dict[str, int]:
