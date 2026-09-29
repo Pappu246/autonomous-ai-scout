@@ -97,6 +97,36 @@ class OpenAIComputerUseController:
                 calls.append(item)
         return calls
 
+    @staticmethod
+    def _actions_for_call(call: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Normalize current singular-action and older batched-action responses."""
+        action = call.get("action")
+        if isinstance(action, Mapping):
+            return [action]
+        actions = call.get("actions")
+        if isinstance(actions, list):
+            return [item for item in actions if isinstance(item, Mapping)]
+        return []
+
+    @staticmethod
+    def _acknowledged_safety_checks(
+        pending_checks: Any,
+    ) -> list[dict[str, str]]:
+        if not isinstance(pending_checks, list):
+            return []
+        acknowledgements: list[dict[str, str]] = []
+        for check in pending_checks:
+            if not isinstance(check, Mapping):
+                continue
+            ack: dict[str, str] = {}
+            for key in ("id", "code", "message"):
+                value = check.get(key)
+                if isinstance(value, str) and value:
+                    ack[key] = value
+            if ack:
+                acknowledgements.append(ack)
+        return acknowledgements
+
     def _post(self, payload: Mapping[str, Any], api_key: str) -> Mapping[str, Any]:
         try:
             response = httpx.post(
@@ -192,19 +222,18 @@ class OpenAIComputerUseController:
                         response_id=response_id,
                     )
 
-                actions = call.get("actions") or []
-                if not isinstance(actions, list):
+                actions = self._actions_for_call(call)
+                if not actions:
                     return ComputerUseResult(
                         "failed",
-                        "computer_call actions payload is not a list",
+                        "computer_call did not contain a supported action object",
                         turn,
                         total_actions,
                         response_id=response_id,
                     )
 
                 if not approved and any(
-                    isinstance(action, Mapping)
-                    and str(action.get("type", "")).lower() in _MUTATING_ACTIONS
+                    str(action.get("type", "")).lower() in _MUTATING_ACTIONS
                     for action in actions
                 ):
                     return ComputerUseResult(
@@ -235,17 +264,35 @@ class OpenAIComputerUseController:
                         response_id=response_id,
                     )
 
-                outputs.append(
-                    {
-                        "type": "computer_call_output",
-                        "call_id": call_id,
-                        "output": {
-                            "type": "computer_screenshot",
-                            "image_url": f"data:image/png;base64,{image_base64}",
-                            "detail": "original",
-                        },
-                    }
-                )
+                output_item: dict[str, Any] = {
+                    "type": "computer_call_output",
+                    "call_id": call_id,
+                    "output": {
+                        "type": "computer_screenshot",
+                        "image_url": f"data:image/png;base64,{image_base64}",
+                        "detail": "original",
+                    },
+                }
+                if pending_checks:
+                    if not approved:
+                        return ComputerUseResult(
+                            "requires_approval",
+                            "pending provider safety checks require explicit approval",
+                            turn,
+                            total_actions,
+                            response_id=response_id,
+                        )
+                    acknowledged = self._acknowledged_safety_checks(pending_checks)
+                    if not acknowledged:
+                        return ComputerUseResult(
+                            "failed",
+                            "provider safety checks were present but could not be acknowledged safely",
+                            turn,
+                            total_actions,
+                            response_id=response_id,
+                        )
+                    output_item["acknowledged_safety_checks"] = acknowledged
+                outputs.append(output_item)
 
             previous_response_id = response_id
             next_input = outputs
