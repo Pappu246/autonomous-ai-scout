@@ -1,11 +1,9 @@
-"""Real capability wiring for the domains that exist in this phase.
+"""Real capability wiring for the active digital-agent domains.
 
-Every entry here binds to a tool that is *already* registered in
-:data:`autonomous_agent.tool_registry.REGISTRY` and to a sandbox operation that
-already exists. No capability in this file is a placeholder: reserved domains
-(computer control, application adapters, document processing) are declared in
-:mod:`autonomous_agent.digital.domains` and deliberately have **no** entry
-here, so the catalog reports them as unregistered and the planner fails closed.
+Every entry here binds to a tool already registered in
+:mod:`autonomous_agent.tool_registry` and to an existing sandbox operation.
+Computer control, application adapters, and document processing are represented
+by explicit bounded declarations; unavailable platform backends still fail closed.
 """
 
 from __future__ import annotations
@@ -418,8 +416,33 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         CapabilityDomain.COMPUTER,
         "computer.mouse.click",
         "computer",
-        signals=("mouse click", "click mouse", "click at", "double click", "right click", "click button"),
+        signals=("mouse click", "click mouse", "click at", "right click", "click button"),
         stage=40,
+    ),
+    CapabilityDeclaration(
+        "computer:mouse.double_click",
+        CapabilityDomain.COMPUTER,
+        "computer.mouse.double_click",
+        "computer",
+        signals=("double click", "double-click", "doubleclick"),
+        stage=45,
+    ),
+    CapabilityDeclaration(
+        "computer:mouse.scroll",
+        CapabilityDomain.COMPUTER,
+        "computer.mouse.scroll",
+        "computer",
+        signals=("scroll down", "scroll up", "scroll", "page down", "page up"),
+        stage=35,
+        retry_policy=RetryPolicy(2, 1),
+    ),
+    CapabilityDeclaration(
+        "computer:mouse.drag",
+        CapabilityDomain.COMPUTER,
+        "computer.mouse.drag",
+        "computer",
+        signals=("drag", "drag and drop", "drag to"),
+        stage=45,
     ),
     CapabilityDeclaration(
         "computer:keyboard.type",
@@ -434,8 +457,25 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         CapabilityDomain.COMPUTER,
         "computer.keyboard.hotkey",
         "computer",
-        signals=("keyboard shortcut", "hotkey", "press keys", "shortcut combination", "key combination"),
+        signals=("keyboard shortcut", "hotkey", "shortcut combination", "key combination"),
         stage=40,
+    ),
+    CapabilityDeclaration(
+        "computer:keyboard.press",
+        CapabilityDomain.COMPUTER,
+        "computer.keyboard.press",
+        "computer",
+        signals=("press key", "keypress", "press enter", "press escape", "press tab"),
+        stage=45,
+    ),
+    CapabilityDeclaration(
+        "computer:wait",
+        CapabilityDomain.COMPUTER,
+        "computer.wait",
+        "computer",
+        signals=("wait", "wait for the app", "wait for the page"),
+        stage=15,
+        retry_policy=RetryPolicy(2, 1),
     ),
     CapabilityDeclaration(
         "computer:clipboard.read",
@@ -453,6 +493,25 @@ BUILTIN_DECLARATIONS: tuple[CapabilityDeclaration, ...] = (
         "computer",
         signals=("write clipboard", "set clipboard", "copy to clipboard", "update clipboard"),
         stage=50,
+    ),
+    CapabilityDeclaration(
+        "computer:task.execute",
+        CapabilityDomain.COMPUTER,
+        "computer.use",
+        "computer",
+        signals=(
+            "use computer",
+            "control computer",
+            "control the computer",
+            "operate computer",
+            "operate the computer",
+            "control the desktop",
+            "desktop task",
+            "computer task",
+            "complete this on the computer",
+            "do this on my computer",
+        ),
+        stage=70,
     ),
     # -- GitHub (one domain among many) -----------------------------------
     CapabilityDeclaration(

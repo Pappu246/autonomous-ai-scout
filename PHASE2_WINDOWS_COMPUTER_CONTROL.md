@@ -22,9 +22,9 @@ No second runtime or secondary authorization path is introduced. Computer contro
 
 ---
 
-## Registered Computer Capabilities (11 Capabilities)
+## Registered Computer Capabilities (17 Capabilities)
 
-All 11 computer capabilities are registered in the central `ToolRegistry` and bound to the sandbox execution layer:
+All 17 computer capabilities are registered in the central `ToolRegistry` and bound to the sandbox execution layer:
 
 | Capability ID | Tool Name | Mode | Risk | Safe Autonomous | Approval | Description |
 |---|---|---|---|---|---|---|
@@ -41,6 +41,17 @@ All 11 computer capabilities are registered in the central `ToolRegistry` and bo
 | `computer:clipboard.write` | `computer.clipboard.write` | Controlled Write | High | No | Explicit | Write text to clipboard with size bounds |
 
 ---
+
+### Native model-directed computer use
+
+The `computer.use` capability connects the bounded desktop connector to the OpenAI Responses API computer tool.
+The model can request click, double-click, drag, move, scroll, keypress, type, wait, and screenshot actions.
+Each state-changing action remains subject to explicit approval and the agent's existing action budget, replay protection,
+credential checks, prompt-injection boundary, and sandbox. After each action batch the connector captures a fresh PNG
+screenshot and returns it as computer-call output so the model can continue the same task.
+
+Real native computer use additionally requires an operator-configured OPENAI_API_KEY and an available model account.
+
 
 ## Windows Backend Implementation
 
@@ -128,4 +139,4 @@ State-mutating computer actions implement strict replay protection:
 1. **Operating System Restriction**: Real computer automation is supported only on Microsoft Windows. Linux CI fails closed and reports the domain as disabled.
 2. **Interactive Desktop Requirement**: Full live execution requires an active, interactive desktop session with an unlocked screen.
 3. **Elevated Privileges (UAC)**: Actions requiring User Account Control (UAC) elevation are not supported and are blocked by the process denylist.
-4. **Phase 3 Boundary**: Phase 3 (document processing, application adapters, cross-domain macros) was **not** started and remains reserved.
+4. **Provider Configuration**: Native model-directed computer use requires an operator-configured OPENAI_API_KEY and an account/model that exposes the computer tool; missing credentials fail closed.

@@ -153,6 +153,44 @@ def validate_app_launch(app: str, argv: Sequence[str] = ()) -> tuple[str, tuple[
     return cleaned_app, tuple(validated_args)
 
 
+def validate_scroll(scroll_x: int = 0, scroll_y: int = 0) -> tuple[int, int]:
+    try:
+        sx, sy = int(scroll_x), int(scroll_y)
+    except (TypeError, ValueError) as exc:
+        raise ComputerSecurityError("scroll deltas must be integers") from exc
+    if abs(sx) > 10_000 or abs(sy) > 10_000:
+        raise ComputerSecurityError("scroll delta exceeds safety bound")
+    if sx == 0 and sy == 0:
+        raise ComputerSecurityError("scroll requires a non-zero delta")
+    return sx, sy
+
+
+def validate_drag_path(
+    path: Sequence[tuple[int, int]], display: DisplayInfo
+) -> tuple[tuple[int, int], ...]:
+    if not isinstance(path, (list, tuple)) or len(path) < 2 or len(path) > 100:
+        raise ComputerSecurityError("drag path must contain 2-100 points")
+    normalized: list[tuple[int, int]] = []
+    for point in path:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise ComputerSecurityError("drag path points must be [x, y] pairs")
+        normalized.append(validate_coordinates(point[0], point[1], display))
+    return tuple(normalized)
+
+
+def validate_keypress(keys: Sequence[str]) -> tuple[str, ...]:
+    if not isinstance(keys, (list, tuple)) or not 1 <= len(keys) <= 8:
+        raise ComputerSecurityError("keypress requires 1-8 keys")
+    normalized = tuple(str(key).strip().lower() for key in keys)
+    if any(key not in ALLOWED_KEYS for key in normalized):
+        bad = next(key for key in normalized if key not in ALLOWED_KEYS)
+        raise ComputerSecurityError(f"unsupported key: {bad}")
+    keyset = frozenset(normalized)
+    if keyset in BLOCKED_HOTKEYS:
+        raise ComputerSecurityError("blocked system-security key combination")
+    return normalized
+
+
 def validate_coordinates(x: int, y: int, display: DisplayInfo) -> tuple[int, int]:
     """Ensure coordinates are within physical screen boundaries."""
     try:

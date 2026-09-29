@@ -15,6 +15,7 @@ from .models import (
     ScreenRegion,
     WindowInfo,
 )
+from .image import bgra_to_rgba, encode_rgba_png
 from .policy import is_windows
 
 
@@ -25,7 +26,7 @@ class BaseComputerBackend(ABC):
     def get_display_info(self) -> DisplayInfo: ...
 
     @abstractmethod
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]: ...
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]: ...
 
     @abstractmethod
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]: ...
@@ -46,7 +47,19 @@ class BaseComputerBackend(ABC):
     def mouse_click(self, x: int, y: int, button: str = "left", clicks: int = 1) -> dict[str, Any]: ...
 
     @abstractmethod
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]: ...
+
+    @abstractmethod
     def keyboard_type(self, text: str) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]: ...
 
     @abstractmethod
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]: ...
@@ -73,7 +86,7 @@ class UnsupportedPlatformBackend(BaseComputerBackend):
         self._fail_closed()
         return DisplayInfo(0, 0)
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
@@ -101,11 +114,27 @@ class UnsupportedPlatformBackend(BaseComputerBackend):
         self._fail_closed()
         return {}
 
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
     def keyboard_type(self, text: str) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        self._fail_closed()
+        return {}
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
@@ -144,33 +173,87 @@ class WindowsBackend(BaseComputerBackend):
             virtual_height=int(vh or h),
         )
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         display = self.get_display_info()
         x = region.x if region else 0
         y = region.y if region else 0
         w = region.width if region else display.width
         h = region.height if region else display.height
+        if w * h > 16_000_000:
+            raise PlatformNotSupportedError("screen capture exceeds the 16 megapixel safety bound")
 
-        # Minimal bitmap capture via GDI
         hdc_screen = self._user32.GetDC(0)
+        if not hdc_screen:
+            raise PlatformNotSupportedError("unable to acquire the desktop device context")
         hdc_mem = self._gdi32.CreateCompatibleDC(hdc_screen)
+        if not hdc_mem:
+            self._user32.ReleaseDC(0, hdc_screen)
+            raise PlatformNotSupportedError("unable to create a compatible device context")
         hbm = self._gdi32.CreateCompatibleBitmap(hdc_screen, w, h)
+        if not hbm:
+            self._gdi32.DeleteDC(hdc_mem)
+            self._user32.ReleaseDC(0, hdc_screen)
+            raise PlatformNotSupportedError("unable to allocate a compatible bitmap")
         hbm_old = self._gdi32.SelectObject(hdc_mem, hbm)
 
-        # SRCCOPY = 0x00CC0020
-        self._gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, 0x00CC0020)
+        class BITMAPINFOHEADER(self._ctypes.Structure):
+            _fields_ = [
+                ("biSize", self._wintypes.DWORD),
+                ("biWidth", self._wintypes.LONG),
+                ("biHeight", self._wintypes.LONG),
+                ("biPlanes", self._wintypes.WORD),
+                ("biBitCount", self._wintypes.WORD),
+                ("biCompression", self._wintypes.DWORD),
+                ("biSizeImage", self._wintypes.DWORD),
+                ("biXPelsPerMeter", self._wintypes.LONG),
+                ("biYPelsPerMeter", self._wintypes.LONG),
+                ("biClrUsed", self._wintypes.DWORD),
+                ("biClrImportant", self._wintypes.DWORD),
+            ]
 
-        # Cleanup GDI handles
-        self._gdi32.SelectObject(hdc_mem, hbm_old)
-        self._gdi32.DeleteObject(hbm)
-        self._gdi32.DeleteDC(hdc_mem)
-        self._user32.ReleaseDC(0, hdc_screen)
+        class RGBQUAD(self._ctypes.Structure):
+            _fields_ = [
+                ("rgbBlue", self._wintypes.BYTE),
+                ("rgbGreen", self._wintypes.BYTE),
+                ("rgbRed", self._wintypes.BYTE),
+                ("rgbReserved", self._wintypes.BYTE),
+            ]
 
-        return {
-            "format": "png_metadata",
+        class BITMAPINFO(self._ctypes.Structure):
+            _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", RGBQUAD * 1)]
+
+        raw = self._ctypes.create_string_buffer(w * h * 4)
+        bmi = BITMAPINFO()
+        bmi.bmiHeader.biSize = self._ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.bmiHeader.biWidth = w
+        bmi.bmiHeader.biHeight = -h
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biBitCount = 32
+        bmi.bmiHeader.biCompression = 0
+        try:
+            if not self._gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, 0x00CC0020):
+                raise PlatformNotSupportedError("desktop BitBlt capture failed")
+            copied = self._gdi32.GetDIBits(hdc_mem, hbm, 0, h, raw, self._ctypes.byref(bmi), 0)
+            if copied != h:
+                raise PlatformNotSupportedError("desktop pixel extraction failed")
+            rgba = bgra_to_rgba(raw.raw)
+            png_bytes = encode_rgba_png(w, h, rgba)
+        finally:
+            self._gdi32.SelectObject(hdc_mem, hbm_old)
+            self._gdi32.DeleteObject(hbm)
+            self._gdi32.DeleteDC(hdc_mem)
+            self._user32.ReleaseDC(0, hdc_screen)
+
+        result = {
+            "format": "png",
+            "media_type": "image/png",
             "region": {"x": x, "y": y, "width": w, "height": h},
             "captured": True,
+            "byte_length": len(png_bytes),
         }
+        if include_image:
+            result["image_base64"] = base64.b64encode(png_bytes).decode("ascii")
+        return result
 
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]:
         windows: list[WindowInfo] = []
@@ -274,57 +357,101 @@ class WindowsBackend(BaseComputerBackend):
         for _ in range(clicks):
             self._user32.mouse_event(down_flag, 0, 0, 0, 0)
             self._user32.mouse_event(up_flag, 0, 0, 0, 0)
-        return {
-            "action": "click",
-            "x": x,
-            "y": y,
-            "button": button,
-            "clicks": clicks,
-            "success": True,
-        }
+        return {"action": "click", "x": x, "y": y, "button": button, "clicks": clicks, "success": True}
+
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self.mouse_move(x, y)
+        if scroll_y:
+            self._user32.mouse_event(0x0800, 0, 0, int(scroll_y), 0)
+        if scroll_x:
+            self._user32.mouse_event(0x01000, 0, 0, int(scroll_x), 0)
+        return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
+        if len(path) < 2:
+            raise ValueError("drag path requires at least two points")
+        self.mouse_move(*path[0])
+        down_flag = 0x0002 if button == "left" else (0x0008 if button == "right" else 0x0020)
+        up_flag = 0x0004 if button == "left" else (0x0010 if button == "right" else 0x0040)
+        modifier_codes = self._key_codes(keys) if keys else []
+        for code in modifier_codes:
+            self._user32.keybd_event(code, 0, 0, 0)
+        self._user32.mouse_event(down_flag, 0, 0, 0, 0)
+        per_step = max(0.0, min(duration_ms, 5000) / max(1, len(path) - 1) / 1000.0)
+        for x_point, y_point in path[1:]:
+            self._user32.SetCursorPos(int(x_point), int(y_point))
+            if per_step:
+                import time
+                time.sleep(per_step)
+        self._user32.mouse_event(up_flag, 0, 0, 0, 0)
+        for code in reversed(modifier_codes):
+            self._user32.keybd_event(code, 0, 0x0002, 0)
+        return {"action": "drag", "path_length": len(path), "button": button, "keys": list(keys), "success": True}
 
     def keyboard_type(self, text: str) -> dict[str, Any]:
-        # Send characters via SendInput or keybd_event
+        skipped = 0
+        unicode_flag = 0x0004  # KEYEVENTF_UNICODE
+        keyup = 0x0002
         for ch in text:
             vk = self._user32.VkKeyScanW(ord(ch))
-            if vk != -1:
-                code = vk & 0xFF
-                shift = (vk >> 8) & 1
-                if shift:
-                    self._user32.keybd_event(0x10, 0, 0, 0)  # VK_SHIFT down
-                self._user32.keybd_event(code, 0, 0, 0)
-                self._user32.keybd_event(code, 0, 2, 0)  # KEYEVENTF_KEYUP = 2
-                if shift:
-                    self._user32.keybd_event(0x10, 0, 2, 0)
-        return {"action": "type", "length": len(text), "success": True}
+            if vk == -1:
+                codepoint = ord(ch)
+                if codepoint > 0xFFFF:
+                    skipped += 1
+                    continue
+                self._user32.keybd_event(0, codepoint, unicode_flag, 0)
+                self._user32.keybd_event(0, codepoint, unicode_flag | keyup, 0)
+                continue
+            code = vk & 0xFF
+            shift = (vk >> 8) & 1
+            if shift:
+                self._user32.keybd_event(0x10, 0, 0, 0)
+            self._user32.keybd_event(code, 0, 0, 0)
+            self._user32.keybd_event(code, 0, keyup, 0)
+            if shift:
+                self._user32.keybd_event(0x10, 0, keyup, 0)
+        return {"action": "type", "length": len(text), "skipped": skipped, "success": skipped == 0}
+
+    def _key_codes(self, keys: Sequence[str]) -> list[int]:
+        key_map = {
+            "ctrl": 0x11, "control": 0x11, "alt": 0x12, "shift": 0x10,
+            "win": 0x5B, "windows": 0x5B, "enter": 0x0D, "return": 0x0D,
+            "tab": 0x09, "esc": 0x1B, "escape": 0x1B, "space": 0x20,
+            "backspace": 0x08, "delete": 0x2E, "insert": 0x2D,
+            "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+            "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+            "capslock": 0x14, "numlock": 0x90, "scrolllock": 0x91,
+            "printscreen": 0x2C, "pause": 0x13,
+        }
+        codes: list[int] = []
+        for key in keys:
+            lk = key.lower()
+            if lk in key_map:
+                codes.append(key_map[lk])
+            elif len(lk) == 1:
+                codes.append(ord(lk.upper()))
+            elif lk.startswith("f") and lk[1:].isdigit() and 1 <= int(lk[1:]) <= 24:
+                codes.append(0x70 + int(lk[1:]) - 1)
+            else:
+                raise ValueError(f"unsupported Windows key: {key}")
+        return codes
 
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
-        key_map = {
-            "ctrl": 0x11, "control": 0x11,
-            "alt": 0x12,
-            "shift": 0x10,
-            "win": 0x5B, "windows": 0x5B,
-            "enter": 0x0D, "return": 0x0D,
-            "tab": 0x09,
-            "esc": 0x1B, "escape": 0x1B,
-            "space": 0x20,
-            "backspace": 0x08,
-            "delete": 0x2E,
-        }
-        vk_codes: list[int] = []
-        for k in keys:
-            lk = k.lower()
-            if lk in key_map:
-                vk_codes.append(key_map[lk])
-            elif len(lk) == 1:
-                vk_codes.append(ord(lk.upper()))
-
+        vk_codes = self._key_codes(keys)
         for code in vk_codes:
             self._user32.keybd_event(code, 0, 0, 0)
         for code in reversed(vk_codes):
             self._user32.keybd_event(code, 0, 2, 0)
-
         return {"action": "hotkey", "keys": list(keys), "success": True}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        return self.keyboard_hotkey(keys)
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
+        import time
+        bounded = max(0, min(int(milliseconds), 10_000))
+        time.sleep(bounded / 1000.0)
+        return {"action": "wait", "milliseconds": bounded, "success": True}
 
     def clipboard_read(self) -> str:
         if not self._user32.OpenClipboard(0):
@@ -406,17 +533,24 @@ class MockComputerBackend(BaseComputerBackend):
     def get_display_info(self) -> DisplayInfo:
         return self.display
 
-    def screen_capture(self, region: ScreenRegion | None = None) -> dict[str, Any]:
+    def screen_capture(self, region: ScreenRegion | None = None, *, include_image: bool = False) -> dict[str, Any]:
         x = region.x if region else 0
         y = region.y if region else 0
         w = region.width if region else self.display.width
         h = region.height if region else self.display.height
-        return {
-            "format": "png_metadata",
+        rgba = bytes((35, 35, 35, 255)) * (w * h)
+        png = encode_rgba_png(w, h, rgba)
+        result = {
+            "format": "png",
+            "media_type": "image/png",
             "region": {"x": x, "y": y, "width": w, "height": h},
             "captured": True,
             "screen_hash": "mock_screen_hash_12345",
+            "byte_length": len(png),
         }
+        if include_image:
+            result["image_base64"] = base64.b64encode(png).decode("ascii")
+        return result
 
     def window_list(self, filter_title: str | None = None) -> list[WindowInfo]:
         if not filter_title:
@@ -497,9 +631,29 @@ class MockComputerBackend(BaseComputerBackend):
         self.click_history.append(rec)
         return rec
 
+    def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
+        self.mouse_pos = (x, y)
+        return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
+
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
+        if len(path) < 2:
+            raise ValueError("drag path requires at least two points")
+        self.mouse_pos = path[-1]
+        rec = {"action": "drag", "path": list(path), "button": button, "duration_ms": duration_ms, "keys": list(keys), "success": True}
+        self.click_history.append(rec)
+        return rec
+
     def keyboard_type(self, text: str) -> dict[str, Any]:
         self.type_history.append(text)
         return {"action": "type", "text": text, "length": len(text), "success": True}
+
+    def keyboard_press(self, keys: Sequence[str]) -> dict[str, Any]:
+        self.hotkey_history.append(tuple(keys))
+        return {"action": "keypress", "keys": list(keys), "success": True}
+
+    def wait(self, milliseconds: int = 500) -> dict[str, Any]:
+        bounded = max(0, min(int(milliseconds), 10_000))
+        return {"action": "wait", "milliseconds": bounded, "success": True}
 
     def keyboard_hotkey(self, keys: Sequence[str]) -> dict[str, Any]:
         self.hotkey_history.append(tuple(keys))

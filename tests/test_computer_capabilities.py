@@ -11,7 +11,7 @@ from autonomous_agent.digital.builtins import (
     DEFAULT_CAPABILITIES,
     build_capabilities,
 )
-from autonomous_agent.digital.catalog import CapabilityCatalog
+from autonomous_agent.digital.catalog import CapabilityCatalog, signal_matches
 from autonomous_agent.digital.contract import (
     CapabilityAvailability,
     CapabilityDescriptor,
@@ -31,8 +31,14 @@ COMPUTER_CAPABILITY_IDS = (
     "computer:app.launch",
     "computer:mouse.move",
     "computer:mouse.click",
+    "computer:mouse.double_click",
+    "computer:mouse.scroll",
+    "computer:mouse.drag",
     "computer:keyboard.type",
     "computer:keyboard.hotkey",
+    "computer:keyboard.press",
+    "computer:wait",
+    "computer:task.execute",
     "computer:clipboard.read",
     "computer:clipboard.write",
 )
@@ -45,8 +51,14 @@ COMPUTER_TOOL_NAMES = (
     "computer.app.launch",
     "computer.mouse.move",
     "computer.mouse.click",
+    "computer.mouse.double_click",
+    "computer.mouse.scroll",
+    "computer.mouse.drag",
     "computer.keyboard.type",
     "computer.keyboard.hotkey",
+    "computer.keyboard.press",
+    "computer.wait",
+    "computer.use",
     "computer.clipboard.read",
     "computer.clipboard.write",
 )
@@ -162,7 +174,7 @@ def test_catalog_by_tool_name(computer_catalog):
 
 def test_catalog_discover_domain_computer(computer_catalog):
     caps = computer_catalog.discover(domain=CapabilityDomain.COMPUTER)
-    assert len(caps) == 11
+    assert len(caps) == 17
     ids = {c.capability_id for c in caps}
     assert ids == set(COMPUTER_CAPABILITY_IDS)
 
@@ -185,7 +197,7 @@ def test_catalog_discover_by_query_clipboard(computer_catalog):
 def test_domain_status_with_mock_connector_reports_usable(computer_catalog):
     status = {item["domain"]: item for item in computer_catalog.domain_status()}
     assert status["computer"]["usable"] is True
-    assert status["computer"]["registered_capabilities"] == 11
+    assert status["computer"]["registered_capabilities"] == 17
 
 
 def test_catalog_documentation_includes_computer_domain(computer_catalog):
@@ -280,8 +292,39 @@ def test_route_write_clipboard(computer_catalog):
     assert "computer:clipboard.write" in res.selected
 
 
+def test_route_double_click(computer_catalog):
+    res = computer_catalog.route("double click the file")
+    assert "computer:mouse.double_click" in res.selected
+
+
+def test_route_scroll(computer_catalog):
+    res = computer_catalog.route("scroll down")
+    assert "computer:mouse.scroll" in res.selected
+
+
+def test_route_drag(computer_catalog):
+    res = computer_catalog.route("drag this file to the folder")
+    assert "computer:mouse.drag" in res.selected
+
+
+def test_route_keypress(computer_catalog):
+    res = computer_catalog.route("press enter")
+    assert "computer:keyboard.press" in res.selected
+
+
+def test_route_native_computer_task(computer_catalog):
+    goal = "control the computer and complete this task"
+    cap = computer_catalog.get("computer:task.execute")
+    assert cap is not None
+    assert cap.discover().availability is CapabilityAvailability.AVAILABLE
+    assert "control the computer" in cap.discover().signals
+    assert signal_matches("control the computer", goal)
+    res = computer_catalog.route(goal)
+    assert "computer:task.execute" in res.selected
+
+
 # =========================================================================
-# 5. Input Validation across all 11 capabilities (21 tests)
+# 5. Input Validation across all 17 capabilities (21 tests)
 # =========================================================================
 
 def test_validate_input_screen_capture_valid(computer_catalog):
