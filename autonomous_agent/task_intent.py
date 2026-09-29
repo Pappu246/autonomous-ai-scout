@@ -4,6 +4,7 @@ from .task_plan_models import TaskIntent
 def classify_intent(task:str)->TaskIntent:
     text=" ".join(task.strip().split()).lower()
     if not text:return TaskIntent.UNKNOWN
+    if any(term in text for term in ("use computer","control computer","control the computer","operate the computer","desktop","gui","double click","scroll down","scroll up","drag and drop","press enter","computer task")):return TaskIntent.COMPUTER
     if any(term in text for term in ("email","gmail","mailbox","message thread","email thread","send email","draft email")):return TaskIntent.EMAIL
     if any(term in text for term in ("calendar","calendars","event","events","meeting","meetings","appointment","schedule a meeting","free time","available time")):return TaskIntent.CALENDAR
     if any(term in text for term in ("automate","automation","schedule")):return TaskIntent.AUTOMATE

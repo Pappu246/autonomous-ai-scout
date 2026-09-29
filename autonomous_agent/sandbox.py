@@ -166,7 +166,7 @@ def _run_computer(connector,request,limit):
         else:payload=res
         text,truncated=_text_limit(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str),limit)
         if op=="computer_use":
-            succeeded=isinstance(payload,Mapping) and payload.get("state")=="completed"
+            succeeded=isinstance(payload,Mapping) and payload.get("verified") is True
             return succeeded,text,("COMPUTER",op),truncated
         return True,text,("COMPUTER",op),truncated
     except Exception as exc:return False,f"computer operation failed: {type(exc).__name__}: {exc}",("COMPUTER",op),False

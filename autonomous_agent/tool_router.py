@@ -101,7 +101,9 @@ class DynamicToolRouter:
             from .task_intent import classify_intent
             resolved = classify_intent(raw)
 
-        if resolved is TaskIntent.CALENDAR:
+        if resolved is TaskIntent.COMPUTER:
+            names = ("computer.use",)
+        elif resolved is TaskIntent.CALENDAR:
             names = self._calendar_tools(raw)
         elif resolved is TaskIntent.EMAIL:
             names = self._email_tools(raw)

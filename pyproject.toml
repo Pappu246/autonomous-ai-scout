@@ -12,6 +12,7 @@ dependencies = [
 [project.scripts]
 autonomous-scout = "autonomous_agent.runtime:main"
 autonomous-scout-run = "autonomous_agent.main:main"
+autonomous-scout-task = "autonomous_agent.runtime:main"
 autonomous-scout-server = "autonomous_agent.server:main"
 autonomous-scout-code = "autonomous_agent.coding_cli:main"
 autonomous-scout-doctor = "autonomous_agent.doctor:main"

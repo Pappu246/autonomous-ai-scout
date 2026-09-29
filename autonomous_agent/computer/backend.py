@@ -160,6 +160,24 @@ class WindowsBackend(BaseComputerBackend):
         self._user32 = ctypes.windll.user32
         self._gdi32 = ctypes.windll.gdi32
         self._kernel32 = ctypes.windll.kernel32
+        self._set_dpi_awareness()
+
+    def _set_dpi_awareness(self) -> None:
+        """Make screenshot pixels and pointer coordinates use one physical-pixel space."""
+        try:
+            # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
+            setter = getattr(self._user32, "SetProcessDpiAwarenessContext", None)
+            if setter is not None:
+                if setter(self._ctypes.c_void_p(-4)):
+                    return
+        except (AttributeError, OSError):
+            pass
+        try:
+            fallback = getattr(self._user32, "SetProcessDPIAware", None)
+            if fallback is not None:
+                fallback()
+        except (AttributeError, OSError):
+            pass
 
     def get_display_info(self) -> DisplayInfo:
         w = self._user32.GetSystemMetrics(0)  # SM_CXSCREEN
@@ -352,11 +370,21 @@ class WindowsBackend(BaseComputerBackend):
 
     def mouse_click(self, x: int, y: int, button: str = "left", clicks: int = 1) -> dict[str, Any]:
         self.mouse_move(x, y)
-        down_flag = 0x0002 if button == "left" else (0x0008 if button == "right" else 0x0020)
-        up_flag = 0x0004 if button == "left" else (0x0010 if button == "right" else 0x0040)
+        if button == "left":
+            down_flag, up_flag, data = 0x0002, 0x0004, 0
+        elif button == "right":
+            down_flag, up_flag, data = 0x0008, 0x0010, 0
+        elif button in {"middle", "wheel"}:
+            down_flag, up_flag, data = 0x0020, 0x0040, 0
+        elif button == "back":
+            down_flag, up_flag, data = 0x0080, 0x0100, 0x0001
+        elif button == "forward":
+            down_flag, up_flag, data = 0x0080, 0x0100, 0x0002
+        else:
+            raise ValueError(f"unsupported mouse button: {button}")
         for _ in range(clicks):
-            self._user32.mouse_event(down_flag, 0, 0, 0, 0)
-            self._user32.mouse_event(up_flag, 0, 0, 0, 0)
+            self._user32.mouse_event(down_flag, 0, 0, data, 0)
+            self._user32.mouse_event(up_flag, 0, 0, data, 0)
         return {"action": "click", "x": x, "y": y, "button": button, "clicks": clicks, "success": True}
 
     def mouse_scroll(self, x: int, y: int, scroll_x: int = 0, scroll_y: int = 0) -> dict[str, Any]:
@@ -371,19 +399,29 @@ class WindowsBackend(BaseComputerBackend):
         if len(path) < 2:
             raise ValueError("drag path requires at least two points")
         self.mouse_move(*path[0])
-        down_flag = 0x0002 if button == "left" else (0x0008 if button == "right" else 0x0020)
-        up_flag = 0x0004 if button == "left" else (0x0010 if button == "right" else 0x0040)
+        if button == "left":
+            down_flag, up_flag, data = 0x0002, 0x0004, 0
+        elif button == "right":
+            down_flag, up_flag, data = 0x0008, 0x0010, 0
+        elif button in {"middle", "wheel"}:
+            down_flag, up_flag, data = 0x0020, 0x0040, 0
+        elif button == "back":
+            down_flag, up_flag, data = 0x0080, 0x0100, 0x0001
+        elif button == "forward":
+            down_flag, up_flag, data = 0x0080, 0x0100, 0x0002
+        else:
+            raise ValueError(f"unsupported mouse button: {button}")
         modifier_codes = self._key_codes(keys) if keys else []
         for code in modifier_codes:
             self._user32.keybd_event(code, 0, 0, 0)
-        self._user32.mouse_event(down_flag, 0, 0, 0, 0)
+        self._user32.mouse_event(down_flag, 0, 0, data, 0)
         per_step = max(0.0, min(duration_ms, 5000) / max(1, len(path) - 1) / 1000.0)
         for x_point, y_point in path[1:]:
             self._user32.SetCursorPos(int(x_point), int(y_point))
             if per_step:
                 import time
                 time.sleep(per_step)
-        self._user32.mouse_event(up_flag, 0, 0, 0, 0)
+        self._user32.mouse_event(up_flag, 0, 0, data, 0)
         for code in reversed(modifier_codes):
             self._user32.keybd_event(code, 0, 0x0002, 0)
         return {"action": "drag", "path_length": len(path), "button": button, "keys": list(keys), "success": True}

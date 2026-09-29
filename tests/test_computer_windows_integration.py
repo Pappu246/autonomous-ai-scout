@@ -7,6 +7,7 @@ they skip rather than faking success.
 
 from __future__ import annotations
 
+import base64
 import sys
 import pytest
 
@@ -46,9 +47,12 @@ def test_windows_integration_window_list(win_backend):
 
 
 def test_windows_integration_screen_capture(win_backend):
-    cap = win_backend.screen_capture()
+    cap = win_backend.screen_capture(include_image=True)
     assert cap.get("captured") is True
+    assert cap.get("format") == "png"
     assert "region" in cap
+    raw = base64.b64decode(cap["image_base64"])
+    assert raw.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_windows_integration_clipboard_roundtrip(win_backend):

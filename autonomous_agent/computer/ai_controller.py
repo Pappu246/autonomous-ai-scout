@@ -42,6 +42,7 @@ class ComputerUseResult:
             "actions": self.actions,
             "response_id": self.response_id,
             "final_text": self.final_text,
+            "verified": self.state == "completed_verified",
         }
 
 
@@ -97,6 +98,36 @@ class OpenAIComputerUseController:
                 calls.append(item)
         return calls
 
+    @staticmethod
+    def _actions_for_call(call: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Normalize current singular-action and older batched-action responses."""
+        action = call.get("action")
+        if isinstance(action, Mapping):
+            return [action]
+        actions = call.get("actions")
+        if isinstance(actions, list):
+            return [item for item in actions if isinstance(item, Mapping)]
+        return []
+
+    @staticmethod
+    def _acknowledged_safety_checks(
+        pending_checks: Any,
+    ) -> list[dict[str, str]]:
+        if not isinstance(pending_checks, list):
+            return []
+        acknowledgements: list[dict[str, str]] = []
+        for check in pending_checks:
+            if not isinstance(check, Mapping):
+                continue
+            ack: dict[str, str] = {}
+            for key in ("id", "code", "message"):
+                value = check.get(key)
+                if isinstance(value, str) and value:
+                    ack[key] = value
+            if ack:
+                acknowledgements.append(ack)
+        return acknowledgements
+
     def _post(self, payload: Mapping[str, Any], api_key: str) -> Mapping[str, Any]:
         try:
             response = httpx.post(
@@ -126,6 +157,7 @@ class OpenAIComputerUseController:
         *,
         approved: bool = False,
         max_turns: int = 20,
+        verify_final_state: bool = True,
     ) -> ComputerUseResult:
         task = str(task).strip()
         if not task:
@@ -144,7 +176,6 @@ class OpenAIComputerUseController:
         previous_response_id: str | None = None
         next_input: Any = task
         total_actions = 0
-
         for turn in range(1, max_turns + 1):
             payload: dict[str, Any] = {
                 "model": self._model,
@@ -161,6 +192,44 @@ class OpenAIComputerUseController:
 
             if not calls:
                 final_text = self._final_text(response)
+                if total_actions > 0 and verify_final_state:
+                    verification_prompt = (
+                        "Verify the original desktop task using the latest screenshot and the actions "
+                        "already performed. Reply with exactly VERIFIED when the requested task is visibly "
+                        "complete. Otherwise reply with NOT_VERIFIED followed by a brief reason. Do not perform "
+                        "any additional computer actions during verification."
+                    )
+                    verification_response = self._post(
+                        {
+                            "model": self._model,
+                            "input": verification_prompt,
+                            "previous_response_id": response_id,
+                        },
+                        api_key,
+                    )
+                    verification_text = self._final_text(verification_response).strip()
+                    upper = verification_text.upper()
+                    if upper.startswith("VERIFIED"):
+                        return ComputerUseResult(
+                            "completed_verified",
+                            "model completed the task and a dedicated final screenshot verification passed",
+                            turn + 1,
+                            total_actions,
+                            response_id=(
+                                verification_response.get("id")
+                                if isinstance(verification_response.get("id"), str)
+                                else response_id
+                            ),
+                            final_text=verification_text[:16_384],
+                        )
+                    return ComputerUseResult(
+                        "completed_unverified",
+                        f"dedicated final screenshot verification did not confirm completion: {verification_text[:1000]}",
+                        turn + 1,
+                        total_actions,
+                        response_id=response_id,
+                        final_text=verification_text[:16_384],
+                    )
                 return ComputerUseResult(
                     "completed",
                     "model completed without another computer action",
@@ -192,19 +261,18 @@ class OpenAIComputerUseController:
                         response_id=response_id,
                     )
 
-                actions = call.get("actions") or []
-                if not isinstance(actions, list):
+                actions = self._actions_for_call(call)
+                if not actions:
                     return ComputerUseResult(
                         "failed",
-                        "computer_call actions payload is not a list",
+                        "computer_call did not contain a supported action object",
                         turn,
                         total_actions,
                         response_id=response_id,
                     )
 
                 if not approved and any(
-                    isinstance(action, Mapping)
-                    and str(action.get("type", "")).lower() in _MUTATING_ACTIONS
+                    str(action.get("type", "")).lower() in _MUTATING_ACTIONS
                     for action in actions
                 ):
                     return ComputerUseResult(
@@ -235,17 +303,34 @@ class OpenAIComputerUseController:
                         response_id=response_id,
                     )
 
-                outputs.append(
-                    {
-                        "type": "computer_call_output",
-                        "call_id": call_id,
-                        "output": {
-                            "type": "computer_screenshot",
-                            "image_url": f"data:image/png;base64,{image_base64}",
-                            "detail": "original",
-                        },
-                    }
-                )
+                output_item: dict[str, Any] = {
+                    "type": "computer_call_output",
+                    "call_id": call_id,
+                    "output": {
+                        "type": "computer_screenshot",
+                        "image_url": f"data:image/png;base64,{image_base64}",
+                    },
+                }
+                if pending_checks:
+                    if not approved:
+                        return ComputerUseResult(
+                            "requires_approval",
+                            "pending provider safety checks require explicit approval",
+                            turn,
+                            total_actions,
+                            response_id=response_id,
+                        )
+                    acknowledged = self._acknowledged_safety_checks(pending_checks)
+                    if not acknowledged:
+                        return ComputerUseResult(
+                            "failed",
+                            "provider safety checks were present but could not be acknowledged safely",
+                            turn,
+                            total_actions,
+                            response_id=response_id,
+                        )
+                    output_item["acknowledged_safety_checks"] = acknowledged
+                outputs.append(output_item)
 
             previous_response_id = response_id
             next_input = outputs

@@ -117,6 +117,7 @@ def test_openai_computer_use_loop_executes_actions_and_returns_screenshots(monke
         "click the test target",
         approved=True,
         max_turns=3,
+        verify_final_state=False,
     )
 
     assert result.state == "completed"
@@ -128,6 +129,144 @@ def test_openai_computer_use_loop_executes_actions_and_returns_screenshots(monke
     screenshot_output = calls[1][2]["input"][0]["output"]
     assert screenshot_output["type"] == "computer_screenshot"
     assert screenshot_output["image_url"].startswith("data:image/png;base64,")
+
+
+def test_openai_current_single_action_shape_is_supported(monkeypatch):
+    connector = make_connector()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    responses = [
+        FakeResponse(
+            {
+                "id": "resp-current-1",
+                "output": [
+                    {
+                        "type": "computer_call",
+                        "id": "cc-1",
+                        "call_id": "call-current-1",
+                        "action": {"type": "click", "button": "left", "x": 2, "y": 3},
+                        "pending_safety_checks": [],
+                        "status": "completed",
+                    }
+                ],
+            }
+        ),
+        FakeResponse({"id": "resp-current-2", "output": [], "output_text": "done"}),
+    ]
+
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(json)
+        return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result = OpenAIComputerUseController(connector, timeout_seconds=5).run(
+        "click the target",
+        approved=True,
+        max_turns=3,
+        verify_final_state=False,
+    )
+
+    assert result.state == "completed"
+    assert result.actions == 1
+    assert connector.backend.click_history[-1]["x"] == 2
+    assert calls[1]["input"][0]["type"] == "computer_call_output"
+
+
+def test_openai_current_safety_checks_are_acknowledged(monkeypatch):
+    connector = make_connector()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    responses = [
+        FakeResponse(
+            {
+                "id": "resp-safe-1",
+                "output": [
+                    {
+                        "type": "computer_call",
+                        "id": "cc-safe-1",
+                        "call_id": "call-safe-1",
+                        "action": {"type": "click", "button": "left", "x": 2, "y": 3},
+                        "pending_safety_checks": [
+                            {"id": "check-1", "code": "risk", "message": "confirm action"}
+                        ],
+                        "status": "completed",
+                    }
+                ],
+            }
+        ),
+        FakeResponse({"id": "resp-safe-2", "output": [], "output_text": "done"}),
+    ]
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(json)
+        return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result = OpenAIComputerUseController(connector, timeout_seconds=5).run(
+        "perform the approved click",
+        approved=True,
+        max_turns=3,
+        verify_final_state=False,
+    )
+
+    assert result.state == "completed"
+    output = calls[1]["input"][0]
+    assert output["acknowledged_safety_checks"] == [
+        {"id": "check-1", "code": "risk", "message": "confirm action"}
+    ]
+
+
+def test_openai_dedicated_final_verification_marks_verified(monkeypatch):
+    connector = make_connector()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    responses = [
+        FakeResponse(
+            {
+                "id": "resp-v1",
+                "output": [
+                    {
+                        "type": "computer_call",
+                        "call_id": "call-v1",
+                        "action": {"type": "click", "button": "left", "x": 2, "y": 3},
+                        "pending_safety_checks": [],
+                        "status": "completed",
+                    }
+                ],
+            }
+        ),
+        FakeResponse(
+            {
+                "id": "resp-v2",
+                "output": [],
+                "output_text": "done",
+            }
+        ),
+        FakeResponse(
+            {
+                "id": "resp-verify",
+                "output": [],
+                "output_text": "VERIFIED",
+            }
+        ),
+    ]
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(json)
+        return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result = OpenAIComputerUseController(connector, timeout_seconds=5).run(
+        "click the test target",
+        approved=True,
+        max_turns=3,
+    )
+
+    assert result.state == "completed_verified"
+    assert result.safe_dict()["verified"] is True
+    assert len(calls) == 3
+    assert calls[2]["previous_response_id"] == "resp-v2"
 
 
 def test_openai_pending_safety_checks_stop_unapproved_run(monkeypatch):
