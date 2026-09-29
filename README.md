@@ -481,7 +481,7 @@ OPENAI_COMPUTER_MODEL=gpt-5.6-sol
 Run a bounded computer task from the canonical runtime:
 
 ~~~bash
-autonomous-scout-run --computer --approve "control the computer and complete this task"
+autonomous-scout-task --computer --approve "control the computer and complete this task"
 ~~~
 
 Useful runtime controls:
