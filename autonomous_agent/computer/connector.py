@@ -276,7 +276,15 @@ class BoundedComputerConnector:
                 else (int(point[0]), int(point[1]))
                 for point in raw_path
             )
-            return self.mouse_drag(path, str(action.get("button", "left")), int(action.get("duration_ms", 250)))
+            raw_keys = action.get("keys", ())
+            if not isinstance(raw_keys, (list, tuple)):
+                raise ComputerSecurityError("drag keys must be an array")
+            return self.mouse_drag(
+                path,
+                str(action.get("button", "left")),
+                int(action.get("duration_ms", 250)),
+                tuple(str(key) for key in raw_keys),
+            )
         if action_type == "type":
             return self.keyboard_type(str(action.get("text", "")))
         if action_type == "keypress":
