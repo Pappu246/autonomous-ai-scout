@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import tempfile
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .action_queue import PendingAction, load_queue
 from .approved_executor import ApprovalRecord
 from .approval import set_decision
-from .file_lock import InterProcessFileLock
-
-
-VALID_DECISIONS = {"approved", "rejected"}
-TERMINAL_STATUSES = {"approved", "rejected"}
 
 
 def _safe_action_id(action_id: str) -> str:
@@ -62,26 +59,24 @@ def create_approval(
     action_id: str,
     *,
     audit_path: Path | None = None,
-    approved_at=None,
-    ttl=None,
+    approved_at: datetime | None = None,
+    ttl: timedelta | None = None,
 ) -> ApprovalRecord:
     safe_id = _safe_action_id(action_id)
-    process_lock = InterProcessFileLock(queue_path.with_name(queue_path.name + ".lock"))
-    with process_lock:
-        queue = load_queue(queue_path)
-        action = next((item for item in queue if item.id == safe_id), None)
-        if action is None:
-            raise KeyError(f"approval action not found: {action_id}")
-        updated = set_decision(queue_path, action_id, "approved", audit_path)
-        token = __import__("secrets").token_urlsafe(32)
-        record = ApprovalRecord.for_action(
-            updated,
-            token,
-            approved_at=approved_at,
-            ttl=ttl or __import__("datetime").timedelta(hours=24),
-        )
-        _write_private(_approval_path(approval_dir, action_id), asdict(record))
-        return record
+    queue = load_queue(queue_path)
+    action = next((item for item in queue if item.id == safe_id), None)
+    if action is None:
+        raise KeyError(f"approval action not found: {action_id}")
+    updated = set_decision(queue_path, action_id, "approved", audit_path)
+    token = secrets.token_urlsafe(32)
+    record = ApprovalRecord.for_action(
+        updated,
+        token,
+        approved_at=approved_at,
+        ttl=ttl or timedelta(hours=24),
+    )
+    _write_private(_approval_path(approval_dir, action_id), asdict(record))
+    return record
 
 
 def reject_action(
@@ -90,9 +85,7 @@ def reject_action(
     *,
     audit_path: Path | None = None,
 ) -> PendingAction:
-    process_lock = InterProcessFileLock(queue_path.with_name(queue_path.name + ".lock"))
-    with process_lock:
-        return set_decision(queue_path, action_id, "rejected", audit_path)
+    return set_decision(queue_path, action_id, "rejected", audit_path)
 
 
 def load_approval(approval_dir: Path, action_id: str) -> ApprovalRecord:
