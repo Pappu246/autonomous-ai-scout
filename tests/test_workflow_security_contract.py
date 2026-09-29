@@ -37,3 +37,10 @@ def test_hourly_workflow_uses_immutable_actions_and_least_privilege_publish() ->
     assert "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" in workflow
     assert "git push --force-with-lease" not in workflow
     assert "git fetch origin refs/heads/autonomous-ai-scout-state:refs/remotes/origin/autonomous-ai-scout-state" not in workflow
+
+
+def test_hourly_artifact_download_uses_runner_temp_expression() -> None:
+    workflow = _workflow("hourly-scout.yml")
+
+    assert "path: ${{ runner.temp }}/scout-state" in workflow
+    assert "path: $RUNNER_TEMP/scout-state" not in workflow
