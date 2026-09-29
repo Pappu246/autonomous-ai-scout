@@ -79,6 +79,16 @@ def run_checks(root: str | Path = ".") -> tuple[Check, ...]:
             )
         )
 
+    computer_provider_present = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    checks.append(
+        Check(
+            "native computer-use provider",
+            True,
+            "OPENAI_API_KEY is present" if computer_provider_present else
+            "OPENAI_API_KEY is missing; native model-directed computer use is unavailable",
+        )
+    )
+
     token_env = os.getenv("GITHUB_TOKEN_ENV", "GITHUB_TOKEN").strip() or "GITHUB_TOKEN"
     token_present = bool(os.getenv(token_env, "").strip())
     checks.append(
