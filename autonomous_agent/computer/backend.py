@@ -118,7 +118,7 @@ class UnsupportedPlatformBackend(BaseComputerBackend):
         self._fail_closed()
         return {}
 
-    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
         self._fail_closed()
         return {}
 
@@ -367,7 +367,7 @@ class WindowsBackend(BaseComputerBackend):
             self._user32.mouse_event(0x01000, 0, 0, int(scroll_x), 0)
         return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
 
-    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
         if len(path) < 2:
             raise ValueError("drag path requires at least two points")
         self.mouse_move(*path[0])
@@ -630,7 +630,7 @@ class MockComputerBackend(BaseComputerBackend):
         self.mouse_pos = (x, y)
         return {"action": "scroll", "x": x, "y": y, "scroll_x": int(scroll_x), "scroll_y": int(scroll_y), "success": True}
 
-    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250) -> dict[str, Any]:
+    def mouse_drag(self, path: Sequence[tuple[int, int]], button: str = "left", duration_ms: int = 250, keys: Sequence[str] = ()) -> dict[str, Any]:
         if len(path) < 2:
             raise ValueError("drag path requires at least two points")
         self.mouse_pos = path[-1]
