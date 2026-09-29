@@ -72,27 +72,50 @@ A real external coding-provider execution still requires operator-supplied provi
 
 No known repository-level regression remains in the audited areas. The concrete correctness issue found by this audit was fixed, covered by a regression test, passed CI, and merged to main.
 
-### Follow-up live workflow finding — 2026-09-29
-
-The hourly scheduled workflow produced a real operational failure in run **36530410005**. The scout itself completed successfully; publication failed because the prior `git push --force-with-lease` used a stale remote-tracking reference and Git rejected the update with `stale info`.
-
-Fixed in PR #203 by hardening the hourly workflow (immutable action SHAs, checkout credential isolation, checkout-integrity verification, and removal of force-push). PR #204 then fixed the state-branch publication model by snapshotting generated state, fetching the current `autonomous-scout-state` branch, overlaying only the five state/report files, and pushing a normal fast-forward commit.
-
-A workflow-security regression contract was added in PR #205. Its CI run completed with **2301 passed, 6 skipped** and the post-merge mainline CI also passed.
-
-The repository connector cannot manually dispatch the scheduled workflow, so the live scheduled publication path will receive its next real verification at the next hourly run. Until that run completes, the publication fix is validated by CI and by the previous failure evidence, but not yet by a post-fix scheduled-run result.
 
 
-### Follow-up security hardening — 2026-09-29 (PR #207)
+## Current repository status — 2026-09-29
 
-The hourly workflow was further tightened so that the scout job runs with `contents: read` only. Generated state is transferred through a one-day artifact, and a separate `publish` job is the only job granted `contents: write`. The publisher checks out the dedicated `autonomous-ai-scout-state` branch directly and performs a normal authenticated fast-forward push. The artifact upload/download actions are pinned to immutable release commit SHAs, and the workflow-security contract now enforces the least-privilege split.
+**Main:** \`546f026c4d32e98a2b90d182ab6555088d38826d\`
 
-PR #207 merged to main as `d482835f1f267a6689e6f3808db9c01f46905ae5`'s child commit `d482835f1f267a6689e6f3808db9c01f46905ae5`. The PR validation job passed **2301 passed, 6 skipped**. Post-merge mainline CI is running for this merge at the time of this documentation update.
+**Repository hygiene:** 0 open pull requests and 0 open issues at the time of this reconciliation.
 
-The latest known scheduled worker run remains **36530410005** (#125), which failed only in the old state-publication step before PRs #203/#204/#207. No post-fix scheduled run has appeared yet; the next scheduled execution remains the definitive live verification of the hardened publication path.
+**CI:** Mainline CI for the current main commit passed after PR #212. The final PR #212 validation run passed **2309 passed, 6 skipped**. Earlier live validation also passed after PRs #210 and #211.
 
-### Deep workflow audit — 2026-09-29
+**Branch protection:** the main branch is currently reported by GitHub as unprotected. No repository rulesets are currently returned by the available GitHub API connection. This is an administrative control still requiring repository-owner configuration; it is not claimed as completed by the codebase.
 
-A deeper post-merge inspection found two latent workflow defects in the newly split hourly worker path before its next scheduled execution: the publisher referenced `autonomous-ai-scout-state` while the real persisted branch is `autonomous-scout-state`, and the checkout-integrity shell comparison contained escaped shell substitutions that prevented actual `git rev-parse` evaluation. These defects were caught by repository inspection rather than by a scheduled production run and are fixed together in PR #209. The regression contract now asserts the exact executable integrity check and the canonical state-branch name.
+**Releases:** no GitHub releases are currently published. A formal release/tag is an optional release-management step, not a runtime blocker.
 
-This is why the next natural scheduled run is still treated as a live verification gate rather than inferred from unit CI alone.
+## Deep live workflow evidence — 2026-09-29
+
+The scheduled workflow has now produced an additional real failure after the least-privilege split. Run **36575216337** (#126) reached the end of the \`scout\` job successfully: checkout, Python setup, install, integrity check, tests, scout execution, and state-artifact upload all passed. The separate \`publish\` job checked out the state branch and downloaded the artifact successfully, including digest verification, but failed during state copy because the artifact action input used the literal string \`$RUNNER_TEMP/scout-state\`. GitHub Actions action inputs do not perform shell expansion, so the publisher looked for a literal path containing \`$RUNNER_TEMP\` and could not find \`latest_report.md\`.
+
+PR **#211** corrected this to the GitHub Actions expression \`\${{ runner.temp }}/scout-state\` and added a regression contract that rejects the broken form. PR #211 merged as \`8b3f1c1d2da92b4894efac20ed13cf766df65c65\`, and its mainline CI passed.
+
+This live failure is valuable evidence: the scout execution path itself is working, and the remaining defect was isolated to the publisher's transfer-path syntax rather than the agent or artifact generation.
+
+## Deep security/runtime hardening — 2026-09-29
+
+### PR #210 — network-isolated coding validation
+
+The AI coding validation runner previously used a restricted command allowlist, \`shell=False\`, a filtered environment, and temporary workspaces, but did not require Linux network isolation. The validator was hardened to fail closed when isolation cannot be established, to probe supported Linux isolation modes on GitHub-hosted runners, to reuse the configured Python interpreter, and to restore temporary-workspace ownership after privileged validation. Final PR validation passed **2309 passed, 6 skipped** before merge.
+
+### PR #212 — cross-process durable-state serialization
+
+A deeper runtime audit found that \`threading.Lock\` only protects one Python process. The durable queue, concurrency leases, external-side-effect ledger, and persistent trigger registry are shared through files and therefore also require inter-process coordination when multiple worker processes are active. PR #212 added a portable standard-library inter-process file lock and bound it to those state stores. The trigger registry also reloads persistent state while holding the process lock so separate workers do not make decisions from stale in-memory cooldown data.
+
+PR #212 merged as \`546f026c4d32e98a2b90d182ab6555088d38826d\`. Final validation passed **2309 passed, 6 skipped** and the post-merge mainline CI passed.
+
+## Remaining work, explicitly bounded
+
+### Live verification still pending
+
+The latest scheduled run visible from GitHub is still run **#126**, which ran on the pre-#211 commit \`0932f20afa8fd4fdb28e183df7f3e74e1b0856f\`. The next natural hourly run after PR #211/PR #212 is therefore still the definitive end-to-end proof of the corrected publisher path. The available GitHub connector cannot manually dispatch this workflow, so no artificial live success is claimed.
+
+### Environment-dependent work
+
+A real external coding-provider execution still requires operator-supplied provider credentials and a target workspace. Gmail, Calendar, browser/computer, and other real external connectors likewise require legitimate credentials and an appropriate runtime environment. The repository does not fabricate any of these prerequisites.
+
+### Administrative release hardening
+
+Main branch protection/rulesets and a formal GitHub release/tag are not currently configured. These are repository-administration/release-management tasks rather than missing agent-core implementation, and the available GitHub connection cannot configure them from this session.
