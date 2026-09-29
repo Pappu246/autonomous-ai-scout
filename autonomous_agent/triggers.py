@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import Lock
 
+from .file_lock import InterProcessFileLock
+
 
 class TriggerError(ValueError):
     pass
@@ -32,6 +34,7 @@ class TriggerRegistry:
         self._triggers: dict[str, Trigger] = {}
         self._last_fired: dict[str, float] = {}
         self._lock = Lock()
+        self._process_lock = InterProcessFileLock(self.path.with_name(self.path.name + ".lock")) if self.path is not None else None
         self._load()
 
     def _load(self) -> None:
@@ -93,7 +96,7 @@ class TriggerRegistry:
             json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
         ).hexdigest()
         trigger_id = hashlib.sha256((event + "\0" + fingerprint).encode()).hexdigest()[:32]
-        with self._lock:
+        with self._lock, self._process_lock:
             if trigger_id not in self._triggers and len(self._triggers) >= self.max_triggers:
                 raise TriggerError("trigger registry is full")
             trigger = Trigger(trigger_id, event, fingerprint, cooldown_seconds)
@@ -102,7 +105,7 @@ class TriggerRegistry:
             return trigger
 
     def ready(self, trigger_id: str) -> bool:
-        with self._lock:
+        with self._lock, self._process_lock:
             trigger = self._triggers.get(str(trigger_id))
             if trigger is None or not trigger.enabled:
                 return False
@@ -111,7 +114,7 @@ class TriggerRegistry:
             return now - last >= trigger.cooldown_seconds
 
     def fire(self, trigger_id: str) -> bool:
-        with self._lock:
+        with self._lock, self._process_lock:
             trigger = self._triggers.get(str(trigger_id))
             if trigger is None or not trigger.enabled:
                 return False
@@ -124,7 +127,7 @@ class TriggerRegistry:
             return True
 
     def disable(self, trigger_id: str) -> None:
-        with self._lock:
+        with self._lock, self._process_lock:
             trigger = self._triggers.get(str(trigger_id))
             if trigger is not None:
                 self._triggers[trigger.trigger_id] = Trigger(
