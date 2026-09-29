@@ -117,6 +117,7 @@ def test_openai_computer_use_loop_executes_actions_and_returns_screenshots(monke
         "click the test target",
         approved=True,
         max_turns=3,
+        verify_final_state=False,
     )
 
     assert result.state == "completed"
@@ -163,6 +164,7 @@ def test_openai_current_single_action_shape_is_supported(monkeypatch):
         "click the target",
         approved=True,
         max_turns=3,
+        verify_final_state=False,
     )
 
     assert result.state == "completed"
@@ -214,6 +216,56 @@ def test_openai_current_safety_checks_are_acknowledged(monkeypatch):
     ]
 
 
+def test_openai_dedicated_final_verification_marks_verified(monkeypatch):
+    connector = make_connector()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    responses = [
+        FakeResponse(
+            {
+                "id": "resp-v1",
+                "output": [
+                    {
+                        "type": "computer_call",
+                        "call_id": "call-v1",
+                        "action": {"type": "click", "button": "left", "x": 2, "y": 3},
+                        "pending_safety_checks": [],
+                        "status": "completed",
+                    }
+                ],
+            }
+        ),
+        FakeResponse(
+            {
+                "id": "resp-v2",
+                "output": [],
+                "output_text": "done",
+            }
+        ),
+        FakeResponse(
+            {
+                "id": "resp-verify",
+                "output": [],
+                "output_text": "VERIFIED",
+            }
+        ),
+    ]
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(json)
+        return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result = OpenAIComputerUseController(connector, timeout_seconds=5).run(
+        "click the test target",
+        approved=True,
+        max_turns=3,
+    )
+
+    assert result.state == "completed_verified"
+    assert result.safe_dict()["verified"] is True
+    assert len(calls) == 3
+    assert calls[2]["previous_response_id"] == "resp-v2"
 def test_openai_pending_safety_checks_stop_unapproved_run(monkeypatch):
     connector = make_connector()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
