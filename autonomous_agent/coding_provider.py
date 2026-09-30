@@ -163,8 +163,8 @@ class OpenAICompatibleCodingModel:
                         break
                     diff_lines = list(
                         difflib.unified_diff(
-                            old_content.splitlines(True),
-                            new_content.splitlines(True),
+                            old_content.splitlines(),
+                            new_content.splitlines(),
                             fromfile=f"a/{path}",
                             tofile=f"b/{path}",
                             lineterm="",
