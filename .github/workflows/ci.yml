@@ -30,7 +30,7 @@ jobs:
 
   gate3-local-ollama:
     name: Gate 3 live free coding provider
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'ci: gate3 live probe')
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'ci: gate3 live probe') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
