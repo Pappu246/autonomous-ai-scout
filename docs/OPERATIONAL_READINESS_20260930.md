@@ -19,10 +19,10 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Current main baseline: `6175d63d3b569111383f10d51954eb0c9c1982f3`
+- Latest verified code baseline: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
 - Open pull requests at audit time: **0**
 - Open issues at audit time: **0**
-- Current CI evidence: **2354 passed, 6 skipped**
+- Latest post-merge CI evidence: **2355 passed, 6 skipped**
 - Current Windows computer smoke evidence: **5 passed, 1 skipped**
 - Latest computer-control changes: PRs **#228, #229, #230, #231, #232**
 - No GitHub release is currently published.
@@ -86,3 +86,12 @@ security assertion without placing a literal private-key marker in source.
 The same Scout run reported a low-severity lockfile gap. This hardening change adds and consumes
 `requirements.lock` across CI, Windows smoke, and scheduled Scout execution, and the dependency
 scanner recognizes that explicit lock strategy.
+
+
+## Latest code-level reconciliation
+
+The hardening merge 108f639d524b5bc25a1e2d4d645a25be47c99fae is the latest verified code baseline. Its post-merge CI and Windows smoke both passed.
+
+The secret-scan finding from the prior Scout report was traced to deliberate test-fixture source text, not a credential. The fixture was rewritten so the private-key-shaped value is constructed at runtime while the authentication rejection assertion remains intact.
+
+The dependency reproducibility finding was closed by requirements.lock, which is consumed by the primary CI, Windows computer smoke, and hourly Scout workflows.
