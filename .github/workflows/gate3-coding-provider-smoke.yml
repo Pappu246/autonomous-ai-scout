@@ -44,9 +44,6 @@ on:
     paths:
       - ".github/workflows/gate3-coding-provider-smoke.yml"
 
-concurrency:
-  group: autonomous-ai-scout-gate3-live
-  cancel-in-progress: true
 
 permissions:
   contents: read
