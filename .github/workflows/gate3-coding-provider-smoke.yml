@@ -49,6 +49,10 @@ on:
       - "tests/test_coding_provider.py"
 
 
+concurrency:
+  group: autonomous-ai-scout-gate3-live
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
