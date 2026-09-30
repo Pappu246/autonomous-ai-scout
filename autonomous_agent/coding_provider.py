@@ -103,13 +103,10 @@ class OpenAICompatibleCodingModel:
         if self.config.temperature is not None:
             payload["temperature"] = self.config.temperature
         if self.config.structured_output:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "patch_candidate",
-                    "schema": _PATCH_SCHEMA,
-                },
-            }
+            # Use broadly compatible JSON mode for lightweight local providers.
+            # The complete PatchCandidate schema is still supplied in the prompt,
+            # then parsed and validated against the repository-side contract below.
+            payload["response_format"] = {"type": "json_object"}
         result = self._post(payload, {"Authorization":f"Bearer {api_key}","Content-Type":"application/json"})
         try:
             message = result["choices"][0]["message"]
