@@ -760,8 +760,8 @@ the remaining gaps explicitly separated into live-environment and GitHub-adminis
 - Automatic Windows computer smoke workflow: **verified**
 - Open pull requests: **0**
 - Open issues: **0**
-- Baseline CI: **2354 passed, 6 skipped**
-- Baseline Windows smoke: **5 passed, 1 skipped**
+- Latest post-merge CI: **2355 passed, 6 skipped**
+- Latest post-merge Windows smoke: **5 passed, 1 skipped**
 
 ### Live evidence already established
 
@@ -784,6 +784,9 @@ completed by deterministic tests alone.
 
 The authoritative current gate matrix is:
 [Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
+
+The 2026-09-30 Scout secret-scan finding was traced to deliberate PEM test-fixture text. The fixture was rewritten without changing the security assertion, and the reproducibility gap was closed with the checked-in dependency snapshot. The next scheduled Scout report is the independent operational confirmation point for those findings.
+
 
 The Python CI and scheduled Scout workflows now consume the checked-in `requirements.lock` resolution snapshot after editable installation, so the tested dependency set is explicit rather than resolved from floating ranges at runtime.
 
