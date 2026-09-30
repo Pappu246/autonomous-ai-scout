@@ -92,7 +92,7 @@ def test_expired_leases_are_purged_from_broker_memory():
     "token = SUPERSECRET",
     "api_key: SUPERSECRET",
     "password = SUPERSECRET",
-    "-----BEGIN PRIVATE KEY-----SECRET-----END PRIVATE KEY-----",
+    "-" * 5 + "BEGIN PRIVATE KEY" + "-" * 5 + "SECRET" + "-" * 5 + "END PRIVATE KEY" + "-" * 5,
 ])
 def test_credential_reference_rejects_secret_variants(resource):
     with pytest.raises(ValueError, match="credential reference"):

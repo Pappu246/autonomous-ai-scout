@@ -744,7 +744,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Current mainline baseline:** `11a51492efb1c41ee0da8428ded800d1859f3f38`
+**Current mainline baseline:** `6175d63d3b569111383f10d51954eb0c9c1982f3`
 
 The current repository is **implementation-complete for the audited autonomy/control layers**, with
 the remaining gaps explicitly separated into live-environment and GitHub-administration boundaries.
@@ -760,7 +760,7 @@ the remaining gaps explicitly separated into live-environment and GitHub-adminis
 - Automatic Windows computer smoke workflow: **verified**
 - Open pull requests: **0**
 - Open issues: **0**
-- Baseline CI: **2352 passed, 6 skipped**
+- Baseline CI: **2354 passed, 6 skipped**
 - Baseline Windows smoke: **5 passed, 1 skipped**
 
 ### Live evidence already established
@@ -768,6 +768,7 @@ the remaining gaps explicitly separated into live-environment and GitHub-adminis
 - Scheduled Scout generation + publication path: **live-verified**
 - Approval-gated GitHub worker branch/commit/draft-PR path: **live-verified**
 - Normal pull-request CI path after worker-created change: **live-verified**
+- Scheduled publication revalidated on **2026-09-30** (workflow run **36684385846**); Scout and Publish both succeeded and state branch advanced to **72e823d**.
 
 ### Still requiring real external evidence
 
@@ -783,6 +784,8 @@ completed by deterministic tests alone.
 
 The authoritative current gate matrix is:
 [Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
+
+The Python CI and scheduled Scout workflows now consume the checked-in `requirements.lock` resolution snapshot after editable installation, so the tested dependency set is explicit rather than resolved from floating ranges at runtime.
 
 Do not start another feature phase by skipping a gate. Finish the current gate, verify it with
 evidence, then advance.

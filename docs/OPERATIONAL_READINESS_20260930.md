@@ -19,11 +19,11 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Baseline main before this hardening change: `11a51492efb1c41ee0da8428ded800d1859f3f38`
+- Current main baseline: `6175d63d3b569111383f10d51954eb0c9c1982f3`
 - Open pull requests at audit time: **0**
 - Open issues at audit time: **0**
-- Baseline CI: **2352 passed, 6 skipped**
-- Baseline Windows computer smoke: **5 passed, 1 skipped**
+- Current CI evidence: **2354 passed, 6 skipped**
+- Current Windows computer smoke evidence: **5 passed, 1 skipped**
 - Latest computer-control changes: PRs **#228, #229, #230, #231, #232**
 - No GitHub release is currently published.
 
@@ -36,8 +36,9 @@ A capability is not promoted from one state to the next without evidence.
 | Native Windows computer control | **VERIFIED** | Real bounded desktop loop, screenshots, input primitives, approval, replay protection and dedicated final visual verification are implemented. |
 | Adaptive computer execution | **VERIFIED** | Computer connector/request propagation is covered through adaptive execution and task core regression tests. |
 | Computer provider resilience | **VERIFIED** | Bounded retry rules and fail-closed provider failure conversion are covered by dedicated tests. |
-| Windows CI smoke | **VERIFIED** | Hosted Windows smoke is automatically triggered for computer-control changes; action dependencies are now pinned to immutable SHAs in this hardening change. |
-| Scheduled state publication | **LIVE-VERIFIED** | Existing Phase 13/current audit evidence confirms successful Scout + Publish canary and authenticated state-branch update. |
+| Windows CI smoke | **VERIFIED** | Hosted Windows smoke is automatically triggered for computer-control changes; action dependencies are pinned to immutable SHAs. |
+| Dependency reproducibility | **VERIFIED** | `requirements.lock` is consumed by CI, Windows smoke, and the scheduled Scout workflow; the latest green CI resolved the pinned set successfully. |
+| Scheduled state publication | **LIVE-VERIFIED** | Revalidated 2026-09-30 by workflow run **36684385846**; Scout and Publish both succeeded and state branch advanced to **72e823d**. |
 | Approval → real GitHub worker | **LIVE-VERIFIED** | Existing Phase 13/current audit evidence confirms a worker-created draft PR and successful ordinary PR CI revalidation. |
 | External coding-provider execution | **NOT LIVE-VERIFIED** | Requires operator-supplied provider credentials and a legitimate target workspace. The repository must fail closed when these are absent. |
 | Real Gmail/Calendar/application/document external accounts | **NOT LIVE-VERIFIED** | Requires legitimate connected accounts and operator credentials; deterministic repository coverage is not a substitute for account smoke evidence. |
@@ -73,3 +74,15 @@ controls are **not** converted into synthetic success.
 
 This readiness document does not authorize automatic merge, deployment, billing, credential bypass,
 mass-destructive computer actions, or unrestricted shell execution.
+
+
+## Autonomous scanner finding reconciliation
+
+The 2026-09-30 Scout report correctly surfaced a high-risk-looking PEM fixture in
+`tests/test_auth_broker.py`, but the value was deliberate test data rather than a credential.
+The fixture has been rewritten so the secret pattern is assembled at runtime, preserving the
+security assertion without placing a literal private-key marker in source.
+
+The same Scout run reported a low-severity lockfile gap. This hardening change adds and consumes
+`requirements.lock` across CI, Windows smoke, and scheduled Scout execution, and the dependency
+scanner recognizes that explicit lock strategy.

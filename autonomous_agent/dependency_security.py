@@ -78,7 +78,7 @@ def analyze_dependencies(root: Path, repository: str = "local") -> list[ProjectF
                     "Review lifecycle scripts because dependency installation can execute arbitrary project commands.",
                 ))
 
-    lock_names = ("poetry.lock", "uv.lock", "Pipfile.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock")
+    lock_names = ("poetry.lock", "uv.lock", "Pipfile.lock", "requirements.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock")
     has_manifest = any((root / name).exists() for name in ("pyproject.toml", "requirements.txt", "Pipfile", "package.json"))
     has_lock = any((root / name).exists() for name in lock_names)
     if has_manifest and not has_lock:
