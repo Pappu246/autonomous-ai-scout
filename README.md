@@ -744,7 +744,7 @@ never auto-merges or deploys.
 
 ## Current status
 
-**Current mainline baseline:** `6175d63d3b569111383f10d51954eb0c9c1982f3`
+**Current mainline baseline:** `d68ec62d335a5ebfb474ba928c73eb2f01f7d905`
 
 The current repository is **implementation-complete for the audited autonomy/control layers**, with
 the remaining gaps explicitly separated into live-environment and GitHub-administration boundaries.
@@ -760,7 +760,7 @@ the remaining gaps explicitly separated into live-environment and GitHub-adminis
 - Automatic Windows computer smoke workflow: **verified**
 - Open pull requests: **0**
 - Open issues: **0**
-- Latest post-merge CI: **2355 passed, 6 skipped**
+- Latest mainline CI: **PASS** on exact SHA `d68ec62d335a5ebfb474ba928c73eb2f01f7d905` (run **36748455217**)
 - Latest post-merge Windows smoke: **5 passed, 1 skipped**
 
 ### Live evidence already established
