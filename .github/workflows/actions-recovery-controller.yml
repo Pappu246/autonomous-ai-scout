@@ -1,0 +1,50 @@
+name: Actions Recovery Controller
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    if: ${{ github.actor == 'Pappu246' && github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/scout-cleanup-actions') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel stale Gate 3 and CI runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')"
+          echo "current_main_sha=${main_sha}"
+
+          gh api --paginate "repos/${REPO}/actions/runs?per_page=100" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --jq '.workflow_runs[] | select((.status=="queued" or .status=="in_progress") and (.name=="Gate 3 — Coding Provider Smoke" or .name=="CI")) | [.id,.name,.head_sha] | @tsv' |
+          while IFS=$'\t' read -r run_id name head_sha; do
+            [ -n "${run_id}" ] || continue
+            if [ "${head_sha}" = "${main_sha}" ]; then
+              echo "KEEP ${run_id} ${name} current-main"
+              continue
+            fi
+            echo "CANCEL ${run_id} ${name} stale-sha=${head_sha}"
+            gh run cancel "${run_id}" --repo "${REPO}" || true
+          done
+
+      - name: Report remaining current-main runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')"
+          gh api --paginate "repos/${REPO}/actions/runs?per_page=100" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --jq ".workflow_runs[] | select((.status==\"queued\" or .status==\"in_progress\") and (.head_sha==\"${main_sha}\") and (.name==\"Gate 3 — Coding Provider Smoke\" or .name==\"CI\")) | {id,name,status,head_sha}" || true
