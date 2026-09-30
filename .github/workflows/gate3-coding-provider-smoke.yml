@@ -131,7 +131,7 @@ jobs:
       - name: Confirm bounded diff normalization boundary
         run: |
           set -euo pipefail
-          echo "Provider adapter may normalize malformed diff formatting only from bounded repository context and returned files."
+          echo "Provider adapter uses bounded-context diff normalization v2 for malformed diff formatting."
           echo "Final patch review and injected validation remain authoritative."
 
       - name: Preserve approval boundary
