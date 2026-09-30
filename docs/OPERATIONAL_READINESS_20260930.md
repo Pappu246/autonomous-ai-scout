@@ -19,11 +19,12 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Latest verified functional code baseline before readiness harnesses: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
+- Current mainline SHA: `c92e9e786445ae4c58d8418125b92b0465d3e74a`
+- Latest functional hardening baseline before final-gate harnesses: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
 - Gate 3 smoke workflow merged in PR **#236** at `a748b386666c00d5f909e618dbaaaf60dcb2cb6b`
 - Open pull requests at audit time: **0**
 - Open issues at audit time: **0**
-- Latest post-merge CI evidence: **2355 passed, 6 skipped**
+- Latest post-merge CI evidence: **2355 passed, 6 skipped** on the hardening baseline; current `main` (`c92e9e...`) additionally has `test`, `scout`, and `publish` check-runs all completed successfully on the exact mainline SHA.
 - Current Windows computer smoke evidence: **5 passed, 1 skipped**
 - Latest computer-control changes: PRs **#228, #229, #230, #231, #232**
 - No GitHub release is currently published.
@@ -43,8 +44,8 @@ A capability is not promoted from one state to the next without evidence.
 | Approval → real GitHub worker | **LIVE-VERIFIED** | Existing Phase 13/current audit evidence confirms a worker-created draft PR and successful ordinary PR CI revalidation. |
 | External coding-provider execution | **NOT LIVE-VERIFIED** | Requires operator-supplied provider credentials and a legitimate target workspace. The repository must fail closed when these are absent. |
 | Real Gmail/Calendar/application/document external accounts | **NOT LIVE-VERIFIED** | Requires legitimate connected accounts and operator credentials; deterministic repository coverage is not a substitute for account smoke evidence. |
-| Main branch protection | **ADMINISTRATIVE** | Must be verified/configured through GitHub repository administration; the connected API cannot read the protection resource in this session. |
-| GitHub rulesets | **UNVERIFIED** | No rulesets were returned by the available connection. Treat this as an administrative verification item, not as proof of absence. |
+| Main branch protection | **NOT VERIFIED / CURRENTLY UNPROTECTED** | Live branch metadata currently reports `protected: false` and required status checks are off. This must be configured and then re-verified through GitHub repository administration. |
+| GitHub rulesets | **UNVERIFIED** | The available connection currently returns an empty ruleset collection; treat this as unverified until checked with repository administration access. |
 | Formal GitHub release/tag | **NOT PUBLISHED** | No release is currently published. A formal release requires a supported release/tag creation path plus release evidence. |
 
 ## Release policy
