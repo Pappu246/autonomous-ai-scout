@@ -1,0 +1,64 @@
+name: Gate 4 — External Connector Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact mainline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install reproducible dependency set
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          pip install -r requirements.lock
+
+      - name: Run deterministic connector safety suite
+        run: |
+          set -euo pipefail
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q \
+            tests/test_gmail_connector.py \
+            tests/test_gmail_execution_boundary.py \
+            tests/test_calendar_connector.py \
+            tests/test_application_agent.py \
+            tests/test_application_capabilities.py \
+            tests/test_application_safety.py \
+            tests/test_documents_agent.py \
+            tests/test_documents_capabilities.py \
+            tests/test_documents_safety.py
+
+      - name: Require real read-only account credentials
+        env:
+          GMAIL_TOKEN: ${{ secrets.SCOUT_GMAIL_ACCESS_TOKEN }}
+          CALENDAR_TOKEN: ${{ secrets.SCOUT_CALENDAR_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${GMAIL_TOKEN}" || { echo 'SCOUT_GMAIL_ACCESS_TOKEN is required.'; exit 1; }
+          test -n "${CALENDAR_TOKEN}" || { echo 'SCOUT_CALENDAR_ACCESS_TOKEN is required.'; exit 1; }
+
+      - name: Run live Gmail + Calendar smoke
+        env:
+          SCOUT_GMAIL_ACCESS_TOKEN: ${{ secrets.SCOUT_GMAIL_ACCESS_TOKEN }}
+          SCOUT_CALENDAR_ACCESS_TOKEN: ${{ secrets.SCOUT_CALENDAR_ACCESS_TOKEN }}
+        run: python tools/live_gate4_smoke.py
+
+      - name: Record boundary
+        run: |
+          echo 'Gate 4 passed only for the read-only Gmail/Calendar account smoke.'
+          echo 'Application/document mutations remain approval-gated.'
