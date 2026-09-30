@@ -126,11 +126,15 @@ jobs:
               })
               with urllib.request.urlopen(req,timeout=20) as response:
                   jobs=json.load(response).get('jobs',[])
-              log_text=' '.join(str(step.get('name','')) for job in jobs for step in job.get('steps',[]))
-              if 'Apply hardened main-branch protection when explicitly authorized' in log_text:
-                  print(f'Gate 5 application step executed in successful run {run_id}.')
-                  raise SystemExit(0)
-          raise SystemExit('No successful Gate 5 run for this SHA shows the explicit protection-application step.')
+              for job in jobs:
+                  for step in job.get('steps',[]):
+                      if (
+                          step.get('name') == 'Apply hardened main-branch protection when explicitly authorized'
+                          and step.get('conclusion') == 'success'
+                      ):
+                          print(f'Gate 5 application step succeeded in run {run_id}.')
+                          raise SystemExit(0)
+          raise SystemExit('No successful Gate 5 run for this SHA shows the explicit protection-application step succeeding.')
           PY
 
       - name: Refuse duplicate tag
