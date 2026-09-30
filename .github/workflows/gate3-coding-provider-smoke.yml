@@ -1,4 +1,4 @@
-name: Gate 3 — Coding Provider Smoke
+name: Gate 3 — Coding Provider Smoke (Authoritative)
 
 on:
   workflow_dispatch:
@@ -140,7 +140,7 @@ jobs:
 
       - name: Preserve approval boundary
         run: |
-          echo "Gate 3 local smoke ends at READY_FOR_APPROVAL."
+          echo "Gate 3 authoritative live smoke ends at READY_FOR_APPROVAL."
           echo "never approves, executes, merges, or deploys"
           echo "No approval, billing, or external side effect occurs."
 
