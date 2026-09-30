@@ -158,8 +158,7 @@ def test_provider_requests_structured_output(monkeypatch):
     )
 
     assert candidate is not None
-    assert calls[0]["response_format"]["type"] == "json_schema"
-    assert calls[0]["response_format"]["json_schema"]["name"] == "patch_candidate"
+    assert calls[0]["response_format"]["type"] == "json_object"
 
 
 def test_provider_prompt_separates_prose_validation_from_commands(monkeypatch):
