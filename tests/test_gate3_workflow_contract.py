@@ -21,7 +21,7 @@ def test_gate3_requires_real_credential_and_https_endpoint():
 
 def test_gate3_binds_pipeline_to_exact_checkout_and_approval_boundary():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "--expected-head-sha \\\"" in text
+    assert '--expected-head-sha "${{ github.sha }}"' in text
     assert "autonomous-scout-code" in text
     assert "READY_FOR_APPROVAL" in text
     assert "never approves, executes, merges, or deploys" in text
