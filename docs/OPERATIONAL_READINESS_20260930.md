@@ -151,3 +151,19 @@ This evidence is deliberately stricter than the implementation state: a missing 
 - Gate 6 remains unpublished by design; its workflow now requires exact-SHA CI plus successful live Gate 3, Gate 4 and Gate 5 evidence, and explicit confirmation. Release/tag creation has not been fabricated.
 - The repository is implementation-complete for the audited autonomy/safety/control layers; remaining release readiness is entirely live-environment or administrative evidence.
 
+
+
+## Latest reconciliation — 2026-10-01 00:30 IST
+
+- Current mainline SHA: `3c306ea1b33c9abe65083b512e9927fdd34359b9`.
+- Open pull requests: **0**.
+- Open issues: **0**.
+- GitHub releases: **0**.
+- Gate 3 run **36759936511** completed with **failure** after the real Ollama endpoint successfully returned a completion. The bounded coding pipeline then rejected the model proposal because the returned patch did not contain a reviewable changed-file manifest. No approval or repository mutation occurred.
+- The coding-provider adapter was updated to use broadly compatible JSON mode (`response_format: json_object`) while retaining repository-side parsing, patch review, file-content matching, and validation as the authority. Regression coverage was updated accordingly.
+- Gate 3 now triggers not only when its workflow file changes, but also when the coding-provider, patch-review/self-improvement implementation, or coding-provider tests change. This prevents provider fixes from landing without a fresh authoritative smoke trigger.
+- The newest authoritative Gate 3 run is **36762083522**, on exact SHA `3c306ea1b33c9abe65083b512e9927fdd34359b9`; it is currently **QUEUED** at the Ollama job. This is a runner/queue state, not evidence of provider success or failure.
+- Gate 4 remains **NOT LIVE-VERIFIED** because legitimate Gmail/Calendar OAuth credentials are unavailable and the current connector environment is disabled by administration.
+- Gate 5 remains **NOT VERIFIED / CURRENTLY UNPROTECTED**; live main metadata reports `protected: false` and required status checks are off. Repository-administration write access is not exposed through the connected GitHub integration.
+- Gate 6 remains **NOT PUBLISHED**; no release/tag exists and publication requires explicit confirmation through the formal release boundary.
+- No synthetic gate pass is recorded. The project remains implementation-complete for the audited autonomy/safety/control layers, with live external credentials and GitHub administration as the remaining non-code boundaries.
