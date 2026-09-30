@@ -3,95 +3,161 @@ name: Gate 3 — Coding Provider Smoke
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Free ephemeral local model or operator-supplied external provider"
+        required: true
+        type: choice
+        options:
+          - local_ollama
+          - external
+        default: local_ollama
       project:
         description: "Repository identity passed to the bounded coding pipeline"
         required: true
         type: string
         default: "Pappu246/autonomous-ai-scout"
       provider_name:
-        description: "Configured provider name"
-        required: true
+        description: "External provider name"
+        required: false
         type: string
         default: "provider"
       provider_endpoint:
-        description: "HTTPS OpenAI-compatible chat endpoint"
-        required: true
+        description: "HTTPS external provider endpoint"
+        required: false
         type: string
       provider_model:
-        description: "Coding model identifier"
-        required: true
+        description: "External provider model"
+        required: false
         type: string
       cost_class:
-        description: "Provider cost class"
+        description: "External provider cost class"
         required: true
         type: choice
-        options:
-          - free
-          - paid
+        options: [free, paid]
         default: free
       allow_paid:
-        description: "Explicitly allow the selected paid route"
+        description: "Explicitly allow the selected paid external route"
         required: true
         type: boolean
         default: false
+  push:
+    paths:
+      - ".github/workflows/gate3-coding-provider-smoke.yml"
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
+  local_ollama:
+    name: Live free provider — Ollama
+    if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - name: Checkout exact workflow head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      - name: Verify checkout integrity
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Verify checkout
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.11"
 
-      - name: Install reproducible dependency set
+      - name: Install dependencies
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           pip install -e . --no-deps
           pip install -r requirements.lock
 
-      - name: Require a real provider credential
-        env:
-          SCOUT_CODING_PROVIDER_API_KEY: ${{ secrets.SCOUT_CODING_PROVIDER_API_KEY }}
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull free coding model
         run: |
           set -euo pipefail
-          test -n "${SCOUT_CODING_PROVIDER_API_KEY}" || {
-            echo "SCOUT_CODING_PROVIDER_API_KEY is required for Gate 3 live execution."
-            exit 1
-          }
+          nohup ollama serve >"${RUNNER_TEMP}/ollama.log" 2>&1 &
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+          ollama pull qwen2.5-coder:3b
 
-      - name: Validate external endpoint policy
+      - name: Prove OpenAI-compatible local endpoint
+        env:
+          OLLAMA_API_KEY: ollama
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          body=json.dumps({"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
+          req=urllib.request.Request(
+              "http://127.0.0.1:11434/v1/chat/completions",
+              data=body,
+              headers={"Authorization":"Bearer "+os.environ["OLLAMA_API_KEY"],"Content-Type":"application/json"},
+              method="POST")
+          with urllib.request.urlopen(req, timeout=180) as response:
+              data=json.load(response)
+          assert data.get("choices"), "no choices"
+          assert data["choices"][0]["message"].get("content"), "empty completion"
+          print("Ollama OpenAI-compatible endpoint returned a completion.")
+          PY
+
+      - name: Run bounded coding-provider smoke
+        env:
+          CODING_PROVIDER_1_NAME: ollama-local
+          CODING_PROVIDER_1_ENDPOINT: http://127.0.0.1:11434/v1/chat/completions
+          CODING_PROVIDER_1_MODEL: qwen2.5-coder:3b
+          CODING_PROVIDER_1_API_KEY_ENV: OLLAMA_API_KEY
+          CODING_PROVIDER_1_COST_CLASS: free
+          CODING_PROVIDER_1_PRIORITY: "10"
+          CODING_PROVIDER_1_MAX_ATTEMPTS: "2"
+          CODING_PROVIDER_1_TIMEOUT_SECONDS: "180"
+          OLLAMA_API_KEY: ollama
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          set -euo pipefail
+          autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Return a minimal documentation-only patch candidate. Do not modify runtime behavior."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"
+
+      - name: Preserve approval boundary
+        run: |
+          echo "Gate 3 local smoke ends at READY_FOR_APPROVAL."
+          echo "No approval, merge, deploy, billing, or external side effect occurs."
+
+  external:
+    name: Operator external provider smoke
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'external' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          pip install -r requirements.lock
+      - name: Require external credential
+        env:
+          SCOUT_CODING_PROVIDER_API_KEY: ${{ secrets.SCOUT_CODING_PROVIDER_API_KEY }}
+        run: test -n "${SCOUT_CODING_PROVIDER_API_KEY}"
+      - name: Require HTTPS endpoint
         env:
           ENDPOINT: ${{ inputs.provider_endpoint }}
         run: |
-          set -euo pipefail
-          case "${ENDPOINT}" in
-            https://*) ;;
-            *)
-              echo "Gate 3 requires an HTTPS provider endpoint."
-              exit 1
-              ;;
-          esac
-
-      - name: Run bounded coding-provider smoke
+          case "${ENDPOINT}" in https://*) ;; *) echo "HTTPS endpoint required"; exit 1;; esac
+      - name: Run bounded external provider smoke
         env:
           CODING_PROVIDER_1_NAME: ${{ inputs.provider_name }}
           CODING_PROVIDER_1_ENDPOINT: ${{ inputs.provider_endpoint }}
@@ -105,24 +171,6 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           set -euo pipefail
-          allow_paid_args=()
-          if [ "${{ inputs.allow_paid }}" = "true" ]; then
-            allow_paid_args+=(--allow-paid)
-          fi
-          autonomous-scout-code \
-            --root . \
-            --project "${{ inputs.project }}" \
-            --severity medium \
-            --title "Gate 3 coding provider smoke" \
-            --detail "Prove the configured external coding provider can produce a reviewable patch candidate and pass bounded validation against this exact checkout." \
-            --recommendation "Return a minimal, documentation-only patch candidate and validate it locally. Do not modify runtime behavior." \
-            --affected README.md \
-            --base-branch main \
-            --expected-head-sha "${{ github.sha }}" \
-            "${allow_paid_args[@]}"
-
-      - name: Assert approval boundary remains intact
-        run: |
-          set -euo pipefail
-          echo "Gate 3 smoke ends at READY_FOR_APPROVAL."
-          echo "This workflow never approves, executes, merges, or deploys a coding change."
+          args=()
+          if [ "${{ inputs.allow_paid }}" = "true" ]; then args+=(--allow-paid); fi
+          autonomous-scout-code             --root .             --project "${{ inputs.project }}"             --severity medium             --title "Gate 3 external coding provider smoke"             --detail "Prove the configured external coding provider can produce a reviewable patch candidate."             --recommendation "Return a minimal documentation-only patch candidate."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"             "${args[@]}"
