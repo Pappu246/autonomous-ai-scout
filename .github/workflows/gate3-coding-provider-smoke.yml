@@ -51,7 +51,7 @@ jobs:
   local_ollama:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - name: Checkout exact workflow head
@@ -144,7 +144,7 @@ jobs:
   external:
     name: Operator external provider smoke
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'external' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
