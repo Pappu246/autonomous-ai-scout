@@ -135,3 +135,19 @@ This evidence is deliberately stricter than the implementation state: a missing 
 - Gate 5 remains **NOT VERIFIED / CURRENTLY UNPROTECTED** because branch-protection administration requires repository Administration write permission; the connected GitHub integration does not expose that administrative write capability.
 - Gate 6 remains **NOT PUBLISHED** because the connected integration does not expose workflow dispatch or release/tag creation, and the formal release workflow intentionally retains an explicit publication confirmation boundary.
 - GitHub's public status page currently reports Actions operational; the queued state above is therefore recorded as an execution-capability/runner-availability constraint, not as a confirmed GitHub-wide outage.
+
+## Latest execution reconciliation — 2026-09-30 23:28 IST
+
+- Current mainline SHA: `b091a2003b658c55537e627b218cc5a328b6fc2f`.
+- Open pull requests: **0**.
+- Open issues: **0**.
+- GitHub releases: **0**.
+- The stale Gate 3 run `36752312267` remains in provider execution and has not produced a successful completion.
+- The authoritative current-main recovery run is `36754768244`; it has a real `qwen2.5-coder:3b` Ollama path, but is currently **QUEUED** because GitHub Actions still has older queued/in-progress executions.
+- Historical Gate 3 runs that were waiting behind the stale execution have been cleaned up by the repository's concurrency controls; no synthetic pass was recorded.
+- The Gate 3 recovery workflow is isolated from the older provider-smoke workflow and ends at `READY_FOR_APPROVAL`.
+- Gate 4 remains blocked on legitimate Gmail + Google Calendar OAuth access; the repository workflow requires real read-only tokens.
+- Gate 5 remains blocked on repository Administration write access; the repository-side workflow is implemented but no connected integration permission can apply main-branch protection.
+- Gate 6 remains unpublished by design; its workflow now requires exact-SHA CI plus successful live Gate 3, Gate 4 and Gate 5 evidence, and explicit confirmation. Release/tag creation has not been fabricated.
+- The repository is implementation-complete for the audited autonomy/safety/control layers; remaining release readiness is entirely live-environment or administrative evidence.
+
