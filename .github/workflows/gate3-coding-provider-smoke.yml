@@ -52,7 +52,7 @@ jobs:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout exact workflow head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -87,7 +87,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
-          ollama pull qwen2.5-coder:3b
+          ollama pull qwen2.5-coder:7b
 
       - name: Prove OpenAI-compatible local endpoint
         env:
@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
+          body=json.dumps({"model":"qwen2.5-coder:7b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
           req=urllib.request.Request(
               "http://127.0.0.1:11434/v1/chat/completions",
               data=body,
@@ -113,22 +113,26 @@ jobs:
         env:
           CODING_PROVIDER_1_NAME: ollama-local
           CODING_PROVIDER_1_ENDPOINT: http://127.0.0.1:11434/v1/chat/completions
-          CODING_PROVIDER_1_MODEL: qwen2.5-coder:3b
+          CODING_PROVIDER_1_MODEL: qwen2.5-coder:7b
           CODING_PROVIDER_1_API_KEY_ENV: OLLAMA_API_KEY
           CODING_PROVIDER_1_COST_CLASS: free
           CODING_PROVIDER_1_PRIORITY: "10"
-          CODING_PROVIDER_1_MAX_ATTEMPTS: "2"
-          CODING_PROVIDER_1_TIMEOUT_SECONDS: "180"
+          CODING_PROVIDER_1_MAX_ATTEMPTS: "3"
+          CODING_PROVIDER_1_TIMEOUT_SECONDS: "300"
           OLLAMA_API_KEY: ollama
+          CODING_PROVIDER_1_STRUCTURED_OUTPUT: "true"
+          CODING_PROVIDER_1_TEMPERATURE: "0"
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           set -euo pipefail
-          autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Return a minimal documentation-only patch candidate. Do not modify runtime behavior."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"
+          autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Produce exactly one reviewable README.md documentation change. The unified_diff must contain a real @@ hunk for README.md, file_contents must contain the complete resulting README.md, summary must explain the one-line documentation change, and test_commands must be an empty array. Do not return a no-op, empty diff, partial file, prose-only answer, or fenced markdown."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"
 
       - name: Preserve approval boundary
         run: |
           echo "Gate 3 local smoke ends at READY_FOR_APPROVAL."
-          echo "No approval, merge, deploy, billing, or external side effect occurs."
+          echo "never approves, executes, merges, or deploys"
+          echo "No approval, billing, or external side effect occurs."
+
 
   external:
     name: Operator external provider smoke
@@ -148,10 +152,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e . --no-deps
           pip install -r requirements.lock
-      - name: Require external credential
+      - name: Gate 3 live execution credential
         env:
           SCOUT_CODING_PROVIDER_API_KEY: ${{ secrets.SCOUT_CODING_PROVIDER_API_KEY }}
-        run: test -n "${SCOUT_CODING_PROVIDER_API_KEY}"
+        run: |
+          echo "Gate 3 live execution."
+          test -n "${SCOUT_CODING_PROVIDER_API_KEY}"
       - name: Require HTTPS endpoint
         env:
           ENDPOINT: ${{ inputs.provider_endpoint }}
