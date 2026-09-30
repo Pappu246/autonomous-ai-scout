@@ -55,7 +55,7 @@ jobs:
   local_ollama:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout exact workflow head
