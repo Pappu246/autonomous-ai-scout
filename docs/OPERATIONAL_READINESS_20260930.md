@@ -19,7 +19,7 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Current mainline SHA: `c92e9e786445ae4c58d8418125b92b0465d3e74a`
+- Current mainline SHA: `244f38b105b0a295015e3dfcd987b63ce1608a94`
 - Latest functional hardening baseline before final-gate harnesses: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
 - Gate 3 smoke workflow merged in PR **#236** at `a748b386666c00d5f909e618dbaaaf60dcb2cb6b`
 - Open pull requests at audit time: **0**
@@ -28,6 +28,7 @@ A capability is not promoted from one state to the next without evidence.
 - Current Windows computer smoke evidence: **5 passed, 1 skipped**
 - Latest computer-control changes: PRs **#228, #229, #230, #231, #232**
 - No GitHub release is currently published.
+- Gate 3 live execution was attempted on 2026-09-30 via workflow run `36747992820`; the runner reached the real execution boundary but both `SCOUT_CODING_PROVIDER_API_KEY` and `GEMINI_API_KEY` were absent, so the provider call was fail-closed before network execution.
 
 ## Gate matrix
 
@@ -42,11 +43,11 @@ A capability is not promoted from one state to the next without evidence.
 | Dependency reproducibility | **VERIFIED** | `requirements.lock` is consumed by CI, Windows smoke, and the scheduled Scout workflow; the latest green CI resolved the pinned set successfully. |
 | Scheduled state publication | **LIVE-VERIFIED** | Revalidated 2026-09-30 by workflow run **36684385846**; Scout and Publish both succeeded and state branch advanced to **72e823d**. |
 | Approval → real GitHub worker | **LIVE-VERIFIED** | Existing Phase 13/current audit evidence confirms a worker-created draft PR and successful ordinary PR CI revalidation. |
-| External coding-provider execution | **NOT LIVE-VERIFIED** | Requires operator-supplied provider credentials and a legitimate target workspace. The repository must fail closed when these are absent. |
-| Real Gmail/Calendar/application/document external accounts | **NOT LIVE-VERIFIED** | Requires legitimate connected accounts and operator credentials; deterministic repository coverage is not a substitute for account smoke evidence. |
+| External coding-provider execution | **NOT LIVE-VERIFIED — CREDENTIAL BLOCKED** | Live workflow `36747992820` verified the execution path and failed closed because both configured provider secrets were absent. No synthetic provider success was recorded. |
+| Real Gmail/Calendar/application/document external accounts | **NOT LIVE-VERIFIED — CONNECTORS BLOCKED** | Gmail and Google Calendar connectors are disabled by the current ChatGPT/plugin environment; repository workflow still requires real OAuth tokens. |
 | Main branch protection | **NOT VERIFIED / CURRENTLY UNPROTECTED** | Live branch metadata currently reports `protected: false` and required status checks are off. This must be configured and then re-verified through GitHub repository administration. |
 | GitHub rulesets | **UNVERIFIED** | The available connection currently returns an empty ruleset collection; treat this as unverified until checked with repository administration access. |
-| Formal GitHub release/tag | **NOT PUBLISHED** | No release is currently published. A formal release requires a supported release/tag creation path plus release evidence. |
+| Formal GitHub release/tag | **NOT PUBLISHED** | No release is currently published and the connected GitHub integration exposes no release/tag creation path. |
 
 ## Release policy
 
@@ -108,3 +109,15 @@ The readiness execution boundaries are now represented in the repository:
 - **Gate 6:** manual exact-SHA release workflow. It requires dispatch from `main`, a fully green check set, an unused tag, and explicit publication confirmation.
 
 These harnesses reduce the remaining gaps to real environment credentials/admin actions rather than missing implementation. A gate remains NOT VERIFIED until its corresponding live workflow has actually completed successfully.
+
+## Final live evidence update — 2026-09-30 22:28 IST
+
+- Current main: `244f38b105b0a295015e3dfcd987b63ce1608a94`.
+- Current mainline CI `test`: **PASS** on the exact SHA.
+- Gemini provider registry refreshed to `gemini-3.8-flash` / `gemini-3.7-flash`; this change passed CI and is merged.
+- Gate 3 real execution path was exercised through workflow run `36747992820`. Both the original manual `smoke` job and the auto-live Gemini probe reached the credential check and failed closed because the required secrets were missing. The auto-live probe branch/PR was closed and was not merged.
+- Gate 4 remains blocked on real Gmail/Calendar OAuth access; the current connector environment reports Gmail and Google Calendar as disabled by admin.
+- Gate 5 remains blocked because live `main` metadata reports `protected: false` and required status checks are off; repository-administration write access is not available through the connected GitHub tool.
+- Gate 6 remains blocked because no GitHub release is published and release/tag creation is not exposed through the connected GitHub tool.
+
+This evidence is deliberately stricter than the implementation state: a missing external secret/account/admin capability is a **blocked gate**, never a pass.
