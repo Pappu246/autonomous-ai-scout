@@ -1,0 +1,83 @@
+name: Gate 6 — Formal Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.3.0'
+        required: true
+        type: string
+        default: 'v0.3.0'
+      title:
+        description: 'Release title'
+        required: true
+        type: string
+        default: 'Autonomous AI Scout v0.3.0'
+      confirm:
+        description: 'Explicitly confirm publication'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact mainline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Require green test gate for the exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/checks.json"
+          python - <<'PY'
+import json, os
+path=os.path.join(os.environ['RUNNER_TEMP'],'checks.json')
+data=json.load(open(path,encoding='utf-8'))
+runs=data.get('check_runs',[])
+if not runs: raise SystemExit('No check runs exist for release SHA.')
+bad=[{'name':x.get('name'),'status':x.get('status'),'conclusion':x.get('conclusion')} for x in runs if x.get('status')!='completed' or x.get('conclusion')!='success']
+if bad: raise SystemExit(f'Release blocked by non-green checks: {bad}')
+print(f'All {len(runs)} check runs are green.')
+PY
+
+      - name: Refuse duplicate tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${REPO}/git/ref/tags/${TAG}" -H 'Accept: application/vnd.github+json' > /dev/null 2>&1; then
+            echo "Release tag already exists: ${TAG}"
+            exit 1
+          fi
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          cat > "${notes}" <<'EOF'
+Formal release of the verified Autonomous AI Scout readiness baseline.
+
+Safety boundary: publication requires explicit confirmation and a fully green exact-SHA check set.
+EOF
+          gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" --notes-file "${notes}"
