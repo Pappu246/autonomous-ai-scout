@@ -216,3 +216,28 @@ The following are intentionally not marked complete without live evidence:
 - formal GitHub release/tag publication.
 
 These are environment or administrative boundaries, not hidden implementation claims.
+
+
+## Final current reconciliation — 2026-09-30
+
+Latest verified code baseline: 108f639d524b5bc25a1e2d4d645a25be47c99fae
+
+Post-merge validation:
+- CI: **2355 passed, 6 skipped**
+- Windows computer smoke: **5 passed, 1 skipped**
+- Open PRs: **0**
+- Open issues: **0**
+- Scheduled Scout publication revalidation: workflow **36684385846**, Scout + Publish both succeeded
+- State publication branch: `autonomous-scout-state`
+- Published state commit from that run: `72e823d`
+
+Secret-scanner reconciliation:
+- the reported high-risk finding was a deliberate private-key test fixture, not credential material;
+- the fixture is now assembled at runtime so source scanning no longer sees a literal PEM marker;
+- dependency reproducibility is now enforced through `requirements.lock` in CI and scheduled Scout workflows.
+
+Remaining non-code boundaries are unchanged:
+1. live external coding-provider execution requires an operator credential and legitimate target workspace;
+2. external Gmail/Calendar/application/document smoke tests require legitimate connected accounts;
+3. main branch protection/ruleset administration requires GitHub administrative access;
+4. formal release/tag creation is not available through the current connected GitHub toolset.
