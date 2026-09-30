@@ -19,12 +19,12 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Current mainline SHA: `244f38b105b0a295015e3dfcd987b63ce1608a94`
+- Current mainline SHA at last reconciliation: `8339a7389a2aeb4898526d1a6ad1a115c0905abe`
 - Latest functional hardening baseline before final-gate harnesses: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
 - Gate 3 smoke workflow merged in PR **#236** at `a748b386666c00d5f909e618dbaaaf60dcb2cb6b`
 - Open pull requests at audit time: **0**
 - Open issues at audit time: **0**
-- Latest post-merge CI evidence: **2355 passed, 6 skipped** on the hardening baseline; current `main` (`c92e9e...`) additionally has `test`, `scout`, and `publish` check-runs all completed successfully on the exact mainline SHA.
+- Latest mainline CI evidence after the final readiness-documentation merge: `test` run **36748210538** completed successfully on exact SHA `8339a7389a2aeb4898526d1a6ad1a115c0905abe`.
 - Current Windows computer smoke evidence: **5 passed, 1 skipped**
 - Latest computer-control changes: PRs **#228, #229, #230, #231, #232**
 - No GitHub release is currently published.
@@ -112,7 +112,7 @@ These harnesses reduce the remaining gaps to real environment credentials/admin 
 
 ## Final live evidence update — 2026-09-30 22:28 IST
 
-- Current main: `244f38b105b0a295015e3dfcd987b63ce1608a94`.
+- Current main: `8339a7389a2aeb4898526d1a6ad1a115c0905abe`.
 - Current mainline CI `test`: **PASS** on the exact SHA.
 - Gemini provider registry refreshed to `gemini-3.8-flash` / `gemini-3.7-flash`; this change passed CI and is merged.
 - Gate 3 real execution path was exercised through workflow run `36747992820`. Both the original manual `smoke` job and the auto-live Gemini probe reached the credential check and failed closed because the required secrets were missing. The auto-live probe branch/PR was closed and was not merged.
