@@ -19,7 +19,8 @@ A capability is not promoted from one state to the next without evidence.
 ## Current baseline
 
 - Repository: `Pappu246/autonomous-ai-scout`
-- Latest verified code baseline: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
+- Latest verified functional code baseline before readiness harnesses: `108f639d524b5bc25a1e2d4d645a25be47c99fae`
+- Gate 3 smoke workflow merged in PR **#236** at `a748b386666c00d5f909e618dbaaaf60dcb2cb6b`
 - Open pull requests at audit time: **0**
 - Open issues at audit time: **0**
 - Latest post-merge CI evidence: **2355 passed, 6 skipped**
@@ -95,3 +96,14 @@ The hardening merge 108f639d524b5bc25a1e2d4d645a25be47c99fae is the latest verif
 The secret-scan finding from the prior Scout report was traced to deliberate test-fixture source text, not a credential. The fixture was rewritten so the private-key-shaped value is constructed at runtime while the authentication rejection assertion remains intact.
 
 The dependency reproducibility finding was closed by requirements.lock, which is consumed by the primary CI, Windows computer smoke, and hourly Scout workflows.
+
+## Final-gate harness reconciliation — 2026-09-30
+
+The readiness execution boundaries are now represented in the repository:
+
+- **Gate 3:** merged manual coding-provider smoke workflow. It requires a real provider credential and ends at `READY_FOR_APPROVAL`; live verification is still pending.
+- **Gate 4:** manual read-only Gmail + Calendar smoke workflow plus deterministic application/document safety coverage. Live verification requires legitimate OAuth access tokens.
+- **Gate 5:** manual GitHub administration verification/configuration workflow. It requires a repository Administration credential and defaults to read-only; applying protection requires an explicit workflow input.
+- **Gate 6:** manual exact-SHA release workflow. It requires dispatch from `main`, a fully green check set, an unused tag, and explicit publication confirmation.
+
+These harnesses reduce the remaining gaps to real environment credentials/admin actions rather than missing implementation. A gate remains NOT VERIFIED until its corresponding live workflow has actually completed successfully.
