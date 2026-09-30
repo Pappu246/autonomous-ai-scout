@@ -55,8 +55,8 @@ jobs:
   local_ollama:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-slim
+    timeout-minutes: 20
     steps:
       - name: Checkout exact workflow head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -91,7 +91,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
-          ollama pull qwen2.5-coder:7b
+          ollama pull qwen2.5-coder:3b
 
       - name: Prove OpenAI-compatible local endpoint
         env:
@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({"model":"qwen2.5-coder:7b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
+          body=json.dumps({"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
           req=urllib.request.Request(
               "http://127.0.0.1:11434/v1/chat/completions",
               data=body,
@@ -117,7 +117,7 @@ jobs:
         env:
           CODING_PROVIDER_1_NAME: ollama-local
           CODING_PROVIDER_1_ENDPOINT: http://127.0.0.1:11434/v1/chat/completions
-          CODING_PROVIDER_1_MODEL: qwen2.5-coder:7b
+          CODING_PROVIDER_1_MODEL: qwen2.5-coder:3b
           CODING_PROVIDER_1_API_KEY_ENV: OLLAMA_API_KEY
           CODING_PROVIDER_1_COST_CLASS: free
           CODING_PROVIDER_1_PRIORITY: "10"
@@ -148,7 +148,7 @@ jobs:
   external:
     name: Operator external provider smoke
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'external' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
