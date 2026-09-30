@@ -43,6 +43,10 @@ on:
   push:
     paths:
       - ".github/workflows/gate3-coding-provider-smoke.yml"
+      - "autonomous_agent/coding_provider.py"
+      - "autonomous_agent/self_improvement.py"
+      - "autonomous_agent/patch_review.py"
+      - "tests/test_coding_provider.py"
 
 
 permissions:
