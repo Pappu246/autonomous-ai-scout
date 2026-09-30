@@ -1,8 +1,8 @@
 name: Actions Recovery Controller
 
 on:
-  issue_comment:
-    types: [created]
+  issues:
+    types: [opened]
 
 permissions:
   actions: write
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: ${{ github.actor == 'Pappu246' && github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/scout-cleanup-actions') }}
+    if: ${{ github.actor == 'Pappu246' && startsWith(github.event.issue.title, 'Actions recovery — EXECUTE') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
