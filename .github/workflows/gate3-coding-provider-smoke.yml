@@ -1,0 +1,128 @@
+name: Gate 3 — Coding Provider Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Repository identity passed to the bounded coding pipeline"
+        required: true
+        type: string
+        default: "Pappu246/autonomous-ai-scout"
+      provider_name:
+        description: "Configured provider name"
+        required: true
+        type: string
+        default: "provider"
+      provider_endpoint:
+        description: "HTTPS OpenAI-compatible chat endpoint"
+        required: true
+        type: string
+      provider_model:
+        description: "Coding model identifier"
+        required: true
+        type: string
+      cost_class:
+        description: "Provider cost class"
+        required: true
+        type: choice
+        options:
+          - free
+          - paid
+        default: free
+      allow_paid:
+        description: "Explicitly allow the selected paid route"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact workflow head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Verify checkout integrity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install reproducible dependency set
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          pip install -r requirements.lock
+
+      - name: Require a real provider credential
+        env:
+          SCOUT_CODING_PROVIDER_API_KEY: ${{ secrets.SCOUT_CODING_PROVIDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${SCOUT_CODING_PROVIDER_API_KEY}" || {
+            echo "SCOUT_CODING_PROVIDER_API_KEY is required for Gate 3 live execution."
+            exit 1
+          }
+
+      - name: Validate external endpoint policy
+        env:
+          ENDPOINT: ${{ inputs.provider_endpoint }}
+        run: |
+          set -euo pipefail
+          case "${ENDPOINT}" in
+            https://*) ;;
+            *)
+              echo "Gate 3 requires an HTTPS provider endpoint."
+              exit 1
+              ;;
+          esac
+
+      - name: Run bounded coding-provider smoke
+        env:
+          CODING_PROVIDER_1_NAME: ${{ inputs.provider_name }}
+          CODING_PROVIDER_1_ENDPOINT: ${{ inputs.provider_endpoint }}
+          CODING_PROVIDER_1_MODEL: ${{ inputs.provider_model }}
+          CODING_PROVIDER_1_API_KEY_ENV: SCOUT_CODING_PROVIDER_API_KEY
+          CODING_PROVIDER_1_COST_CLASS: ${{ inputs.cost_class }}
+          CODING_PROVIDER_1_PRIORITY: "10"
+          CODING_PROVIDER_1_MAX_ATTEMPTS: "2"
+          CODING_PROVIDER_1_TIMEOUT_SECONDS: "120"
+          SCOUT_CODING_PROVIDER_API_KEY: ${{ secrets.SCOUT_CODING_PROVIDER_API_KEY }}
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          set -euo pipefail
+          allow_paid_args=()
+          if [ "${{ inputs.allow_paid }}" = "true" ]; then
+            allow_paid_args+=(--allow-paid)
+          fi
+          autonomous-scout-code \
+            --root . \
+            --project "${{ inputs.project }}" \
+            --severity medium \
+            --title "Gate 3 coding provider smoke" \
+            --detail "Prove the configured external coding provider can produce a reviewable patch candidate and pass bounded validation against this exact checkout." \
+            --recommendation "Return a minimal, documentation-only patch candidate and validate it locally. Do not modify runtime behavior." \
+            --affected README.md \
+            --base-branch main \
+            --expected-head-sha "${{ github.sha }}" \
+            "${allow_paid_args[@]}"
+
+      - name: Assert approval boundary remains intact
+        run: |
+          set -euo pipefail
+          echo "Gate 3 smoke ends at READY_FOR_APPROVAL."
+          echo "This workflow never approves, executes, merges, or deploys a coding change."
