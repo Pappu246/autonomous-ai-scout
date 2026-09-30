@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
@@ -34,6 +35,24 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Require release tag to match project version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re, tomllib
+          tag=os.environ["TAG"].strip()
+          if not re.fullmatch(r"v0\.[0-9]+\.[0-9]+", tag):
+              raise SystemExit(f"invalid release tag format: {tag}")
+          with open("pyproject.toml","rb") as fh:
+              version=tomllib.load(fh)["project"]["version"]
+          expected="v"+str(version)
+          if tag != expected:
+              raise SystemExit(f"tag {tag} does not match project version {expected}")
+          print(f"release_version={version}")
+          PY
+
       - name: Require green test gate for the exact release SHA
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,19 +60,78 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/commits/${SHA}/check-runs" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/checks.json"
+          gh api "repos/${REPO}/commits/${SHA}/check-runs"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/checks.json"
           python - <<'PY'
-import json, os
-path=os.path.join(os.environ['RUNNER_TEMP'],'checks.json')
-data=json.load(open(path,encoding='utf-8'))
-runs=data.get('check_runs',[])
-if not runs: raise SystemExit('No check runs exist for release SHA.')
-bad=[{'name':x.get('name'),'status':x.get('status'),'conclusion':x.get('conclusion')} for x in runs if x.get('status')!='completed' or x.get('conclusion')!='success']
-if bad: raise SystemExit(f'Release blocked by non-green checks: {bad}')
-print(f'All {len(runs)} check runs are green.')
-PY
+          import json, os
+          path=os.path.join(os.environ['RUNNER_TEMP'],'checks.json')
+          data=json.load(open(path,encoding='utf-8'))
+          runs=data.get('check_runs',[])
+          if not runs:
+              raise SystemExit('No check runs exist for release SHA.')
+          bad=[{'name':x.get('name'),'status':x.get('status'),'conclusion':x.get('conclusion')}
+               for x in runs if x.get('status')!='completed' or x.get('conclusion')!='success']
+          if bad:
+              raise SystemExit(f'Release blocked by non-green checks: {bad}')
+          print(f'All {len(runs)} check runs are green.')
+
+      - name: Require live Gate 3 evidence on the exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/actions/workflows/gate3-live-recovery.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate3.json"
+          gh api "repos/${REPO}/actions/workflows/gate4-external-connector-smoke.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate4.json"
+          gh api "repos/${REPO}/actions/workflows/gate5-github-admin-readiness.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate5.json"
+          python - <<'PY'
+          import json, os
+          base=os.environ['RUNNER_TEMP']
+          specs=[
+              ('gate3.json','Gate 3 live provider recovery'),
+              ('gate4.json','Gate 4 external connector'),
+              ('gate5.json','Gate 5 GitHub administration'),
+          ]
+          for filename,label in specs:
+              data=json.load(open(os.path.join(base,filename),encoding='utf-8'))
+              good=[run for run in data.get('workflow_runs',[])
+                    if run.get('status')=='completed' and run.get('conclusion')=='success']
+              if not good:
+                  raise SystemExit(f'{label} has no successful completed run for the exact release SHA.')
+              print(f'{label}: verified run {good[0].get("id")}')
+          PY
+
+      - name: Require Gate 5 protection run explicitly applied protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/actions/workflows/gate5-github-admin-readiness.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate5-all.json"
+          python - <<'PY'
+          import json, os, urllib.request
+          data=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'gate5-all.json'),encoding='utf-8'))
+          for run in data.get('workflow_runs',[]):
+              if run.get('conclusion')!='success':
+                  continue
+              run_id=run.get('id')
+              if not run_id:
+                  continue
+              url=f"https://api.github.com/repos/{os.environ['REPO']}/actions/runs/{run_id}/jobs?per_page=100"
+              req=urllib.request.Request(url,headers={
+                  'Authorization':f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2026-03-10',
+              })
+              with urllib.request.urlopen(req,timeout=20) as response:
+                  jobs=json.load(response).get('jobs',[])
+              log_text=' '.join(str(step.get('name','')) for job in jobs for step in job.get('steps',[]))
+              if 'Apply hardened main-branch protection when explicitly authorized' in log_text:
+                  print(f'Gate 5 application step executed in successful run {run_id}.')
+                  raise SystemExit(0)
+          raise SystemExit('No successful Gate 5 run for this SHA shows the explicit protection-application step.')
+          PY
 
       - name: Refuse duplicate tag
         env:
@@ -78,6 +156,6 @@ PY
           cat > "${notes}" <<'EOF'
 Formal release of the verified Autonomous AI Scout readiness baseline.
 
-Safety boundary: publication requires explicit confirmation and a fully green exact-SHA check set.
+Safety boundary: publication requires explicit confirmation, all exact-SHA gates, live external evidence, and repository administration evidence.
 EOF
           gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" --notes-file "${notes}"
