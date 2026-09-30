@@ -4,6 +4,10 @@ on:
   issues:
     types: [opened]
 
+concurrency:
+  group: autonomous-ai-scout-actions-recovery-controller
+  cancel-in-progress: true
+
 permissions:
   actions: write
   contents: read
@@ -35,6 +39,8 @@ jobs:
             fi
             echo "CANCEL ${run_id} ${name} stale-sha=${head_sha}"
             gh run cancel "${run_id}" --repo "${REPO}" || true
+            sleep 2
+            gh api --method POST "repos/${REPO}/actions/runs/${run_id}/force-cancel" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" >/dev/null 2>&1 || true
           done
 
       - name: Report remaining current-main runs
