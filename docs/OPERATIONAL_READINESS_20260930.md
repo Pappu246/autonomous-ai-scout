@@ -121,3 +121,17 @@ These harnesses reduce the remaining gaps to real environment credentials/admin 
 - Gate 6 remains blocked because no GitHub release is published and release/tag creation is not exposed through the connected GitHub tool.
 
 This evidence is deliberately stricter than the implementation state: a missing external secret/account/admin capability is a **blocked gate**, never a pass.
+
+## Final execution reconciliation — 2026-09-30 23:15 IST
+
+- Current mainline SHA: `8d85daf469d2d1fdf30035e9509fef0c750ed7a8`.
+- Open PRs: **0**.
+- Open issues: **0**.
+- Gate 3 has now exercised a **real free local coding model** through the OpenAI-compatible Ollama endpoint. The endpoint itself completed successfully in live GitHub Actions execution. The first live coding attempt then reached the existing bounded patch validator and correctly failed closed because the model's returned diff was not reviewable.
+- The coding-provider adapter was hardened to derive a deterministic unified diff only from the already-bounded repository context and model-returned file contents; existing patch review and validation remain authoritative. A regression test covers this normalization.
+- Gate 3 was strengthened with structured output, deterministic temperature, explicit real-diff requirements, bounded retries, and a latest-run-wins concurrency policy. The current Gate 3 workflow uses a lightweight hosted runner and the free `qwen2.5-coder:3b` path.
+- The latest authoritative Gate 3 run on current main is **36753537908** and is currently **queued**; an older Gate 3 run **36751598997** is still **in progress** at the model-execution step. The connected GitHub capability does not expose the workflow-run cancellation operation, so that stale run cannot be honestly marked cancelled from this connection.
+- Gate 4 remains **NOT LIVE-VERIFIED** because Gmail and Google Calendar are disabled by the current connector administration boundary and the required real OAuth tokens are unavailable.
+- Gate 5 remains **NOT VERIFIED / CURRENTLY UNPROTECTED** because branch-protection administration requires repository Administration write permission; the connected GitHub integration does not expose that administrative write capability.
+- Gate 6 remains **NOT PUBLISHED** because the connected integration does not expose workflow dispatch or release/tag creation, and the formal release workflow intentionally retains an explicit publication confirmation boundary.
+- GitHub's public status page currently reports Actions operational; the queued state above is therefore recorded as an execution-capability/runner-availability constraint, not as a confirmed GitHub-wide outage.
