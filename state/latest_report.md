@@ -1,12 +1,12 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-09-30T14:18:19.050887+00:00
+Generated: 2026-09-30T19:41:19.179837+00:00
 Meaningful change: YES
 
 ## Verified free candidates
 
+- **gemini / gemini-3.8-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **gemini / gemini-3.7-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
-- **gemini / gemini-3.6-flash** — benchmark: not run; official source changed since last run — [official source](https://ai.google.dev/gemini-api/docs/pricing)
 - **groq / openai/gpt-oss-120b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 - **groq / openai/gpt-oss-20b** — benchmark: not run; official source changed since last run — [official source](https://console.groq.com/docs/rate-limits)
 
@@ -35,5 +35,5 @@ Meaningful change: YES
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 22, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
-- Official release change: openrouter — Official release source changed. (https://openrouter.ai/models?pricing=free)
+- Official release change: openrouter — 2026/09/30 (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
