@@ -6,7 +6,7 @@ on:
       - ".github/workflows/gate3-live-recovery.yml"
 
 concurrency:
-  group: autonomous-ai-scout-gate3-live-recovery
+  group: autonomous-ai-scout-gate3-live
   cancel-in-progress: true
 
 permissions:
