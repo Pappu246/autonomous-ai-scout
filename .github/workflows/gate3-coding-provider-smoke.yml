@@ -1,6 +1,9 @@
 name: Gate 3 — Coding Provider Smoke
 
 on:
+  push:
+    branches:
+      - readiness/gate3-auto-live-20260930
   workflow_dispatch:
     inputs:
       project:
@@ -39,6 +42,52 @@ permissions:
   contents: read
 
 jobs:
+  auto_live_gemini:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install reproducible dependency set
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          pip install -r requirements.lock
+      - name: Require existing Gemini credential
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${GEMINI_API_KEY}" || exit 1
+      - name: Run bounded real coding-provider smoke
+        env:
+          CODING_PROVIDER_1_NAME: gemini
+          CODING_PROVIDER_1_ENDPOINT: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+          CODING_PROVIDER_1_MODEL: gemini-3.8-flash
+          CODING_PROVIDER_1_API_KEY_ENV: GEMINI_API_KEY
+          CODING_PROVIDER_1_COST_CLASS: free
+          CODING_PROVIDER_1_PRIORITY: "10"
+          CODING_PROVIDER_1_MAX_ATTEMPTS: "2"
+          CODING_PROVIDER_1_TIMEOUT_SECONDS: "120"
+          CODING_PROVIDER_1_STRUCTURED_OUTPUT: "true"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          autonomous-scout-code             --root .             --project "${{ github.repository }}"             --severity medium             --title "Gate 3 live coding provider smoke"             --detail "Generate a minimal reviewable documentation-only patch candidate against this exact checkout."             --recommendation "Documentation-only change; do not modify runtime behavior."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"
+      - name: Assert approval boundary
+        run: echo "Gate 3 auto-live smoke completed; no approval, merge, or deployment."
+
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
