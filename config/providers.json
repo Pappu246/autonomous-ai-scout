@@ -12,28 +12,42 @@
       "id": "gemini",
       "label": "Google Gemini Developer API",
       "docs": "https://ai.google.dev/gemini-api/docs/pricing",
-      "release_sources": ["https://ai.google.dev/gemini-api/docs/changelog"],
+      "release_sources": [
+        "https://ai.google.dev/gemini-api/docs/changelog"
+      ],
       "api_key_env": "GEMINI_API_KEY",
       "enabled": true,
-      "models": ["gemini-3.7-flash", "gemini-3.6-flash"]
+      "models": [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash"
+      ]
     },
     {
       "id": "groq",
       "label": "Groq",
       "docs": "https://console.groq.com/docs/rate-limits",
-      "release_sources": ["https://console.groq.com/docs/changelog"],
+      "release_sources": [
+        "https://console.groq.com/docs/changelog"
+      ],
       "api_key_env": "GROQ_API_KEY",
       "enabled": true,
-      "models": ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+      "models": [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b"
+      ]
     },
     {
       "id": "openrouter",
       "label": "OpenRouter Free Models",
       "docs": "https://openrouter.ai/pricing",
-      "release_sources": ["https://openrouter.ai/models?pricing=free"],
+      "release_sources": [
+        "https://openrouter.ai/models?pricing=free"
+      ],
       "api_key_env": "OPENROUTER_API_KEY",
       "enabled": true,
-      "models": ["openrouter/free"]
+      "models": [
+        "openrouter/free"
+      ]
     },
     {
       "id": "huggingface",
