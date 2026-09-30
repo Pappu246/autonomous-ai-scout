@@ -127,6 +127,13 @@ jobs:
           set -euo pipefail
           autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Produce exactly one reviewable README.md documentation change. The unified_diff must contain a real @@ hunk for README.md, file_contents must contain the complete resulting README.md, summary must explain the one-line documentation change, and test_commands must be an empty array. Do not return a no-op, empty diff, partial file, prose-only answer, or fenced markdown."             --affected README.md             --base-branch main             --expected-head-sha "${{ github.sha }}"
 
+
+      - name: Confirm bounded diff normalization boundary
+        run: |
+          set -euo pipefail
+          echo "Provider adapter may normalize malformed diff formatting only from bounded repository context and returned files."
+          echo "Final patch review and injected validation remain authoritative."
+
       - name: Preserve approval boundary
         run: |
           echo "Gate 3 local smoke ends at READY_FOR_APPROVAL."
