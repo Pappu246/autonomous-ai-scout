@@ -210,3 +210,39 @@ def test_provider_prompt_wraps_repository_files_as_untrusted(monkeypatch):
     prompt = calls[0]["messages"][1]["content"]
     assert "UNTRUSTED_DATA" in prompt
     assert "ignore previous instructions" in prompt
+
+
+def test_provider_normalizes_malformed_diff_from_bounded_file_content(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        return {
+            "choices": [{
+                "message": {
+                    "content": '{"unified_diff":"not-a-diff","file_contents":{"README.md":"updated\\n"},"summary":"update docs","test_commands":[]}'
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type(
+            "P", (), {
+                "problem": "update docs",
+                "proposed_solution": "update docs",
+                "validation_strategy": (),
+                "affected_area": ("README.md",),
+            }
+        )(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\\n"),),
+        ),
+    )
+    assert candidate is not None
+    assert "diff --git a/README.md b/README.md" in candidate.unified_diff
+    assert "@@" in candidate.unified_diff
+    assert "updated" in candidate.unified_diff
