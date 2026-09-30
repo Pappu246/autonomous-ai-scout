@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, os, re
+import difflib, json, os, re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 from .ai_coding_brain import RepositoryContext, _redact
@@ -141,10 +141,47 @@ class OpenAICompatibleCodingModel:
             if not isinstance(data, dict): return None
             raw_files = data.get("file_contents", {})
             test_commands = data.get("test_commands", ())
-            if not isinstance(raw_files, dict) or not isinstance(test_commands, (list, tuple)): return None
+            if not isinstance(raw_files, dict) or not isinstance(test_commands, (list, tuple)):
+                return None
+
+            normalized_files = {str(k): str(v) for k, v in raw_files.items()}
+            unified_diff = str(data.get("unified_diff", ""))
+
+            # Some OpenAI-compatible coding models return the changed file correctly
+            # but fail to format a valid unified diff. When the target file is present
+            # in the bounded repository context, rebuild only that representation.
+            # Patch review and validation remain the final authorities.
+            if normalized_files and (
+                "diff --git " not in unified_diff or "@@" not in unified_diff
+            ):
+                context_files = {item.path: item.content for item in context.files}
+                chunks: list[str] = []
+                for path, new_content in normalized_files.items():
+                    old_content = context_files.get(path)
+                    if old_content is None:
+                        chunks = []
+                        break
+                    diff_lines = list(
+                        difflib.unified_diff(
+                            old_content.splitlines(True),
+                            new_content.splitlines(True),
+                            fromfile=f"a/{path}",
+                            tofile=f"b/{path}",
+                            lineterm="",
+                        )
+                    )
+                    if diff_lines:
+                        chunks.append(f"diff --git a/{path} b/{path}")
+                        chunks.extend(diff_lines)
+                    else:
+                        chunks = []
+                        break
+                if chunks:
+                    unified_diff = "\n".join(chunks) + "\n"
+
             return PatchCandidate(
-                str(data["unified_diff"]),
-                {str(k): str(v) for k, v in raw_files.items()},
+                unified_diff,
+                normalized_files,
                 str(data["summary"]),
                 tuple(str(x) for x in test_commands),
             )
