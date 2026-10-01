@@ -376,6 +376,53 @@ def test_provider_normalizes_fenced_indented_unified_diff(monkeypatch):
     assert candidate.unified_diff.startswith("diff --git a/README.md b/README.md")
 
 
+def test_provider_canonicalizes_incorrect_hunk_counts(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    diff = "\n".join([
+        "--- tools/GATE3_SMOKE_TARGET.md",
+        "+++ tools/GATE3_SMOKE_TARGET.md",
+        "@@ -1,99 +1,99 @@",
+        "-original",
+        "+updated",
+    ])
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": diff,
+                        "file_contents": {},
+                        "summary": "update smoke target",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update smoke target",
+            "proposed_solution": "update smoke target",
+            "validation_strategy": (),
+            "affected_area": ("tools/GATE3_SMOKE_TARGET.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("tools/GATE3_SMOKE_TARGET.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert "@@ -1,1 +1,1 @@" in candidate.unified_diff
+    assert candidate.file_contents == {"tools/GATE3_SMOKE_TARGET.md": "updated\n"}
+
+
 def test_provider_normalizes_unprefixed_unified_headers(monkeypatch):
     monkeypatch.setenv("TEST_KEY", "secret")
     diff = "\n".join([
