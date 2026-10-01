@@ -374,3 +374,50 @@ def test_provider_normalizes_fenced_indented_unified_diff(monkeypatch):
     assert candidate is not None
     assert candidate.file_contents == {"README.md": "updated\n"}
     assert candidate.unified_diff.startswith("diff --git a/README.md b/README.md")
+
+
+def test_provider_normalizes_unprefixed_unified_headers(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    diff = "\n".join([
+        "--- README.md",
+        "+++ README.md",
+        "@@ -1 +1 @@",
+        "-original",
+        "+updated",
+    ])
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": diff,
+                        "file_contents": {},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+    assert "+++ b/README.md" in candidate.unified_diff
