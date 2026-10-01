@@ -277,8 +277,8 @@ def test_provider_materializes_missing_file_contents_from_valid_diff(monkeypatch
         )(),
         context=RepositoryContext(
             "owner/repo",
-            (RepositoryFile("README.md", "original\\n"),),
+            (RepositoryFile("README.md", "original\n"),),
         ),
     )
     assert candidate is not None
-    assert candidate.file_contents == {"README.md": "updated\\n"}
+    assert candidate.file_contents == {"README.md": "updated\n"}
