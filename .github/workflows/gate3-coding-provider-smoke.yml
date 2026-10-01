@@ -50,8 +50,10 @@ on:
 
 
 concurrency:
-  group: autonomous-ai-scout-gate3-live
-  cancel-in-progress: true
+  # Each exact-SHA live smoke gets its own evidence lane. This prevents a
+  # previously hung Ollama job from blocking the next verified SHA.
+  group: autonomous-ai-scout-gate3-live-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
