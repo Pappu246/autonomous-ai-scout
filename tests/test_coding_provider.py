@@ -245,3 +245,37 @@ def test_provider_normalizes_malformed_diff_from_bounded_file_content(monkeypatc
     assert "diff --git a/README.md b/README.md" in candidate.unified_diff
     assert "@@" in candidate.unified_diff
     assert "updated" in candidate.unified_diff
+
+
+def test_provider_materializes_missing_file_contents_from_valid_diff(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        return {
+            "choices": [{
+                "message": {
+                    "content": '{"unified_diff":"diff --git a/README.md b/README.md\\n--- a/README.md\\n+++ b/README.md\\n@@ -1 +1 @@\\n-original\\n+updated\\n","file_contents":{},"summary":"update docs","test_commands":[]}'
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type(
+            "P", (), {
+                "problem": "update docs",
+                "proposed_solution": "update docs",
+                "validation_strategy": (),
+                "affected_area": ("README.md",),
+            }
+        )(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\\n"),),
+        ),
+    )
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\\n"}
