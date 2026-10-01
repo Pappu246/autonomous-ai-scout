@@ -188,6 +188,9 @@ def test_provider_prompt_separates_prose_validation_from_commands(monkeypatch):
     prompt = calls[0]["messages"][1]["content"]
     assert "Leave test_commands empty" in prompt
     assert "validation steps" in prompt
+    assert "unified_diff" in prompt
+    assert "file_contents" in prompt
+    assert "primary patch artifact" in prompt
 
 
 def test_provider_prompt_wraps_repository_files_as_untrusted(monkeypatch):
