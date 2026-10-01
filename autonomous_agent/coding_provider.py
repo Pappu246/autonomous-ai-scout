@@ -69,7 +69,7 @@ def _normalize_unified_diff(value: object) -> str:
         fence_end = next((i for i in range(fence_start + 1, len(lines)) if lines[i].strip() == fence), None)
         if fence_end is not None:
             lines = lines[fence_start + 1:fence_end]
-            text = "\n".join(lines).strip()
+            text = dedent("\n".join(lines)).strip()
 
     # Remove uniform presentation indentation while preserving the one-byte
     # context marker required by unified diff hunks.
