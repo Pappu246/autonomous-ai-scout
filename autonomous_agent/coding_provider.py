@@ -140,6 +140,7 @@ class OpenAICompatibleCodingModel:
             "previous_summary": previous.summary if previous else "",
             "output_schema": {"unified_diff":"required real git-style unified diff", "file_contents":{"path":"optional complete UTF-8 file; may be {} because the adapter derives it from the diff"}, "summary":"string", "test_commands":["leave empty; sandbox validation executes the approved proposal commands"]},
             "diff_rule": "The unified_diff is the primary patch artifact. It must contain real '+++ b/<path>' and '@@' hunk lines. file_contents may be {}. Do not invent repository state beyond the supplied files.",
+            "manifest_rule": "file_contents keys must be exact repository-relative paths from affected_area or the '+++ b/<path>' headers. Do not prefix keys with a/, b/, ./, or filesystem paths.",
             "validation_rule": "Do not invent, rewrite, or translate validation steps into commands. Leave test_commands empty so the sandbox executes only its approved proposal commands.",
             "constraints": ["Return JSON only.", "Never include secrets or private keys.", "Do not touch .git, .env, .github/workflows, or state/secrets.", "Do not merge, deploy, bill, or make external side effects."],
         }
