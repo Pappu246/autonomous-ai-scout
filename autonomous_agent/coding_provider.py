@@ -73,7 +73,28 @@ def _normalize_unified_diff(value: object) -> str:
 
     # Remove uniform presentation indentation while preserving the one-byte
     # context marker required by unified diff hunks.
-    return dedent(text).strip() + "\n" if text.strip() else ""
+    text = dedent(text).strip()
+
+    # Canonicalize common lightweight-model unified headers only before the first
+    # hunk. The strict patch reviewer remains authoritative for path safety.
+    normalized: list[str] = []
+    in_hunk = False
+    for line in text.splitlines():
+        if line.startswith("@@ "):
+            in_hunk = True
+        if not in_hunk and line.lstrip().startswith("--- "):
+            raw = line.lstrip()[4:].strip()
+            if raw != "/dev/null" and not raw.startswith("a/"):
+                raw = raw.removeprefix("./")
+                line = "--- a/" + raw
+        elif not in_hunk and line.lstrip().startswith("+++ "):
+            raw = line.lstrip()[4:].strip()
+            if raw != "/dev/null" and not raw.startswith("b/"):
+                raw = raw.removeprefix("./").removeprefix("a/")
+                line = "+++ b/" + raw
+        normalized.append(line)
+    text = "\n".join(normalized).strip()
+    return text + "\n" if text else ""
 
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
