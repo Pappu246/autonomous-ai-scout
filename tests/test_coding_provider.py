@@ -432,8 +432,8 @@ def test_provider_canonicalizes_b_prefixed_file_manifest_keys(monkeypatch):
             "choices": [{
                 "message": {
                     "content": _json.dumps({
-                        "unified_diff": "diff --git a/README.md b/README.md\\n--- a/README.md\\n+++ b/README.md\\n@@ -1 +1 @@\\n-original\\n+updated\\n",
-                        "file_contents": {"b/README.md": "updated\\n"},
+                        "unified_diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-original\n+updated\n",
+                        "file_contents": {"b/README.md": "updated\n"},
                         "summary": "update docs",
                         "test_commands": [],
                     })
