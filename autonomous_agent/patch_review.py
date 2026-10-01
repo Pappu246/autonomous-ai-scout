@@ -124,7 +124,7 @@ def materialize_patch_file_contents(
     parsed = _parse_diff_hunks(unified_diff)
     if not parsed:
         return None
-    if any(path not in base_files for path in parsed) or set(parsed) != set(base_files):
+    if any(path not in base_files for path in parsed):
         return None
 
     result: dict[str, str] = {}
