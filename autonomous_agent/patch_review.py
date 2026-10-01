@@ -116,17 +116,52 @@ def _parse_diff_hunks(unified_diff: str) -> dict[str, list[tuple[int, int, int, 
     return parsed
 
 
+def materialize_patch_file_contents(
+    unified_diff: str,
+    base_files: Mapping[str, str],
+) -> dict[str, str] | None:
+    """Materialize changed text files by applying a reviewable diff to bounded base files."""
+    parsed = _parse_diff_hunks(unified_diff)
+    if not parsed:
+        return None
+    if any(path not in base_files for path in parsed) or set(parsed) != set(base_files):
+        return None
+
+    result: dict[str, str] = {}
+    for path, hunks in parsed.items():
+        base = base_files.get(path)
+        if not isinstance(base, str):
+            return None
+        base_lines = base.splitlines()
+        cursor = 0
+        rebuilt: list[str] = []
+        for old_start, old_count, _new_start, _new_count, lines in sorted(hunks, key=lambda item: (item[0], item[2])):
+            index = old_start - 1
+            if index < cursor or index > len(base_lines):
+                return None
+            rebuilt.extend(base_lines[cursor:index])
+            old_segment = [line[1:] for line in lines if line[0] in {" ", "-"}]
+            new_segment = [line[1:] for line in lines if line[0] in {" ", "+"}]
+            if old_segment != base_lines[index:index + old_count]:
+                return None
+            rebuilt.extend(new_segment)
+            cursor = index + old_count
+        rebuilt.extend(base_lines[cursor:])
+        trailing_newline = base.endswith("\\n") or base.endswith("\\r\\n")
+        result[path] = "\\n".join(rebuilt) + ("\\n" if trailing_newline else "")
+    return result
+
+
 def validate_patch_applies_to_base(
     unified_diff: str,
     base_files: Mapping[str, str],
     result_files: Mapping[str, str],
 ) -> bool:
     """Apply supported hunks to trusted base text and compare exact resulting content."""
-    parsed = _parse_diff_hunks(unified_diff)
-    if not parsed or set(parsed) != set(result_files):
+    materialized = materialize_patch_file_contents(unified_diff, base_files)
+    if materialized is None:
         return False
-    if set(parsed) != set(base_files):
-        return False
+    return materialized == dict(result_files)
 
     for path, hunks in parsed.items():
         base = base_files.get(path)
