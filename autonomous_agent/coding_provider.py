@@ -5,6 +5,7 @@ from typing import Callable, Mapping
 from .ai_coding_brain import RepositoryContext, _redact
 from .prompt_injection_guard import PromptInjectionGuard, TrustLevel
 from .self_improvement import PatchCandidate
+from .patch_review import materialize_patch_file_contents
 
 
 _SECRET_JSON = re.compile(
@@ -143,6 +144,16 @@ class OpenAICompatibleCodingModel:
 
             normalized_files = {str(k): str(v) for k, v in raw_files.items()}
             unified_diff = str(data.get("unified_diff", ""))
+
+            # Some lightweight coding models return a valid unified diff but omit
+            # file_contents. Materialize only the paths present in that diff from
+            # the already-bounded repository context. The patch validator still
+            # compares the resulting contents against the exact diff before approval.
+            if not normalized_files and unified_diff:
+                context_files = {item.path: item.content for item in context.files}
+                materialized = materialize_patch_file_contents(unified_diff, context_files)
+                if materialized is not None:
+                    normalized_files = materialized
 
             # Some OpenAI-compatible coding models return the changed file correctly
             # but fail to format a valid unified diff. When the target file is present
