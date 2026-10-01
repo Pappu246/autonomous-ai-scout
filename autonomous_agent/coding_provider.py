@@ -51,6 +51,51 @@ _PATCH_SCHEMA = {
     "additionalProperties": False,
 }
 
+def _canonicalize_hunk_counts(text: str) -> str:
+    """Repair lightweight-model hunk counts from their actual hunk lines."""
+    lines = text.splitlines()
+    out: list[str] = []
+    hunk_start = None
+    hunk_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal hunk_start, hunk_lines
+        if hunk_start is None:
+            return
+        header = out[hunk_start]
+        match = re.match(
+            r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$",
+            header,
+        )
+        if match is None:
+            hunk_start = None
+            hunk_lines = []
+            return
+        old_start, _old_count, new_start, _new_count, tail = match.groups()
+        old_count = sum(1 for line in hunk_lines if line and line[0] in {" ", "-"})
+        new_count = sum(1 for line in hunk_lines if line and line[0] in {" ", "+"})
+        out[hunk_start] = (
+            f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{tail}"
+        )
+        hunk_start = None
+        hunk_lines = []
+
+    for line in lines:
+        if line.startswith("@@ "):
+            flush()
+            hunk_start = len(out)
+            hunk_lines = []
+            out.append(line)
+            continue
+        if hunk_start is not None:
+            if line.startswith(("diff --git ", "--- ", "+++ ")):
+                flush()
+            else:
+                hunk_lines.append(line)
+        out.append(line)
+    flush()
+    return "\n".join(out)
+
 def _normalize_unified_diff(value: object) -> str:
     """Normalize harmless model formatting without changing patch semantics."""
     from textwrap import dedent
@@ -94,6 +139,7 @@ def _normalize_unified_diff(value: object) -> str:
                 line = "+++ b/" + raw
         normalized.append(line)
     text = "\n".join(normalized).strip()
+    text = _canonicalize_hunk_counts(text)
     return text + "\n" if text else ""
 
 class OpenAICompatibleCodingModel:
