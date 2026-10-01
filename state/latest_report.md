@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-10-01T09:29:02.003074+00:00
+Generated: 2026-10-01T16:44:08.328152+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -35,5 +35,5 @@ Meaningful change: YES
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — Release notes | Gemini API | Google AI for Developers — September 22, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
-- Official release change: openrouter — 2026/09/30 (https://openrouter.ai/models?pricing=free)
+- Official release change: openrouter — Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks. This is a preview o — 2026/09/30 (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
