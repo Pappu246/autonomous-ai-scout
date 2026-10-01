@@ -419,7 +419,7 @@ def test_provider_canonicalizes_incorrect_hunk_counts(monkeypatch):
     )
 
     assert candidate is not None
-    assert "@@ -1,1 +1,1 @@" in candidate.unified_diff
+    assert "@@ -1 +1 @@" in candidate.unified_diff
     assert candidate.file_contents == {"tools/GATE3_SMOKE_TARGET.md": "updated\n"}
 
 
