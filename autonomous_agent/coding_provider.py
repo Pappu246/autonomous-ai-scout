@@ -197,11 +197,12 @@ class OpenAICompatibleCodingModel:
                 normalized_files[normalized] = str(value)
             unified_diff = _normalize_unified_diff(data.get("unified_diff", ""))
 
-            # Some lightweight coding models return a valid unified diff but omit
-            # file_contents. Materialize only the paths present in that diff from
-            # the already-bounded repository context. The patch validator still
-            # compares the resulting contents against the exact diff before approval.
-            if not normalized_files and unified_diff:
+            # The unified diff is the primary patch artifact. When it is
+            # reviewable against the already-bounded repository context, derive the
+            # exact resulting file contents from that diff instead of trusting a
+            # second model-generated manifest. This preserves the strict review
+            # boundary while eliminating harmless manifest-shape drift.
+            if unified_diff:
                 context_files = {item.path: item.content for item in context.files}
                 materialized = materialize_patch_file_contents(unified_diff, context_files)
                 if materialized is not None:
