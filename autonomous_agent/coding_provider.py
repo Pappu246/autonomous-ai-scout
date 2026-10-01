@@ -188,7 +188,12 @@ class OpenAICompatibleCodingModel:
             if not isinstance(raw_files, dict) or not isinstance(test_commands, (list, tuple)):
                 return None
 
-            normalized_files = {str(k): str(v) for k, v in raw_files.items()}
+            normalized_files = {}
+            for key, value in raw_files.items():
+                normalized = str(key).strip().replace("\\", "/").removeprefix("./")
+                if normalized.startswith("b/"):
+                    normalized = normalized[2:]
+                normalized_files[normalized] = str(value)
             unified_diff = _normalize_unified_diff(data.get("unified_diff", ""))
 
             # Some lightweight coding models return a valid unified diff but omit
