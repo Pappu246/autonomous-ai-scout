@@ -191,7 +191,7 @@ class OpenAICompatibleCodingModel:
             normalized_files = {}
             for key, value in raw_files.items():
                 normalized = str(key).strip().replace("\\", "/").removeprefix("./")
-                if normalized.startswith("b/"):
+                if normalized.startswith(("a/", "b/")):
                     normalized = normalized[2:]
                 normalized_files[normalized] = str(value)
             unified_diff = _normalize_unified_diff(data.get("unified_diff", ""))
