@@ -51,6 +51,30 @@ _PATCH_SCHEMA = {
     "additionalProperties": False,
 }
 
+def _normalize_unified_diff(value: object) -> str:
+    """Normalize harmless model formatting without changing patch semantics."""
+    from textwrap import dedent
+
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # Lightweight models may return the diff as a single JSON-escaped line.
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+
+    # Accept a fenced diff wrapper, but keep the diff itself authoritative.
+    lines = text.splitlines()
+    fence = "`" * 3
+    fence_start = next((i for i, line in enumerate(lines) if line.strip().startswith(fence)), None)
+    if fence_start is not None:
+        fence_end = next((i for i in range(fence_start + 1, len(lines)) if lines[i].strip() == fence), None)
+        if fence_end is not None:
+            lines = lines[fence_start + 1:fence_end]
+            text = "\n".join(lines).strip()
+
+    # Remove uniform presentation indentation while preserving the one-byte
+    # context marker required by unified diff hunks.
+    return dedent(text).strip() + "\n" if text.strip() else ""
+
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
     def __init__(self, config: ChatProviderConfig, *, http_post: Callable | None = None):
@@ -144,7 +168,7 @@ class OpenAICompatibleCodingModel:
                 return None
 
             normalized_files = {str(k): str(v) for k, v in raw_files.items()}
-            unified_diff = str(data.get("unified_diff", ""))
+            unified_diff = _normalize_unified_diff(data.get("unified_diff", ""))
 
             # Some lightweight coding models return a valid unified diff but omit
             # file_contents. Materialize only the paths present in that diff from
