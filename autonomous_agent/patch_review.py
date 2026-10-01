@@ -135,7 +135,12 @@ def materialize_patch_file_contents(
         base_lines = base.splitlines()
         cursor = 0
         rebuilt: list[str] = []
-        for old_start, old_count, _new_start, _new_count, lines in sorted(hunks, key=lambda item: (item[0], item[2])):
+        trailing_newline = base.endswith("\n") or base.endswith("\r\n")
+
+        for old_start, old_count, new_start, new_count, lines in sorted(
+            hunks, key=lambda item: (item[0], item[2])
+        ):
+            del new_start, new_count
             index = old_start - 1
             if index < cursor or index > len(base_lines):
                 return None
@@ -146,9 +151,9 @@ def materialize_patch_file_contents(
                 return None
             rebuilt.extend(new_segment)
             cursor = index + old_count
+
         rebuilt.extend(base_lines[cursor:])
-        trailing_newline = base.endswith("\\n") or base.endswith("\\r\\n")
-        result[path] = "\\n".join(rebuilt) + ("\\n" if trailing_newline else "")
+        result[path] = "\n".join(rebuilt) + ("\n" if trailing_newline else "")
     return result
 
 
@@ -158,10 +163,11 @@ def validate_patch_applies_to_base(
     result_files: Mapping[str, str],
 ) -> bool:
     """Apply supported hunks to trusted base text and compare exact resulting content."""
-    materialized = materialize_patch_file_contents(unified_diff, base_files)
-    if materialized is None:
+    parsed = _parse_diff_hunks(unified_diff)
+    if not parsed or set(parsed) != set(result_files):
         return False
-    return materialized == dict(result_files)
+    if set(parsed) != set(base_files):
+        return False
 
     for path, hunks in parsed.items():
         base = base_files.get(path)
@@ -173,7 +179,10 @@ def validate_patch_applies_to_base(
         cursor = 0
         rebuilt: list[str] = []
         trailing_newline = base.endswith("\n") or base.endswith("\r\n")
-        for old_start, old_count, new_start, new_count, lines in sorted(hunks, key=lambda item: (item[0], item[2])):
+
+        for old_start, old_count, new_start, new_count, lines in sorted(
+            hunks, key=lambda item: (item[0], item[2])
+        ):
             del new_start, new_count
             index = old_start - 1
             if index < cursor or index > len(base_lines):
@@ -185,6 +194,7 @@ def validate_patch_applies_to_base(
                 return False
             rebuilt.extend(new_segment)
             cursor = index + old_count
+
         rebuilt.extend(base_lines[cursor:])
         if rebuilt != result_lines:
             return False
