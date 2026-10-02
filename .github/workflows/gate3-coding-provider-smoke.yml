@@ -107,17 +107,32 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
-          req=urllib.request.Request(
-              "http://127.0.0.1:11434/v1/chat/completions",
-              data=body,
-              headers={"Authorization":"Bearer "+os.environ["OLLAMA_API_KEY"],"Content-Type":"application/json"},
-              method="POST")
-          with urllib.request.urlopen(req, timeout=180) as response:
-              data=json.load(response)
-          assert data.get("choices"), "no choices"
-          assert data["choices"][0]["message"].get("content"), "empty completion"
-          print("Ollama OpenAI-compatible endpoint returned a completion.")
+          body=json.dumps({
+              "model":"qwen2.5-coder:3b",
+              "messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],
+              "stream":False,
+              "max_tokens":16,
+          }).encode()
+          last_error = None
+          for attempt in range(1, 4):
+              req=urllib.request.Request(
+                  "http://127.0.0.1:11434/v1/chat/completions",
+                  data=body,
+                  headers={"Authorization":"Bearer "+os.environ["OLLAMA_API_KEY"],"Content-Type":"application/json"},
+                  method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      data=json.load(response)
+                  assert data.get("choices"), "no choices"
+                  assert data["choices"][0]["message"].get("content"), "empty completion"
+                  print(f"Ollama OpenAI-compatible endpoint returned a completion on attempt {attempt}.")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  if attempt == 3:
+                      raise
+                  print(f"OpenAI-compatible probe attempt {attempt} failed: {exc}; retrying.")
+
           PY
 
       - name: Run bounded coding-provider smoke
