@@ -355,7 +355,7 @@ class MissionController:
 
         def runner(node):
             step_execution_id = f"{item.execution_id}:{node.node_id}"
-            step_role, step_grants = specialist_for_task(node.task)
+            step_grants = specialist_grants(node.task)
             result = run_task(
                 node.task,
                 root=self.root,
