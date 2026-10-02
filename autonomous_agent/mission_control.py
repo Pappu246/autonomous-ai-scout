@@ -196,7 +196,7 @@ class MissionController:
                 now, now, 0, role.role.value, (),
             ))
         item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
-        self.memory.store.record_task(self.MEMORY_PROJECT, prepared.task, intent=role.role.value, outcome="queued")
+        self.memory.record_episode(self.MEMORY_PROJECT, prepared.task, outcome="queued", metadata={"specialist_role": role.role.value})
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"mission accepted; specialist={role.role.value}; confidence={role.confidence}; memory={history}", 1000),
@@ -242,7 +242,7 @@ class MissionController:
         if record is None:
             raise KeyError(mission_id)
         item = self.queue.cancel(record.task_id)
-        self.memory.store.record_task(self.MEMORY_PROJECT, record.task, intent=record.specialist_role, outcome="cancelled")
+        self.memory.record_episode(self.MEMORY_PROJECT, record.task, outcome="cancelled", metadata={"specialist_role": record.specialist_role})
         return self.store.put(MissionRecord(
             record.mission_id, record.task_id, record.execution_id, record.task, item.state.value,
             "mission cancelled before execution", record.created_at, item.updated_at, item.attempts,
@@ -327,6 +327,7 @@ class MissionController:
                 _bounded_text(f"mission executing; specialist={role}", 1000),
                 existing.created_at, _now(), item.attempts, role, existing.steps,
             ))
+        runtime_state = QueueState.FAILED.value
         try:
             if existing and existing.steps:
                 success, reason = self._run_steps(item, existing)
@@ -341,12 +342,14 @@ class MissionController:
                     project=self.MEMORY_PROJECT,
                 )
                 success = result.state is ExecutionState.VERIFIED
+                runtime_state = "verified" if success else result.state.value
                 reason = result.reason
         except Exception as exc:
             success = False
+            runtime_state = QueueState.FAILED.value
             reason = f"runtime raised {type(exc).__name__}"
-        outcome = "verified" if success else QueueState.FAILED.value
-        self.memory.store.record_task(self.MEMORY_PROJECT, item.task, intent=role, outcome=outcome)
+        outcome = runtime_state
+        self.memory.record_episode(self.MEMORY_PROJECT, item.task, outcome=outcome, metadata={"specialist_role": role})
         if existing:
             self.store.put(MissionRecord(
                 existing.mission_id, existing.task_id, existing.execution_id, existing.task,
