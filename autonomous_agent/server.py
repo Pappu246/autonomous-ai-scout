@@ -292,8 +292,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     raise ValueError("task is required")
                 if len(task) > MAX_TASK_LENGTH:
                     raise ValueError("task exceeds maximum length")
-                record = controller.submit(task)
-            except ValueError as exc:
+                steps = payload.get("steps")
+                record = controller.submit_plan(task, steps) if steps is not None else controller.submit(task)
+            except (TypeError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
             self._json(202 if record.state == "pending" else 422, {"mission": self._mission_payload(record)})
