@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
+from .cross_project_memory import CrossProjectMemory
 from .execution_engine import ExecutionResult, ExecutionState
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
@@ -16,10 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
 JOURNAL_PATH = ROOT / "state" / "runtime_runs.jsonl"
 
+
 def _plan_for_request(task: str, registry: ToolRegistry = REGISTRY) -> tuple[TaskPlan, tuple[Capability, ...]]:
     """Compatibility adapter; all task planning flows through AutonomousTaskCore."""
     prepared = AutonomousTaskCore(registry=registry).prepare(task)
     return prepared.plan, prepared.granted
+
 
 def run_task(
     task: str,
@@ -42,6 +45,8 @@ def run_task(
     calendar_request: Mapping[str, Any] | None = None,
     computer_connector: Any = None,
     computer_request: Mapping[str, Any] | None = None,
+    memory: CrossProjectMemory | None = None,
+    project: str = "local",
     granted: Iterable[Capability | str] | None = None,
     explicitly_approved: bool = False,
 ) -> ExecutionResult:
@@ -76,6 +81,8 @@ def run_task(
         audit_path=audit_path,
         execution_id=execution_id,
         checkpoint_path=checkpoint_path,
+        memory=memory,
+        project=project,
         browser_connector=browser_connector,
         browser_request=browser_request,
         web_connector=web_connector,
@@ -96,10 +103,13 @@ def run_task(
     )
     return result
 
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one bounded Autonomous AI Scout task")
     parser.add_argument("task", nargs="?", default=os.getenv("TASK_REQUEST", "inspect repository"))
-    parser.add_argument("--root", default=str(ROOT)); parser.add_argument("--audit", default=str(AUDIT_PATH)); parser.add_argument("--journal", default=str(JOURNAL_PATH))
+    parser.add_argument("--root", default=str(ROOT))
+    parser.add_argument("--audit", default=str(AUDIT_PATH))
+    parser.add_argument("--journal", default=str(JOURNAL_PATH))
     parser.add_argument("--history", action="store_true", help="print bounded runtime history summary and recent records")
     parser.add_argument("--history-limit", type=int, default=20, help="number of recent valid history records to print")
     parser.add_argument("--computer", action="store_true", help="enable the bounded Windows computer connector")
@@ -147,11 +157,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         granted=granted,
         explicitly_approved=bool(args.approve),
     )
-    print(f"state={result.state.value}"); print(f"reason={result.reason}"); print(f"attempts={result.attempts}")
+    print(f"state={result.state.value}")
+    print(f"reason={result.reason}")
+    print(f"attempts={result.attempts}")
     for item in result.results:
         print(f"operation={item.operation} success={item.success} verification={item.verification_status}")
-        if item.output: print(item.output)
+        if item.output:
+            print(item.output)
     print(f"audit={result.audit_path}")
     return 0 if result.state is ExecutionState.VERIFIED else 1
 
-if __name__ == "__main__": raise SystemExit(main())
+
+if __name__ == "__main__":
+    raise SystemExit(main())
