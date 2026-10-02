@@ -877,3 +877,25 @@ The local runtime now exposes a Mission Control surface at:
 http://127.0.0.1:8000/
 
 It accepts a natural-language mission, persists it in the durable queue, executes it through the canonical runtime worker, and exposes mission status through /api/missions. It does not introduce a second authorization system.
+
+
+### Specialist provider routing
+
+Provider routes can declare the specialist roles they are eligible to serve without storing credentials in Scout state:
+
+```text
+CODING_PROVIDER_1_NAME=hybrid
+CODING_PROVIDER_1_ENDPOINT=https://...
+CODING_PROVIDER_1_MODEL=model-name
+CODING_PROVIDER_1_API_KEY_ENV=PROVIDER_API_KEY
+CODING_PROVIDER_1_COST_CLASS=free
+CODING_PROVIDER_1_CAPABILITIES=coding,research,computer
+```
+
+The role router selects only configured, eligible routes in deterministic priority order. Unknown or unavailable roles fail closed, and paid providers are never selected unless paid routing is explicitly enabled.
+
+Mission Control also exposes per-mission execution evidence through:
+
+`GET /api/missions/<mission_id>/timeline`
+
+The timeline is assembled from bounded audit evidence plus approval state and does not expose raw credentials or approval tokens.
