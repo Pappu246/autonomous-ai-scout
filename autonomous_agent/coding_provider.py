@@ -248,20 +248,41 @@ class OpenAICompatibleCodingModel:
             # exact resulting file contents from that diff instead of trusting a
             # second model-generated manifest. This preserves the strict review
             # boundary while eliminating harmless manifest-shape drift.
+            context_files = {item.path: item.content for item in context.files}
+            materialized = None
             if unified_diff:
-                context_files = {item.path: item.content for item in context.files}
                 materialized = materialize_patch_file_contents(unified_diff, context_files)
                 if materialized is not None:
                     normalized_files = materialized
+
+            # Some lightweight coding models emit a diff that looks unified but is
+            # not safely materializable against the bounded base (for example, an
+            # incorrect hunk body or context range) while still returning the
+            # complete resulting file content. In that case, rebuild the diff from
+            # only the explicitly affected, bounded repository files. This does not
+            # widen the authority boundary: the rebuilt patch still goes through the
+            # strict patch reviewer and exact file-content validation below.
+            allowed_paths = {
+                str(path).strip().replace("\\", "/").removeprefix("./")
+                for path in proposal.affected_area
+            }
+            bounded_files = {
+                path: content
+                for path, content in normalized_files.items()
+                if path in allowed_paths and path in context_files
+            }
+            if bounded_files and materialized is None:
+                normalized_files = bounded_files
 
             # Some OpenAI-compatible coding models return the changed file correctly
             # but fail to format a valid unified diff. When the target file is present
             # in the bounded repository context, rebuild only that representation.
             # Patch review and validation remain the final authorities.
             if normalized_files and (
-                "diff --git " not in unified_diff or "@@" not in unified_diff
+                materialized is None
+                or "diff --git " not in unified_diff
+                or "@@" not in unified_diff
             ):
-                context_files = {item.path: item.content for item in context.files}
                 chunks: list[str] = []
                 for path, new_content in normalized_files.items():
                     old_content = context_files.get(path)
