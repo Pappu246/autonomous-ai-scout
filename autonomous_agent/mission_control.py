@@ -13,6 +13,8 @@ from typing import Iterable
 from .background_worker import BackgroundTaskWorker
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
+from .persistent_memory import PersistentMemory
+from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
 from .task_queue import QueueItem, QueueState, TaskQueueStore
 from .runtime import run_task
@@ -37,11 +39,13 @@ class MissionRecord:
     created_at: str
     updated_at: str
     attempts: int = 0
+    specialist_role: str = SpecialistRole.GENERAL.value
 
     @property
     def terminal(self) -> bool:
         return self.state in {
             "blocked",
+            "verified",
             QueueState.SUCCEEDED.value,
             QueueState.FAILED.value,
             QueueState.CANCELLED.value,
@@ -77,6 +81,7 @@ class MissionStore:
                     created_at=str(item["created_at"]),
                     updated_at=str(item["updated_at"]),
                     attempts=int(item.get("attempts", 0)),
+                    specialist_role=str(item.get("specialist_role", SpecialistRole.GENERAL.value)),
                 )
             )
         return records
@@ -127,7 +132,9 @@ class MissionStore:
 
 
 class MissionController:
-    """Mission-level facade that composes the existing planner, queue, worker and runtime."""
+    """Mission facade that composes the existing planner, queue, worker, memory and runtime."""
+
+    MEMORY_PROJECT = "mission-control"
 
     def __init__(
         self,
@@ -135,12 +142,14 @@ class MissionController:
         root: Path | None = None,
         queue_path: str | Path = "state/mission_queue.json",
         missions_path: str | Path = "state/missions.json",
+        memory_path: str | Path = "state/mission_memory.json",
         audit_path: str | Path = "state/runtime_execution.jsonl",
         journal_path: str | Path = "state/runtime_runs.jsonl",
     ) -> None:
         self.root = (root or Path.cwd()).resolve()
         self.queue = TaskQueueStore(self.root / queue_path)
         self.store = MissionStore(self.root / missions_path)
+        self.memory = PersistentMemory(self.root / memory_path)
         self.audit_path = self.root / audit_path
         self.journal_path = self.root / journal_path
         self.core = AutonomousTaskCore()
@@ -152,67 +161,85 @@ class MissionController:
             poll_interval=0.25,
         )
 
+    def _history_hint(self, task: str) -> str:
+        matches = self.memory.recall(self.MEMORY_PROJECT, task, limit=3)
+        if not matches:
+            return "no matching prior mission memory"
+        return f"recalled {len(matches)} prior mission memory item(s)"
+
     def submit(self, task: str) -> MissionRecord:
         prepared = self.core.prepare(task)
         mission_id = f"mission-{uuid.uuid4().hex}"
         execution_id = f"exec-{uuid.uuid4().hex}"
         now = _now()
+        role = choose_specialist(prepared.task)
+        history = self._history_hint(prepared.task)
 
         if not prepared.plan.executable:
-            record = MissionRecord(
-                mission_id=mission_id,
-                task_id=mission_id,
-                execution_id=execution_id,
-                task=prepared.task,
-                state="blocked",
-                reason=_bounded_text(prepared.plan.reason, 1000),
-                created_at=now,
-                updated_at=now,
+            return self.store.put(
+                MissionRecord(
+                    mission_id=mission_id,
+                    task_id=mission_id,
+                    execution_id=execution_id,
+                    task=prepared.task,
+                    state="blocked",
+                    reason=_bounded_text(
+                        f"{prepared.plan.reason}; specialist={role.role.value}; memory={history}",
+                        1000,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                    specialist_role=role.role.value,
+                )
             )
-            return self.store.put(record)
 
-        item = self.queue.enqueue(
+        item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
+        self.memory.record_task(
+            self.MEMORY_PROJECT,
             prepared.task,
-            task_id=mission_id,
-            execution_id=execution_id,
+            intent=role.role.value,
+            outcome="queued",
         )
-        record = MissionRecord(
-            mission_id=mission_id,
-            task_id=item.task_id,
-            execution_id=item.execution_id,
-            task=item.task,
-            state=item.state.value,
-            reason="mission accepted into the durable background queue",
-            created_at=item.created_at,
-            updated_at=item.updated_at,
-            attempts=item.attempts,
+        return self.store.put(
+            MissionRecord(
+                mission_id=mission_id,
+                task_id=item.task_id,
+                execution_id=item.execution_id,
+                task=item.task,
+                state=item.state.value,
+                reason=_bounded_text(
+                    f"mission accepted; specialist={role.role.value}; confidence={role.confidence}; memory={history}",
+                    1000,
+                ),
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                attempts=item.attempts,
+                specialist_role=role.role.value,
+            )
         )
-        return self.store.put(record)
 
     def cancel(self, mission_id: str) -> MissionRecord:
         record = self.store.get(mission_id)
         if record is None:
             raise KeyError(mission_id)
         item = self.queue.cancel(record.task_id)
+        self.memory.record_task(
+            self.MEMORY_PROJECT,
+            record.task,
+            intent=record.specialist_role,
+            outcome="cancelled",
+        )
         return self.store.put(
             MissionRecord(
-                record.mission_id,
-                record.task_id,
-                record.execution_id,
-                record.task,
-                item.state.value,
-                "mission cancelled before execution",
-                record.created_at,
-                item.updated_at,
-                item.attempts,
+                record.mission_id, record.task_id, record.execution_id, record.task,
+                item.state.value, "mission cancelled before execution",
+                record.created_at, item.updated_at, item.attempts, record.specialist_role,
             )
         )
 
     def run_once(self) -> MissionRecord | None:
         item = self.worker.run_once()
-        if item is None:
-            return None
-        return self.store.get(item.task_id)
+        return None if item is None else self.store.get(item.task_id)
 
     def recover(self) -> tuple[MissionRecord, ...]:
         items = self.worker.recover()
@@ -224,15 +251,9 @@ class MissionController:
             recovered.append(
                 self.store.put(
                     MissionRecord(
-                        existing.mission_id,
-                        existing.task_id,
-                        existing.execution_id,
-                        existing.task,
-                        item.state.value,
-                        _bounded_text(item.last_error, 1000),
-                        existing.created_at,
-                        item.updated_at,
-                        item.attempts,
+                        existing.mission_id, existing.task_id, existing.execution_id, existing.task,
+                        item.state.value, _bounded_text(item.last_error, 1000),
+                        existing.created_at, item.updated_at, item.attempts, existing.specialist_role,
                     )
                 )
             )
@@ -243,12 +264,7 @@ class MissionController:
             return
         self.recover()
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self.worker.run_forever,
-            args=(self._stop,),
-            name="autonomous-scout-mission-worker",
-            daemon=True,
-        )
+        self._thread = threading.Thread(target=self.worker.run_forever, args=(self._stop,), name="autonomous-scout-mission-worker", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -259,18 +275,14 @@ class MissionController:
 
     def _handle_queue_item(self, item: QueueItem) -> bool:
         existing = self.store.get(item.task_id)
+        role = existing.specialist_role if existing else choose_specialist(item.task).role.value
         if existing is not None:
             self.store.put(
                 MissionRecord(
-                    existing.mission_id,
-                    existing.task_id,
-                    existing.execution_id,
-                    existing.task,
+                    existing.mission_id, existing.task_id, existing.execution_id, existing.task,
                     QueueState.RUNNING.value,
-                    "mission is executing through the canonical runtime",
-                    existing.created_at,
-                    _now(),
-                    item.attempts,
+                    _bounded_text(f"mission executing through canonical runtime; specialist={role}", 1000),
+                    existing.created_at, _now(), item.attempts, role,
                 )
             )
 
@@ -281,37 +293,30 @@ class MissionController:
                 audit_path=self.audit_path,
                 journal_path=self.journal_path,
                 execution_id=item.execution_id,
+                memory=self.memory.store,
+                project=self.MEMORY_PROJECT,
             )
         except Exception as exc:
+            self.memory.record_task(self.MEMORY_PROJECT, item.task, intent=role, outcome=f"runtime_exception:{type(exc).__name__}")
             if existing is not None:
                 self.store.put(
                     MissionRecord(
-                        existing.mission_id,
-                        existing.task_id,
-                        existing.execution_id,
-                        existing.task,
-                        QueueState.FAILED.value,
-                        f"runtime raised {type(exc).__name__}",
-                        existing.created_at,
-                        _now(),
-                        item.attempts,
+                        existing.mission_id, existing.task_id, existing.execution_id, existing.task,
+                        QueueState.FAILED.value, f"runtime raised {type(exc).__name__}",
+                        existing.created_at, _now(), item.attempts, role,
                     )
                 )
             raise
 
         success = result.state is ExecutionState.VERIFIED
+        outcome = "verified" if success else result.state.value
+        self.memory.record_task(self.MEMORY_PROJECT, item.task, intent=role, outcome=outcome)
         if existing is not None:
             self.store.put(
                 MissionRecord(
-                    existing.mission_id,
-                    existing.task_id,
-                    existing.execution_id,
-                    existing.task,
-                    "verified" if success else result.state.value,
-                    _bounded_text(result.reason, 1000),
-                    existing.created_at,
-                    _now(),
-                    item.attempts,
+                    existing.mission_id, existing.task_id, existing.execution_id, existing.task,
+                    outcome, _bounded_text(result.reason, 1000),
+                    existing.created_at, _now(), item.attempts, role,
                 )
             )
         return success
