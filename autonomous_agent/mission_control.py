@@ -346,6 +346,83 @@ class MissionController:
             item.created_at, item.updated_at, item.attempts, role.role.value, normalized,
         ))
 
+    def timeline(self, mission_id: str) -> tuple[dict[str, object], ...]:
+        record = self.store.get(mission_id)
+        if record is None:
+            raise KeyError(mission_id)
+
+        execution_ids = {record.execution_id}
+        for step in record.steps:
+            execution_ids.add(f"{record.execution_id}:{step.get('node_id', '')}")
+
+        events: list[dict[str, object]] = []
+        if self.audit_path.exists():
+            try:
+                lines = self.audit_path.read_text(encoding="utf-8").splitlines()
+            except OSError as exc:
+                raise ValueError("mission audit is unreadable") from exc
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                execution_id = str(item.get("execution_id", ""))
+                if execution_id not in execution_ids:
+                    continue
+                safe: dict[str, object] = {}
+                for key in (
+                    "timestamp",
+                    "state",
+                    "event",
+                    "tool",
+                    "step_id",
+                    "verification",
+                    "result",
+                    "reason",
+                    "attempt",
+                    "completed_steps",
+                ):
+                    if key in item:
+                        value = item[key]
+                        if isinstance(value, (str, int, float, bool)) or value is None:
+                            safe[key] = value
+                        elif isinstance(value, (list, tuple)):
+                            safe[key] = list(value)[:32]
+                safe["execution_id"] = execution_id
+                events.append(safe)
+
+        if record.approval_action_id:
+            for action in load_queue(self.approval_queue_path):
+                if action.id == record.approval_action_id:
+                    events.append(
+                        {
+                            "event": "approval",
+                            "timestamp": action.created_at,
+                            "approval_action_id": action.id,
+                            "approval_status": action.status,
+                            "reason": action.reason,
+                        }
+                    )
+                    break
+
+        events.append(
+            {
+                "event": "mission_state",
+                "timestamp": record.updated_at,
+                "mission_id": record.mission_id,
+                "state": record.state,
+                "reason": record.reason,
+                "specialist_role": record.specialist_role,
+                "completed_steps": list(record.completed_steps),
+            }
+        )
+        events.sort(key=lambda item: (str(item.get("timestamp", "")), str(item.get("event", ""))))
+        return tuple(events)
+
     def cancel(self, mission_id: str) -> MissionRecord:
         record = self.store.get(mission_id)
         if record is None:
