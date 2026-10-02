@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Iterable
 
 from .provider_router import ProviderSpec
@@ -37,6 +38,9 @@ class SpecialistProviderRouter:
             if cost == "paid" and not self.allow_paid:
                 continue
             if cost != "free" and not (cost == "paid" and self.allow_paid):
+                continue
+            key_env = str(provider.config.api_key_env or "").strip()
+            if not key_env or not os.getenv(key_env):
                 continue
             eligible.append(provider)
 
