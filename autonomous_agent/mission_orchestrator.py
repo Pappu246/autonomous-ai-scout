@@ -127,7 +127,7 @@ class MissionOrchestrator:
                 task=node.task,
                 state=result.state.value,
                 reason=result.reason,
-                attempts=result.attempts,
+                attempts=int(getattr(result, "attempts", 0) or 0),
             )
             results.append(step_result)
             if result.state is not ExecutionState.VERIFIED:
