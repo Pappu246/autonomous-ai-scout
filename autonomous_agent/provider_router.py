@@ -195,6 +195,13 @@ def providers_from_env() -> tuple[ProviderSpec, ...]:
         if cost_class not in {"free", "paid", "unknown"}:
             continue
 
+        raw_capabilities = os.getenv(prefix + "CAPABILITIES", "coding").strip()
+        capabilities = tuple(
+            value.strip().lower()
+            for value in raw_capabilities.split(",")
+            if value.strip()
+        ) or ("coding",)
+
         result.append(
             ProviderSpec(
                 name=name,
@@ -214,6 +221,7 @@ def providers_from_env() -> tuple[ProviderSpec, ...]:
                 ),
                 priority=priority,
                 cost_class=cost_class,
+                capabilities=capabilities,
                 max_attempts=max(1, min(max_attempts, 3)),
             )
         )
