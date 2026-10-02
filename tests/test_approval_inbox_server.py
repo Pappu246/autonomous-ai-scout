@@ -113,6 +113,9 @@ def test_approval_inbox_activates_mission_after_operator_approval(tmp_path: Path
     server, thread = _start_server(tmp_path)
     try:
         controller = server.mission_controller = __import__("autonomous_agent.mission_control", fromlist=["MissionController"]).MissionController(root=tmp_path)
+        controller.approval_queue_path = server.approval_queue_path
+        controller.approval_dir = server.approval_dir
+        controller.approval_audit_path = server.approval_audit_path
         mission = controller.submit("use the computer to complete this task")
         request = urllib.request.Request(
             f"http://127.0.0.1:{server.server_port}/api/approvals/{mission.approval_action_id}/approve",
