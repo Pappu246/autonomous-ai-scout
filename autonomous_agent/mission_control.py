@@ -511,7 +511,6 @@ class MissionController:
 
         def runner(node):
             step_execution_id = f"{item.execution_id}:{node.node_id}"
-            step_grants = specialist_grants(node.task)
             result = run_task(
                 node.task,
                 root=self.root,
@@ -601,6 +600,7 @@ class MissionController:
                 latest.mission_id, latest.task_id, latest.execution_id, latest.task,
                 outcome, _bounded_text(reason, 1000),
                 latest.created_at, _now(), item.attempts, role, latest.steps, latest.completed_steps,
+                latest.approval_action_id,
             ))
         return success
 
