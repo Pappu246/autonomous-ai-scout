@@ -107,6 +107,17 @@ async function api(path, options = {}) {
   return body;
 }
 
+function renderTimeline(items) {
+  if (!items.length) return '<div class="muted">No execution evidence yet.</div>';
+  return items.map(item => `
+    <div class="mission">
+      <div><strong>${esc(item.event || 'event')}</strong><span class="pill">${esc(item.state || item.approval_status || '')}</span></div>
+      <div class="muted">${esc(item.timestamp || '')} · ${esc(item.execution_id || item.approval_action_id || '')}</div>
+      <pre>${esc(item.reason || item.verification || item.result || '')}</pre>
+    </div>`
+  ).join('');
+}
+
 function renderApprovals(items) {
   if (!items.length) {
     approvals.innerHTML = '<div class="muted">No pending approvals.</div>';
@@ -156,6 +167,7 @@ function render(items) {
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
       ${item.approval_action_id ? '<div class="muted">Approval: ' + esc(item.approval_action_id) + '</div>' : ''}
       <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
+      <button class="secondary" data-timeline="${esc(item.mission_id)}">Timeline</button>
       ${['failed','recovery_required','blocked'].includes(item.state) ? '<button class="secondary" data-resume="' + esc(item.mission_id) + '">Resume</button>' : ''}
       ${['pending','recovery_required'].includes(item.state) ? '<button class="secondary" data-cancel="' + esc(item.mission_id) + '">Cancel</button>' : ''}
       <pre id="memory-${esc(item.mission_id)}"></pre>
@@ -380,6 +392,17 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     }
                     for item in matches
                 ]})
+                return
+            if raw_id.endswith("/timeline"):
+                try:
+                    timeline = controller.timeline(mission_id)
+                except KeyError:
+                    self._json(404, {"error": "mission not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"timeline": list(timeline)})
                 return
             self._json(200, {"mission": self._mission_payload(record)})
             return
