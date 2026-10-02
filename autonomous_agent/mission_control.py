@@ -246,7 +246,7 @@ class MissionController:
                     "timestamp": _now(),
                     "state": ExecutionState.RUNNING.value,
                     "event": "computer_evidence",
-                    "evidence": evidence,
+                    "evidence_json": json.dumps(evidence, sort_keys=True, separators=(",", ":")),
                 },
             )
 
@@ -441,7 +441,7 @@ class MissionController:
                     "reason",
                     "attempt",
                     "completed_steps",
-                    "evidence",
+                    "evidence_json",
                 ):
                     if key in item:
                         value = item[key]
