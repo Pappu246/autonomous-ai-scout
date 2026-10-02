@@ -59,13 +59,14 @@ def _mission_ui() -> str:
     .mission { border-top: 1px solid #243044; padding: 14px 0; }
     .mission:first-child { border-top: 0; }
     .pill { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #243044; margin-left: 6px; }
+    .role { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #1d4ed8; margin-left: 6px; }
     pre { white-space: pre-wrap; word-break: break-word; color: #cbd5e1; }
   </style>
 </head>
 <body>
 <main>
   <h1>Autonomous AI Scout</h1>
-  <div class="muted">Mission Control · durable background tasks · verified results</div>
+  <div class="muted">Mission Control · durable missions · specialist routing · persistent memory · verified results</div>
   <section class="panel">
     <form id="mission-form">
       <label for="task">Give Scout a digital goal</label>
@@ -105,7 +106,7 @@ function render(items) {
   }
   missions.innerHTML = items.map(item => `
     <article class="mission">
-      <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.state)}</span></div>
+      <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.state)}</span><span class="role">${esc(item.specialist_role)}</span></div>
       <div class="muted">ID: ${esc(item.mission_id)}</div>
       <pre>${esc(item.reason)}</pre>
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
@@ -200,6 +201,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             "created_at": record.created_at,
             "updated_at": record.updated_at,
             "attempts": record.attempts,
+            "specialist_role": record.specialist_role,
         }
 
     def _request_json(self) -> dict:
@@ -223,15 +225,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/health":
             self._json(200, {"status": "ok", "service": "autonomous-ai-scout"})
             return
-
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
             return
-
         if parsed.path == "/":
             self._text(200, _mission_ui())
             return
-
         if parsed.path == "/run":
             query = parse_qs(parsed.query)
             task = query.get("task", [os.getenv("TASK_REQUEST", "inspect repository")])[0]
@@ -248,18 +247,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 "reason": result.reason,
                 "attempts": result.attempts,
                 "results": [
-                    {
-                        "operation": item.operation,
-                        "success": item.success,
-                        "verification": item.verification_status,
-                        "output": item.output,
-                    }
+                    {"operation": item.operation, "success": item.success, "verification": item.verification_status, "output": item.output}
                     for item in result.results
                 ],
                 "audit_path": result.audit_path,
             })
             return
-
         if parsed.path == "/api/missions":
             controller = self._controller()
             if controller is None:
@@ -267,7 +260,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {"missions": [self._mission_payload(item) for item in controller.store.list()]})
             return
-
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix):
             controller = self._controller()
@@ -281,7 +273,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {"mission": self._mission_payload(record)})
             return
-
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -289,12 +280,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
             return
-
         controller = self._controller()
         if controller is None:
             self._json(503, {"error": "mission control is not running"})
             return
-
         if parsed.path == "/api/missions":
             try:
                 payload = self._request_json()
@@ -309,7 +298,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             self._json(202 if record.state == "pending" else 422, {"mission": self._mission_payload(record)})
             return
-
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix) and parsed.path.endswith("/cancel"):
             mission_id = parsed.path[len(prefix):-len("/cancel")].strip("/")
@@ -323,7 +311,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {"mission": self._mission_payload(record)})
             return
-
         self._json(404, {"error": "not found"})
 
     def log_message(self, format: str, *args: object) -> None:
