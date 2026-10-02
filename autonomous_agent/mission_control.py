@@ -143,6 +143,10 @@ class MissionStore:
         wanted = mission_id.strip()
         return next((item for item in self.list() if item.mission_id == wanted), None)
 
+    def get_by_task_id(self, task_id: str) -> MissionRecord | None:
+        wanted = task_id.strip()
+        return next((item for item in self.list() if item.task_id == wanted), None)
+
     def put(self, record: MissionRecord) -> MissionRecord:
         with self._lock, self._process_lock:
             records = self._load_unlocked()
@@ -254,7 +258,7 @@ class MissionController:
 
     def run_once(self) -> MissionRecord | None:
         item = self.worker.run_once()
-        return None if item is None else self.store.get(item.task_id)
+        return None if item is None else self.store.get_by_task_id(item.task_id)
 
     def recover(self) -> tuple[MissionRecord, ...]:
         items = self.worker.recover()
@@ -411,7 +415,7 @@ class MissionController:
             reason = f"runtime raised {type(exc).__name__}"
         outcome = runtime_state
         self.memory.record_episode(self.MEMORY_PROJECT, item.task, outcome=outcome, metadata={"specialist_role": role})
-        latest = self.store.get(item.task_id) or existing
+        latest = self.store.get_by_task_id(item.task_id) or existing
         if latest:
             self.store.put(MissionRecord(
                 latest.mission_id, latest.task_id, latest.execution_id, latest.task,
