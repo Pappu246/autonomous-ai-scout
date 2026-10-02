@@ -16,7 +16,7 @@ def test_mission_submission_records_specialist_role(tmp_path: Path) -> None:
 
 def test_mission_submission_reuses_persistent_memory_hint(tmp_path: Path) -> None:
     first = MissionController(root=tmp_path)
-    first.memory.record_task(
+    first.memory.store.record_task(
         first.MEMORY_PROJECT,
         "inspect repository test failures",
         intent=SpecialistRole.CODING.value,
