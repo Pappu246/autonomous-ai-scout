@@ -62,7 +62,7 @@ jobs:
   local_ollama:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout exact workflow head
@@ -85,6 +85,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e . --no-deps
           pip install -r requirements.lock
+
+      - name: Verify network-isolated sandbox prerequisite
+        run: |
+          set -euo pipefail
+          command -v unshare >/dev/null
+          unshare --user --map-root-user --net --mount-proc -- true
+          echo "Network-isolated subprocess sandbox prerequisite is available."
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
