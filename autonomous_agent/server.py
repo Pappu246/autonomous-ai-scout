@@ -110,9 +110,20 @@ function render(items) {
       <div class="muted">ID: ${esc(item.mission_id)}</div>
       <pre>${esc(item.reason)}</pre>
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
+      <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
       ${['pending','recovery_required'].includes(item.state) ? '<button class="secondary" data-cancel="' + esc(item.mission_id) + '">Cancel</button>' : ''}
+      <pre id="memory-${esc(item.mission_id)}"></pre>
     </article>`
   ).join('');
+  missions.querySelectorAll('[data-memory]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
+        const target = document.getElementById('memory-' + button.dataset.memory);
+        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\\n') || 'No matching mission memory.';
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
   missions.querySelectorAll('[data-cancel]').forEach(button => {
     button.addEventListener('click', async () => {
       try {
@@ -270,6 +281,18 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             record = controller.store.get(mission_id)
             if record is None:
                 self._json(404, {"error": "mission not found"})
+                return
+            if parsed.path.endswith("/memory"):
+                matches = controller.memory.recall(controller.MEMORY_PROJECT, record.task, limit=5)
+                self._json(200, {"memory": [
+                    {
+                        "score": item.score,
+                        "kind": item.kind,
+                        "outcome": item.outcome,
+                        "data": dict(item.data),
+                    }
+                    for item in matches
+                ]})
                 return
             self._json(200, {"mission": self._mission_payload(record)})
             return
