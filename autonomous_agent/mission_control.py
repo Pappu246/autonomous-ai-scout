@@ -230,7 +230,7 @@ class MissionController:
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
             ))
         item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
-        self.memory.store.record_task(self.MEMORY_PROJECT, objective, intent=f"dag:{role.role.value}", outcome="queued")
+        self.memory.record_episode(self.MEMORY_PROJECT, objective, outcome="queued", metadata={"specialist_role": role.role.value, "kind": "dag"})
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}", 1000),
@@ -331,6 +331,7 @@ class MissionController:
         try:
             if existing and existing.steps:
                 success, reason = self._run_steps(item, existing)
+                runtime_state = "verified" if success else QueueState.FAILED.value
             else:
                 result = run_task(
                     item.task,
