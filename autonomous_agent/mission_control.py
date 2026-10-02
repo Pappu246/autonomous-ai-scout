@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from .action_queue import build_action_proposal, enqueue_proposal, load_queue
+from .capability_policy import Capability
 from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
 from .execution_engine import ExecutionState
