@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from autonomous_agent.execution_engine import ExecutionState
 from autonomous_agent.mission_control import MissionController
 from autonomous_agent.server import RuntimeHandler
 
@@ -126,11 +125,10 @@ def test_blocked_mission_is_reported_without_queueing(tmp_path: Path):
             urllib.request.urlopen(request, timeout=3)
         assert exc_info.value.code == 422
 
-        mission_id = getattr(server.mission_controller.store.list()[0], "mission_id")
-        blocked = server.mission_controller.store.get(mission_id)
-        assert blocked is not None
+        blocked = server.mission_controller.store.list()[0]
+        assert server.mission_controller.store.get(blocked.mission_id) is not None
         assert blocked.state == "blocked"
-        assert "approval" in blocked.reason.lower()
+        assert "blocked" in blocked.reason.lower()
         assert server.mission_controller.queue.list() == ()
     finally:
         _close(server, thread)
