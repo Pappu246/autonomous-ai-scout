@@ -34,3 +34,12 @@ def test_unknown_profile_falls_back_to_general() -> None:
     profile = profile_for(SpecialistRole.GENERAL)
     assert profile.role is SpecialistRole.GENERAL
     assert profile.description
+
+
+def test_approved_specialist_grants_include_high_risk_registered_tool_capability() -> None:
+    grants = specialist_grants(
+        "use the computer to complete this task",
+        SpecialistRole.COMPUTER,
+        include_approval_tools=True,
+    )
+    assert Capability.COMPUTER in grants
