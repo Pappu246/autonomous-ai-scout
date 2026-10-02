@@ -284,6 +284,60 @@ def test_provider_materializes_missing_file_contents_from_valid_diff(monkeypatch
     assert candidate.file_contents == {"README.md": "updated\n"}
 
 
+def test_provider_rebuilds_diff_when_reviewable_shape_cannot_materialize(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": (
+                            "diff --git a/README.md b/README.md\\n"
+                            "--- a/README.md\\n"
+                            "+++ b/README.md\\n"
+                            "@@ -1 +1 @@\\n"
+                            "-stale-model-baseline\\n"
+                            "+updated\\n"
+                        ),
+                        "file_contents": {"README.md": "updated\\n"},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\\n"}
+    assert candidate.unified_diff == (
+        "diff --git a/README.md b/README.md\\n"
+        "--- a/README.md\\n"
+        "+++ b/README.md\\n"
+        "@@ -1 +1 @@\\n"
+        "-original\\n"
+        "+updated\\n"
+    )
+
+
 def test_provider_normalizes_json_escaped_unified_diff(monkeypatch):
     monkeypatch.setenv("TEST_KEY", "secret")
     escaped = "diff --git a/README.md b/README.md\\n--- a/README.md\\n+++ b/README.md\\n@@ -1 +1,2 @@\\n original\\n+updated\\n"
