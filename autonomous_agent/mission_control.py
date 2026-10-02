@@ -20,6 +20,7 @@ from .specialist_policy import specialist_grants
 from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
 from .mission_orchestrator import MissionOrchestrator
+from .tool_registry import ApprovalRequirement
 from .task_dag import DAGTaskSpec
 from .task_planner import default_grants_for_task
 from .task_queue import QueueItem, QueueState, TaskQueueStore
@@ -225,17 +226,32 @@ class MissionController:
         action = enqueue_proposal(self.approval_queue_path, proposal, risk=risk)
         return "" if action is None else action.id
 
+    def _plan_requires_approval(self, plan) -> bool:
+        for step in plan.steps:
+            tool = self.core._registry.get(step.tool_name)
+            if tool is None:
+                continue
+            if tool.approval_requirement is not ApprovalRequirement.NONE or not tool.safe_autonomous:
+                return True
+        return False
+
     def submit(self, task: str) -> MissionRecord:
         normalized_task = " ".join(str(task).split())
         role_decision = choose_specialist(normalized_task)
         role = role_decision.role
         grants = specialist_grants(normalized_task, role)
         prepared = self.core.prepare(normalized_task, granted=grants)
+        approval_grants = specialist_grants(normalized_task, role, include_approval_tools=True)
+        approval_preview = self.core.prepare(
+            normalized_task,
+            granted=approval_grants,
+            explicitly_approved=True,
+        )
         mission_id, execution_id = self._new_ids()
         now = _now()
         history = self._history_hint(prepared.task)
         if not prepared.plan.executable:
-            if self._approval_required(prepared.plan.reason):
+            if approval_preview.plan.executable and self._plan_requires_approval(approval_preview.plan):
                 approval_id = self._queue_approval(
                     prepared.task,
                     (step.description for step in prepared.plan.steps),
@@ -281,11 +297,29 @@ class MissionController:
                     seen.add(capability)
                     grants.append(capability)
         prepared = self.core.prepare_dag(objective, specs, granted=tuple(grants))
+        approval_grants: list[Capability] = []
+        approval_seen: set[Capability] = set()
+        for spec in specs:
+            for capability in specialist_grants(
+                spec.task,
+                include_approval_tools=True,
+            ):
+                if capability not in approval_seen:
+                    approval_seen.add(capability)
+                    approval_grants.append(capability)
+        approval_preview = self.core.prepare_dag(
+            objective,
+            specs,
+            granted=tuple(approval_grants),
+            explicitly_approved=True,
+        )
         mission_id, execution_id = self._new_ids()
         now = _now()
         role = choose_specialist(objective)
         if not prepared.executable:
-            if self._approval_required(prepared.reason):
+            if approval_preview.executable and any(
+                self._plan_requires_approval(node.plan) for node in approval_preview.nodes
+            ):
                 approval_id = self._queue_approval(
                     _bounded_text(objective, 4000),
                     (str(step.get("task", "")) for step in normalized),
