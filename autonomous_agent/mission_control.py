@@ -14,7 +14,7 @@ from .background_worker import BackgroundTaskWorker
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
-from .specialist_policy import specialist_for_task, specialist_grants
+from .specialist_policy import specialist_grants
 from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
 from .mission_orchestrator import MissionOrchestrator
@@ -193,7 +193,9 @@ class MissionController:
 
     def submit(self, task: str) -> MissionRecord:
         normalized_task = " ".join(str(task).split())
-        role, grants = specialist_for_task(normalized_task)
+        role_decision = choose_specialist(normalized_task)
+        role = role_decision.role
+        grants = specialist_grants(normalized_task, role)
         prepared = self.core.prepare(normalized_task, granted=grants)
         mission_id, execution_id = self._new_ids()
         now = _now()
@@ -201,15 +203,15 @@ class MissionController:
         if not prepared.plan.executable:
             return self.store.put(MissionRecord(
                 mission_id, mission_id, execution_id, prepared.task, "blocked",
-                _bounded_text(f"{prepared.plan.reason}; specialist={role.role.value}; memory={history}", 1000),
-                now, now, 0, role.role.value, (),
+                _bounded_text(f"{prepared.plan.reason}; specialist={role.value}; memory={history}", 1000),
+                now, now, 0, role.value, (),
             ))
         item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
-        self.memory.record_episode(self.MEMORY_PROJECT, prepared.task, outcome="queued", metadata={"specialist_role": role.role.value})
+        self.memory.record_episode(self.MEMORY_PROJECT, prepared.task, outcome="queued", metadata={"specialist_role": role.value})
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
-            _bounded_text(f"mission accepted; specialist={role.role.value}; confidence={role.confidence}; memory={history}", 1000),
-            item.created_at, item.updated_at, item.attempts, role.role.value, (),
+            _bounded_text(f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; memory={history}", 1000),
+            item.created_at, item.updated_at, item.attempts, role.value, (),
         ))
 
     def submit_plan(self, objective: str, steps: Sequence[Mapping[str, object]]) -> MissionRecord:
