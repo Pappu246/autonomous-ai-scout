@@ -842,3 +842,38 @@ implicit fallback.
 ## License
 
 See the repository for the current license and project terms.
+
+## Next-level build contract
+
+The next stage continues this architecture rather than replacing it.
+
+The product goal is a practical autonomous-agent platform with Mission Control, durable natural-language missions, specialist agent roles, persistent mission context, always-on scheduling/recovery, expanded Windows computer use, multi-model role routing, and an operator timeline/approval surface.
+
+### Build order
+
+1. Mission Control UI + durable mission lifecycle.
+2. Long-running mission orchestration over the existing planner/DAG/runtime.
+3. Specialist roles for research, coding, browser, computer, documents, and communication.
+4. Mission-linked persistent memory and context.
+5. Always-on scheduling, recovery, and bounded goal loops.
+6. Reliable multi-step Windows computer use.
+7. Multi-model role-based provider routing.
+8. Operator timeline, approvals, evidence, cancellation, and recovery UI.
+9. Finish live external evidence and final release admission.
+
+### Non-negotiable constraints
+
+- Continue from the current repository; do not rebuild from scratch.
+- Reuse the existing planner, tool registry, policy, sandbox, audit, queue, memory, and verification layers.
+- Keep consequential actions behind the existing approval boundaries.
+- Never claim a capability is available when its backend is unavailable.
+- Never report success without verification evidence.
+- Keep main unchanged until the required release evidence is complete.
+
+### Mission Control
+
+The local runtime now exposes a Mission Control surface at:
+
+http://127.0.0.1:8000/
+
+It accepts a natural-language mission, persists it in the durable queue, executes it through the canonical runtime worker, and exposes mission status through /api/missions. It does not introduce a second authorization system.
