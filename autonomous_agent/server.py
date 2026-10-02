@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .approval import pending_actions, reject_action
+from .approval_store import create_approval
 from .execution_engine import ExecutionState
 from .mission_control import MissionController
 from .runtime import run_task
@@ -81,10 +83,16 @@ def _mission_ui() -> str:
     <h2>Recent missions</h2>
     <div id="missions">Loading…</div>
   </section>
+  <section class="panel">
+    <h2>Approval Inbox</h2>
+    <div class="muted">Existing approval queue only. Approving here does not execute, merge, or deploy.</div>
+    <div id="approvals">Loading…</div>
+  </section>
 </main>
 <script>
 const notice = document.getElementById('notice');
 const missions = document.getElementById('missions');
+const approvals = document.getElementById('approvals');
 
 function esc(value) {
   const node = document.createElement('div');
@@ -97,6 +105,42 @@ async function api(path, options = {}) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
   return body;
+}
+
+function renderApprovals(items) {
+  if (!items.length) {
+    approvals.innerHTML = '<div class="muted">No pending approvals.</div>';
+    return;
+  }
+  approvals.innerHTML = items.map(item => `
+    <article class="mission">
+      <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.risk)}</span></div>
+      <div class="muted">ID: ${esc(item.id)} · created: ${esc(item.created_at)}</div>
+      <pre>${esc(item.reason)}</pre>
+      <pre>${esc((item.steps || []).join('\\n'))}</pre>
+      <button class="secondary" data-approve="${esc(item.id)}">Approve</button>
+      <button class="secondary" data-reject="${esc(item.id)}">Reject</button>
+    </article>`
+  ).join('');
+
+  approvals.querySelectorAll('[data-approve]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/approvals/' + encodeURIComponent(button.dataset.approve) + '/approve', {method: 'POST'});
+        notice.textContent = 'Approval recorded. No action was executed.';
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+  approvals.querySelectorAll('[data-reject]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/approvals/' + encodeURIComponent(button.dataset.reject) + '/reject', {method: 'POST'});
+        notice.textContent = 'Approval rejected.';
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
 }
 
 function render(items) {
@@ -145,8 +189,12 @@ function render(items) {
 
 async function refresh() {
   try {
-    const body = await api('/api/missions');
-    render(body.missions);
+    const [missionBody, approvalBody] = await Promise.all([
+      api('/api/missions'),
+      api('/api/approvals')
+    ]);
+    render(missionBody.missions);
+    renderApprovals(approvalBody.approvals);
     notice.textContent = '';
   } catch (error) {
     notice.textContent = error.message;
@@ -226,6 +274,25 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             "completed_steps": list(record.completed_steps),
         }
 
+    def _approval_paths(self) -> tuple[Path, Path, Path]:
+        root = Path.cwd()
+        return (
+            Path(getattr(self.server, "approval_queue_path", root / "state" / "approval_queue.json")),
+            Path(getattr(self.server, "approval_dir", root / "state" / "approvals")),
+            Path(getattr(self.server, "approval_audit_path", root / "state" / "approval_audit.jsonl")),
+        )
+
+    @staticmethod
+    def _approval_payload(action) -> dict:
+        return {
+            "id": action.id,
+            "task": action.task,
+            "steps": list(action.steps),
+            "risk": action.risk,
+            "reason": action.reason,
+            "created_at": action.created_at,
+        }
+
     def _request_json(self) -> dict:
         raw_length = self.headers.get("Content-Length", "0")
         try:
@@ -275,6 +342,52 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 "audit_path": result.audit_path,
             })
             return
+        if parsed.path == "/api/approvals":
+            queue_path, _, _ = self._approval_paths()
+            actions = pending_actions(queue_path)
+            self._json(200, {"approvals": [self._approval_payload(item) for item in actions]})
+            return
+        approval_prefix = "/api/approvals/"
+        if parsed.path.startswith(approval_prefix):
+            raw = parsed.path[len(approval_prefix):].strip("/")
+            if raw.endswith("/approve"):
+                action_id = raw[:-len("/approve")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, approval_dir, audit_path = self._approval_paths()
+                try:
+                    record = create_approval(queue_path, approval_dir, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"approval": {
+                    "action_id": record.action_id,
+                    "approved_at": record.approved_at,
+                    "expires_at": record.expires_at,
+                    "status": "approved",
+                }})
+                return
+            if raw.endswith("/reject"):
+                action_id = raw[:-len("/reject")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, _, audit_path = self._approval_paths()
+                try:
+                    updated = reject_action(queue_path, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"approval": {"action_id": updated.id, "status": updated.status}})
+                return
+
         if parsed.path == "/api/missions":
             controller = self._controller()
             if controller is None:
@@ -373,6 +486,9 @@ def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
     server.require_auth = require_auth
     server.server_token = token
     server.mission_controller = MissionController(root=Path.cwd())
+    server.approval_queue_path = Path.cwd() / "state" / "approval_queue.json"
+    server.approval_dir = Path.cwd() / "state" / "approvals"
+    server.approval_audit_path = Path.cwd() / "state" / "approval_audit.jsonl"
     server.mission_controller.start()
     print(f"Autonomous AI Scout runtime listening on http://{host}:{port}")
     print(f"Mission Control UI: http://{host}:{port}/")
