@@ -90,8 +90,14 @@ jobs:
         run: |
           set -euo pipefail
           command -v unshare >/dev/null
-          unshare --user --map-root-user --net --mount-proc -- true
-          echo "Network-isolated subprocess sandbox prerequisite is available."
+          if unshare --user --map-root-user --net --mount-proc -- true >/dev/null 2>&1; then
+            echo "Network-isolated subprocess sandbox available through unprivileged user namespace."
+          elif command -v sudo >/dev/null && sudo -n unshare --net --mount-proc -- true >/dev/null 2>&1; then
+            echo "Network-isolated subprocess sandbox available through passwordless sudo."
+          else
+            echo "No supported network-isolation mechanism is available on this runner."
+            exit 1
+          fi
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
