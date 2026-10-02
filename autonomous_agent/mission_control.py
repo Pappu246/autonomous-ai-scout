@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from .action_queue import build_action_proposal, enqueue_proposal
+from .action_queue import build_action_proposal, enqueue_proposal, load_queue
 from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
 from .execution_engine import ExecutionState
@@ -357,6 +357,12 @@ class MissionController:
         self._thread = None
 
     def activate_approved_action(self, action_id: str) -> MissionRecord | None:
+        queue = {item.id: item for item in load_queue(self.approval_queue_path)}
+        action = queue.get(action_id)
+        if action is None:
+            raise KeyError(action_id)
+        if action.status != "approved":
+            raise ValueError("approval action must be explicitly approved before mission activation")
         record = self.store.get_by_approval_action_id(action_id)
         if record is None:
             return None
