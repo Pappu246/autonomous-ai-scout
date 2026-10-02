@@ -107,3 +107,22 @@ def test_mission_control_ui_contains_approval_inbox(tmp_path: Path) -> None:
         assert "/api/approvals" in body
     finally:
         _close(server, thread)
+
+
+def test_approval_inbox_activates_mission_after_operator_approval(tmp_path: Path) -> None:
+    server, thread = _start_server(tmp_path)
+    try:
+        controller = server.mission_controller = __import__("autonomous_agent.mission_control", fromlist=["MissionController"]).MissionController(root=tmp_path)
+        mission = controller.submit("use the computer to complete this task")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/approvals/{mission.approval_action_id}/approve",
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert payload["approval"]["status"] == "approved"
+        assert payload["approval"]["mission"]["state"] == "pending"
+        assert payload["approval"]["mission"]["approval_action_id"] == mission.approval_action_id
+    finally:
+        _close(server, thread)
