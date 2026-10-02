@@ -309,18 +309,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {"mission": self._mission_payload(record)})
             return
-        if parsed.path.startswith(prefix) and parsed.path.endswith("/resume"):
-            mission_id = parsed.path[len(prefix):-len("/resume")].strip("/")
-            try:
-                record = controller.resume(mission_id)
-            except KeyError:
-                self._json(404, {"error": "mission not found"})
-                return
-            except ValueError as exc:
-                self._json(409, {"error": str(exc)})
-                return
-            self._json(202, {"mission": self._mission_payload(record)})
-            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -359,6 +347,18 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 self._json(409, {"error": str(exc)})
                 return
             self._json(200, {"mission": self._mission_payload(record)})
+            return
+        if parsed.path.startswith(prefix) and parsed.path.endswith("/resume"):
+            mission_id = parsed.path[len(prefix):-len("/resume")].strip("/")
+            try:
+                record = controller.resume(mission_id)
+            except KeyError:
+                self._json(404, {"error": "mission not found"})
+                return
+            except ValueError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            self._json(202, {"mission": self._mission_payload(record)})
             return
         self._json(404, {"error": "not found"})
 
