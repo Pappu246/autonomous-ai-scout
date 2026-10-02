@@ -51,6 +51,97 @@ _PATCH_SCHEMA = {
     "additionalProperties": False,
 }
 
+def _canonicalize_hunk_counts(text: str) -> str:
+    """Repair lightweight-model hunk counts from their actual hunk lines."""
+    lines = text.splitlines()
+    out: list[str] = []
+    hunk_start = None
+    hunk_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal hunk_start, hunk_lines
+        if hunk_start is None:
+            return
+        header = out[hunk_start]
+        match = re.match(
+            r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$",
+            header,
+        )
+        if match is None:
+            hunk_start = None
+            hunk_lines = []
+            return
+        old_start, _old_count, new_start, _new_count, tail = match.groups()
+        old_count = sum(1 for line in hunk_lines if line and line[0] in {" ", "-"})
+        new_count = sum(1 for line in hunk_lines if line and line[0] in {" ", "+"})
+        out[hunk_start] = (
+            f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{tail}"
+        )
+        hunk_start = None
+        hunk_lines = []
+
+    for line in lines:
+        if line.startswith("@@ "):
+            flush()
+            hunk_start = len(out)
+            hunk_lines = []
+            out.append(line)
+            continue
+        if hunk_start is not None:
+            if line.startswith(("diff --git ", "--- ", "+++ ")):
+                flush()
+            else:
+                hunk_lines.append(line)
+        out.append(line)
+    flush()
+    return "\n".join(out)
+
+def _normalize_unified_diff(value: object) -> str:
+    """Normalize harmless model formatting without changing patch semantics."""
+    from textwrap import dedent
+
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # Lightweight models may return the diff as a single JSON-escaped line.
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+
+    # Accept a fenced diff wrapper, but keep the diff itself authoritative.
+    lines = text.splitlines()
+    fence = "`" * 3
+    fence_start = next((i for i, line in enumerate(lines) if line.strip().startswith(fence)), None)
+    if fence_start is not None:
+        fence_end = next((i for i in range(fence_start + 1, len(lines)) if lines[i].strip() == fence), None)
+        if fence_end is not None:
+            lines = lines[fence_start + 1:fence_end]
+            text = dedent("\n".join(lines)).strip()
+
+    # Remove uniform presentation indentation while preserving the one-byte
+    # context marker required by unified diff hunks.
+    text = dedent(text).strip()
+
+    # Canonicalize common lightweight-model unified headers only before the first
+    # hunk. The strict patch reviewer remains authoritative for path safety.
+    normalized: list[str] = []
+    in_hunk = False
+    for line in text.splitlines():
+        if line.startswith("@@ "):
+            in_hunk = True
+        if not in_hunk and line.lstrip().startswith("--- "):
+            raw = line.lstrip()[4:].strip()
+            if raw != "/dev/null" and not raw.startswith("a/"):
+                raw = raw.removeprefix("./")
+                line = "--- a/" + raw
+        elif not in_hunk and line.lstrip().startswith("+++ "):
+            raw = line.lstrip()[4:].strip()
+            if raw != "/dev/null" and not raw.startswith("b/"):
+                raw = raw.removeprefix("./").removeprefix("a/")
+                line = "+++ b/" + raw
+        normalized.append(line)
+    text = "\n".join(normalized).strip()
+    text = _canonicalize_hunk_counts(text)
+    return text + "\n" if text else ""
+
 class OpenAICompatibleCodingModel:
     """Provider-neutral coding model for OpenAI-compatible chat endpoints."""
     def __init__(self, config: ChatProviderConfig, *, http_post: Callable | None = None):
@@ -95,6 +186,7 @@ class OpenAICompatibleCodingModel:
             "previous_summary": previous.summary if previous else "",
             "output_schema": {"unified_diff":"required real git-style unified diff", "file_contents":{"path":"optional complete UTF-8 file; may be {} because the adapter derives it from the diff"}, "summary":"string", "test_commands":["leave empty; sandbox validation executes the approved proposal commands"]},
             "diff_rule": "The unified_diff is the primary patch artifact. It must contain real '+++ b/<path>' and '@@' hunk lines. file_contents may be {}. Do not invent repository state beyond the supplied files.",
+            "manifest_rule": "file_contents keys must be exact repository-relative paths from affected_area or the '+++ b/<path>' headers. Do not prefix keys with a/, b/, ./, or filesystem paths.",
             "validation_rule": "Do not invent, rewrite, or translate validation steps into commands. Leave test_commands empty so the sandbox executes only its approved proposal commands.",
             "constraints": ["Return JSON only.", "Never include secrets or private keys.", "Do not touch .git, .env, .github/workflows, or state/secrets.", "Do not merge, deploy, bill, or make external side effects."],
         }
@@ -143,27 +235,54 @@ class OpenAICompatibleCodingModel:
             if not isinstance(raw_files, dict) or not isinstance(test_commands, (list, tuple)):
                 return None
 
-            normalized_files = {str(k): str(v) for k, v in raw_files.items()}
-            unified_diff = str(data.get("unified_diff", ""))
+            normalized_files = {}
+            for key, value in raw_files.items():
+                normalized = str(key).strip().replace("\\", "/").removeprefix("./")
+                if normalized.startswith(("a/", "b/")):
+                    normalized = normalized[2:]
+                normalized_files[normalized] = str(value)
+            unified_diff = _normalize_unified_diff(data.get("unified_diff", ""))
 
-            # Some lightweight coding models return a valid unified diff but omit
-            # file_contents. Materialize only the paths present in that diff from
-            # the already-bounded repository context. The patch validator still
-            # compares the resulting contents against the exact diff before approval.
-            if not normalized_files and unified_diff:
-                context_files = {item.path: item.content for item in context.files}
+            # The unified diff is the primary patch artifact. When it is
+            # reviewable against the already-bounded repository context, derive the
+            # exact resulting file contents from that diff instead of trusting a
+            # second model-generated manifest. This preserves the strict review
+            # boundary while eliminating harmless manifest-shape drift.
+            context_files = {item.path: item.content for item in context.files}
+            materialized = None
+            if unified_diff:
                 materialized = materialize_patch_file_contents(unified_diff, context_files)
                 if materialized is not None:
                     normalized_files = materialized
+
+            # Some lightweight coding models emit a diff that looks unified but is
+            # not safely materializable against the bounded base (for example, an
+            # incorrect hunk body or context range) while still returning the
+            # complete resulting file content. In that case, rebuild the diff from
+            # only the explicitly affected, bounded repository files. This does not
+            # widen the authority boundary: the rebuilt patch still goes through the
+            # strict patch reviewer and exact file-content validation below.
+            allowed_paths = {
+                str(path).strip().replace("\\", "/").removeprefix("./")
+                for path in proposal.affected_area
+            }
+            bounded_files = {
+                path: content
+                for path, content in normalized_files.items()
+                if path in allowed_paths and path in context_files
+            }
+            if bounded_files and materialized is None:
+                normalized_files = bounded_files
 
             # Some OpenAI-compatible coding models return the changed file correctly
             # but fail to format a valid unified diff. When the target file is present
             # in the bounded repository context, rebuild only that representation.
             # Patch review and validation remain the final authorities.
             if normalized_files and (
-                "diff --git " not in unified_diff or "@@" not in unified_diff
+                materialized is None
+                or "diff --git " not in unified_diff
+                or "@@" not in unified_diff
             ):
-                context_files = {item.path: item.content for item in context.files}
                 chunks: list[str] = []
                 for path, new_content in normalized_files.items():
                     old_content = context_files.get(path)

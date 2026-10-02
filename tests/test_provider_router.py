@@ -273,3 +273,55 @@ def test_model_factory_failure_falls_back(monkeypatch):
     assert result is not None
     assert result.summary == "good"
     assert router.last_attempts[0].detail == "model_factory failed: RuntimeError"
+
+
+def test_provider_env_parser_reads_specialist_capabilities(monkeypatch):
+    monkeypatch.setenv("CODING_PROVIDER_1_NAME", "hybrid")
+    monkeypatch.setenv("CODING_PROVIDER_1_ENDPOINT", "https://example.invalid")
+    monkeypatch.setenv("CODING_PROVIDER_1_MODEL", "demo")
+    monkeypatch.setenv("CODING_PROVIDER_1_API_KEY_ENV", "HYBRID_KEY")
+    monkeypatch.setenv("CODING_PROVIDER_1_COST_CLASS", "free")
+    monkeypatch.setenv("CODING_PROVIDER_1_CAPABILITIES", "coding,research,computer")
+
+    providers = providers_from_env()
+
+    assert providers[0].capabilities == ("coding", "research", "computer")
+
+
+def test_specialist_provider_router_prefers_free_priority(monkeypatch):
+    from autonomous_agent.specialist_provider import SpecialistProviderRouter
+
+    monkeypatch.setenv("FREE_KEY", "free")
+    monkeypatch.setenv("PAID_KEY", "paid")
+    router = SpecialistProviderRouter(
+        [
+            _spec("paid", "PAID_KEY", priority=1, cost="paid"),
+            ProviderSpec(
+                name="free-research",
+                config=ChatProviderConfig(
+                    endpoint="https://example.invalid",
+                    model="research",
+                    api_key_env="FREE_KEY",
+                ),
+                priority=10,
+                cost_class="free",
+                capabilities=("research",),
+            ),
+        ],
+        allow_paid=False,
+    )
+
+    route = router.route("research")
+    assert route.eligible is True
+    assert route.provider is not None
+    assert route.provider.name == "free-research"
+
+
+def test_specialist_provider_router_fails_closed_when_role_has_no_provider():
+    from autonomous_agent.specialist_provider import SpecialistProviderRouter
+
+    route = SpecialistProviderRouter([]).route("computer")
+
+    assert route.eligible is False
+    assert route.provider is None
+    assert "no eligible configured provider" in route.reason

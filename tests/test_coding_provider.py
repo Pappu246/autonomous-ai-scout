@@ -282,3 +282,362 @@ def test_provider_materializes_missing_file_contents_from_valid_diff(monkeypatch
     )
     assert candidate is not None
     assert candidate.file_contents == {"README.md": "updated\n"}
+
+
+def test_provider_rebuilds_diff_when_reviewable_shape_cannot_materialize(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": (
+                            "diff --git a/README.md b/README.md\n"
+                            "--- a/README.md\n"
+                            "+++ b/README.md\n"
+                            "@@ -1 +1 @@\n"
+                            "-stale-model-baseline\n"
+                            "+updated\n"
+                        ),
+                        "file_contents": {"README.md": "updated\n"},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+    assert candidate.unified_diff == (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1 @@\n"
+        "-original\n"
+        "+updated\n"
+    )
+
+def test_provider_normalizes_json_escaped_unified_diff(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    escaped = "diff --git a/README.md b/README.md\\n--- a/README.md\\n+++ b/README.md\\n@@ -1 +1,2 @@\\n original\\n+updated\\n"
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": escaped,
+                        "file_contents": {},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "original\nupdated\n"}
+    assert candidate.unified_diff.startswith("diff --git a/README.md b/README.md")
+    assert "+++ b/README.md" in candidate.unified_diff
+
+
+def test_provider_normalizes_fenced_indented_unified_diff(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    diff_block = "\n".join([
+        "```diff",
+        "    diff --git a/README.md b/README.md",
+        "    --- a/README.md",
+        "    +++ b/README.md",
+        "    @@ -1 +1 @@",
+        "    -original",
+        "    +updated",
+        "    ```",
+    ])
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": diff_block,
+                        "file_contents": {},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+    assert candidate.unified_diff.startswith("diff --git a/README.md b/README.md")
+
+
+def test_provider_canonicalizes_incorrect_hunk_counts(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    diff = "\n".join([
+        "--- tools/GATE3_SMOKE_TARGET.md",
+        "+++ tools/GATE3_SMOKE_TARGET.md",
+        "@@ -1,99 +1,99 @@",
+        "-original",
+        "+updated",
+    ])
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": diff,
+                        "file_contents": {},
+                        "summary": "update smoke target",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update smoke target",
+            "proposed_solution": "update smoke target",
+            "validation_strategy": (),
+            "affected_area": ("tools/GATE3_SMOKE_TARGET.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("tools/GATE3_SMOKE_TARGET.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert "@@ -1 +1 @@" in candidate.unified_diff
+    assert candidate.file_contents == {"tools/GATE3_SMOKE_TARGET.md": "updated\n"}
+
+
+def test_provider_normalizes_unprefixed_unified_headers(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+    diff = "\n".join([
+        "--- README.md",
+        "+++ README.md",
+        "@@ -1 +1 @@",
+        "-original",
+        "+updated",
+    ])
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": diff,
+                        "file_contents": {},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+    assert "+++ b/README.md" in candidate.unified_diff
+
+
+def test_provider_prefers_valid_diff_over_extra_manifest_entries(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-original\n+updated\n",
+                        "file_contents": {
+                            "README.md": "updated\n",
+                            "UNRELATED.md": "should be ignored\n",
+                        },
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+
+
+def test_provider_canonicalizes_a_prefixed_file_manifest_keys(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-original\n+updated\n",
+                        "file_contents": {"a/README.md": "updated\n"},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}
+
+
+def test_provider_canonicalizes_b_prefixed_file_manifest_keys(monkeypatch):
+    monkeypatch.setenv("TEST_KEY", "secret")
+
+    def post(endpoint, headers, payload, timeout):
+        import json as _json
+        return {
+            "choices": [{
+                "message": {
+                    "content": _json.dumps({
+                        "unified_diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-original\n+updated\n",
+                        "file_contents": {"b/README.md": "updated\n"},
+                        "summary": "update docs",
+                        "test_commands": [],
+                    })
+                }
+            }]
+        }
+
+    model = OpenAICompatibleCodingModel(
+        ChatProviderConfig("https://example.test", "demo", "TEST_KEY"),
+        http_post=post,
+    )
+    candidate = model.generate_patch(
+        proposal=type("P", (), {
+            "problem": "update docs",
+            "proposed_solution": "update docs",
+            "validation_strategy": (),
+            "affected_area": ("README.md",),
+        })(),
+        context=RepositoryContext(
+            "owner/repo",
+            (RepositoryFile("README.md", "original\n"),),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.file_contents == {"README.md": "updated\n"}

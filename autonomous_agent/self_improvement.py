@@ -109,7 +109,11 @@ def _review_candidate(candidate: PatchCandidate) -> tuple[PatchReview | None, st
         return review, review.reason
     manifest = _normalize_manifest(candidate.file_contents)
     if manifest != review.files:
-        return review, "file manifest does not exactly match the reviewed patch"
+        return (
+            review,
+            "file manifest does not exactly match the reviewed patch; "
+            f"manifest={manifest!r}; reviewed_files={review.files!r}",
+        )
     if any(not isinstance(content, str) for content in candidate.file_contents.values()):
         return review, "changed file contents must be text"
     total_bytes = 0

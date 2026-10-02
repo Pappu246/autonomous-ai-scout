@@ -81,7 +81,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/actions/workflows/gate3-live-recovery.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate3.json"
+          gh api "repos/${REPO}/actions/workflows/gate3-coding-provider-smoke.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate3.json"
           gh api "repos/${REPO}/actions/workflows/gate4-external-connector-smoke.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate4.json"
           gh api "repos/${REPO}/actions/workflows/gate5-github-admin-readiness.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate5.json"
           python - <<'PY'

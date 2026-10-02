@@ -9,12 +9,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .approval import pending_actions
+from .approval_store import create_approval, reject_action
 from .execution_engine import ExecutionState
+from .mission_control import MissionController
 from .runtime import run_task
 
 
 AUTH_HEADER = "X-Autonomous-Scout-Token"
 MAX_TASK_LENGTH = 4_000
+MAX_JSON_BODY_BYTES = 8_192
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -36,16 +40,235 @@ def _validate_bind_security(host: str, token: str) -> bool:
     return require_auth
 
 
+def _mission_ui() -> str:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <title>Autonomous AI Scout</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0b1020; color: #edf2f7; }
+    main { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
+    h1 { margin-bottom: 6px; }
+    .muted { color: #a0aec0; }
+    .panel { background: #111827; border: 1px solid #243044; border-radius: 14px; padding: 18px; margin-top: 20px; }
+    textarea { width: 100%; min-height: 110px; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 10px; padding: 12px; resize: vertical; }
+    button { margin-top: 12px; border: 0; border-radius: 9px; padding: 10px 16px; cursor: pointer; background: #2563eb; color: white; font-weight: 700; }
+    button.secondary { background: #334155; }
+    .mission { border-top: 1px solid #243044; padding: 14px 0; }
+    .mission:first-child { border-top: 0; }
+    .pill { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #243044; margin-left: 6px; }
+    .role { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #1d4ed8; margin-left: 6px; }
+    pre { white-space: pre-wrap; word-break: break-word; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Autonomous AI Scout</h1>
+  <div class="muted">Mission Control · durable missions · specialist routing · persistent memory · verified results</div>
+  <section class="panel">
+    <form id="mission-form">
+      <label for="task">Give Scout a digital goal</label>
+      <textarea id="task" maxlength="4000" placeholder="Example: inspect the repository and summarize current test failures"></textarea>
+      <br>
+      <button type="submit">Start Mission</button>
+      <button type="button" class="secondary" id="refresh">Refresh</button>
+    </form>
+    <div id="notice" class="muted"></div>
+  </section>
+  <section class="panel">
+    <h2>Recent missions</h2>
+    <div id="missions">Loading…</div>
+  </section>
+  <section class="panel">
+    <h2>Approval Inbox</h2>
+    <div class="muted">Existing approval queue only. Approving here does not execute, merge, or deploy.</div>
+    <div id="approvals">Loading…</div>
+  </section>
+</main>
+<script>
+const notice = document.getElementById('notice');
+const missions = document.getElementById('missions');
+const approvals = document.getElementById('approvals');
+
+function esc(value) {
+  const node = document.createElement('div');
+  node.textContent = String(value ?? '');
+  return node.innerHTML;
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
+  return body;
+}
+
+function renderTimeline(items) {
+  if (!items.length) return '<div class="muted">No execution evidence yet.</div>';
+  return items.map(item => `
+    <div class="mission">
+      <div><strong>${esc(item.event || 'event')}</strong><span class="pill">${esc(item.state || item.approval_status || '')}</span></div>
+      <div class="muted">${esc(item.timestamp || '')} · ${esc(item.execution_id || item.approval_action_id || '')}</div>
+      <pre>${esc(item.reason || item.verification || item.result || '')}</pre>
+    </div>`
+  ).join('');
+}
+
+function renderApprovals(items) {
+  if (!items.length) {
+    approvals.innerHTML = '<div class="muted">No pending approvals.</div>';
+    return;
+  }
+  approvals.innerHTML = items.map(item => `
+    <article class="mission">
+      <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.risk)}</span></div>
+      <div class="muted">ID: ${esc(item.id)} · created: ${esc(item.created_at)}</div>
+      <pre>${esc(item.reason)}</pre>
+      <pre>${esc((item.steps || []).join('\\n'))}</pre>
+      <button class="secondary" data-approve="${esc(item.id)}">Approve</button>
+      <button class="secondary" data-reject="${esc(item.id)}">Reject</button>
+    </article>`
+  ).join('');
+
+  approvals.querySelectorAll('[data-approve]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/approvals/' + encodeURIComponent(button.dataset.approve) + '/approve', {method: 'POST'});
+        notice.textContent = 'Approval recorded. No action was executed.';
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+  approvals.querySelectorAll('[data-reject]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/approvals/' + encodeURIComponent(button.dataset.reject) + '/reject', {method: 'POST'});
+        notice.textContent = 'Approval rejected.';
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+}
+
+function render(items) {
+  if (!items.length) {
+    missions.innerHTML = '<div class="muted">No missions yet.</div>';
+    return;
+  }
+  missions.innerHTML = items.map(item => `
+    <article class="mission">
+      <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.state)}</span><span class="role">${esc(item.specialist_role)}</span></div>
+      <div class="muted">ID: ${esc(item.mission_id)}</div>
+      <pre>${esc(item.reason)}</pre>
+      <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
+      ${item.approval_action_id ? '<div class="muted">Approval: ' + esc(item.approval_action_id) + '</div>' : ''}
+      <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
+      <button class="secondary" data-timeline="${esc(item.mission_id)}">Timeline</button>
+      ${['failed','recovery_required','blocked'].includes(item.state) ? '<button class="secondary" data-resume="' + esc(item.mission_id) + '">Resume</button>' : ''}
+      ${['pending','recovery_required'].includes(item.state) ? '<button class="secondary" data-cancel="' + esc(item.mission_id) + '">Cancel</button>' : ''}
+      <pre id="memory-${esc(item.mission_id)}"></pre>
+    </article>`
+  ).join('');
+  missions.querySelectorAll('[data-timeline]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        const body = await api('/api/missions/' + encodeURIComponent(button.dataset.timeline) + '/timeline');
+        notice.innerHTML = '<div class="panel">' + renderTimeline(body.timeline) + '</div>';
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+
+  missions.querySelectorAll('[data-memory]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
+        const target = document.getElementById('memory-' + button.dataset.memory);
+        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\n') || 'No matching mission memory.';
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+  missions.querySelectorAll('[data-resume]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/missions/' + encodeURIComponent(button.dataset.resume) + '/resume', {method: 'POST'});
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+  missions.querySelectorAll('[data-cancel]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/missions/' + encodeURIComponent(button.dataset.cancel) + '/cancel', {method: 'POST'});
+        await refresh();
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+}
+
+async function refresh() {
+  try {
+    const [missionBody, approvalBody] = await Promise.all([
+      api('/api/missions'),
+      api('/api/approvals')
+    ]);
+    render(missionBody.missions);
+    renderApprovals(approvalBody.approvals);
+    notice.textContent = '';
+  } catch (error) {
+    notice.textContent = error.message;
+  }
+}
+
+document.getElementById('mission-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const task = document.getElementById('task').value.trim();
+  if (!task) return;
+  try {
+    await api('/api/missions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({task})
+    });
+    document.getElementById('task').value = '';
+    notice.textContent = 'Mission accepted.';
+    await refresh();
+  } catch (error) {
+    notice.textContent = error.message;
+  }
+});
+
+document.getElementById('refresh').addEventListener('click', refresh);
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>"""
+
+
 class RuntimeHandler(BaseHTTPRequestHandler):
-    server_version = "AutonomousAIScout/0.2"
+    server_version = "AutonomousAIScout/0.3"
 
     def _json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _text(self, status: int, body: str, *, content_type: str = "text/html; charset=utf-8") -> None:
+        encoded = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
 
     def _authorized(self) -> bool:
         if not getattr(self.server, "require_auth", False):
@@ -54,36 +277,247 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         provided = self.headers.get(AUTH_HEADER, "")
         return bool(expected) and hmac.compare_digest(provided, expected)
 
+    def _controller(self) -> MissionController | None:
+        return getattr(self.server, "mission_controller", None)
+
+    def _mission_payload(self, record) -> dict:
+        return {
+            "mission_id": record.mission_id,
+            "task_id": record.task_id,
+            "execution_id": record.execution_id,
+            "task": record.task,
+            "state": record.state,
+            "reason": record.reason,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "attempts": record.attempts,
+            "specialist_role": record.specialist_role,
+            "steps": list(record.steps),
+            "completed_steps": list(record.completed_steps),
+            "approval_action_id": record.approval_action_id,
+        }
+
+    def _approval_paths(self) -> tuple[Path, Path, Path]:
+        root = Path.cwd()
+        return (
+            Path(getattr(self.server, "approval_queue_path", root / "state" / "approval_queue.json")),
+            Path(getattr(self.server, "approval_dir", root / "state" / "approvals")),
+            Path(getattr(self.server, "approval_audit_path", root / "state" / "approval_audit.jsonl")),
+        )
+
+    @staticmethod
+    def _approval_payload(action) -> dict:
+        return {
+            "id": action.id,
+            "task": action.task,
+            "steps": list(action.steps),
+            "risk": action.risk,
+            "reason": action.reason,
+            "created_at": action.created_at,
+        }
+
+    def _request_json(self) -> dict:
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if length < 0 or length > MAX_JSON_BODY_BYTES:
+            raise ValueError("request body is too large")
+        body = self.rfile.read(length)
+        if len(body) != length:
+            raise ValueError("incomplete request body")
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be a JSON object")
+        return payload
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             self._json(200, {"status": "ok", "service": "autonomous-ai-scout"})
             return
+        if not self._authorized():
+            self._json(401, {"error": "authentication required"})
+            return
+        if parsed.path == "/":
+            self._text(200, _mission_ui())
+            return
         if parsed.path == "/run":
-            if not self._authorized():
-                self._json(401, {"error": "authentication required"})
-                return
             query = parse_qs(parsed.query)
             task = query.get("task", [os.getenv("TASK_REQUEST", "inspect repository")])[0]
             if len(task) > MAX_TASK_LENGTH:
                 self._json(400, {"error": "task exceeds maximum length"})
                 return
-            result = run_task(task, root=Path.cwd(), audit_path=Path.cwd() / "state" / "runtime_execution.jsonl")
+            result = run_task(
+                task,
+                root=Path.cwd(),
+                audit_path=Path.cwd() / "state" / "runtime_execution.jsonl",
+            )
             self._json(200 if result.state is ExecutionState.VERIFIED else 422, {
                 "state": result.state.value,
                 "reason": result.reason,
                 "attempts": result.attempts,
                 "results": [
-                    {
-                        "operation": item.operation,
-                        "success": item.success,
-                        "verification": item.verification_status,
-                        "output": item.output,
-                    }
+                    {"operation": item.operation, "success": item.success, "verification": item.verification_status, "output": item.output}
                     for item in result.results
                 ],
                 "audit_path": result.audit_path,
             })
+            return
+        if parsed.path == "/api/approvals":
+            queue_path, _, _ = self._approval_paths()
+            actions = pending_actions(queue_path)
+            self._json(200, {"approvals": [self._approval_payload(item) for item in actions]})
+            return
+        if parsed.path == "/api/missions":
+            controller = self._controller()
+            if controller is None:
+                self._json(503, {"error": "mission control is not running"})
+                return
+            self._json(200, {"missions": [self._mission_payload(item) for item in controller.store.list()]})
+            return
+        prefix = "/api/missions/"
+        if parsed.path.startswith(prefix):
+            controller = self._controller()
+            raw_id = parsed.path[len(prefix):].strip("/")
+            is_memory = raw_id.endswith("/memory")
+            is_timeline = raw_id.endswith("/timeline")
+            mission_id = raw_id
+            if is_memory:
+                mission_id = raw_id[:-len("/memory")].strip("/")
+            elif is_timeline:
+                mission_id = raw_id[:-len("/timeline")].strip("/")
+            if controller is None or not mission_id or "/" in mission_id:
+                self._json(404, {"error": "mission not found"})
+                return
+            record = controller.store.get(mission_id)
+            if record is None:
+                self._json(404, {"error": "mission not found"})
+                return
+            if is_memory:
+                matches = controller.memory.recall(controller.MEMORY_PROJECT, record.task, limit=5)
+                self._json(200, {"memory": [
+                    {
+                        "score": item.score,
+                        "kind": item.kind,
+                        "outcome": item.outcome,
+                        "data": dict(item.data),
+                    }
+                    for item in matches
+                ]})
+                return
+            if is_timeline:
+                try:
+                    timeline = controller.timeline(mission_id)
+                except KeyError:
+                    self._json(404, {"error": "mission not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"timeline": list(timeline)})
+                return
+            self._json(200, {"mission": self._mission_payload(record)})
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if not self._authorized():
+            self._json(401, {"error": "authentication required"})
+            return
+        controller = self._controller()
+        if controller is None and not parsed.path.startswith("/api/approvals/"):
+            self._json(503, {"error": "mission control is not running"})
+            return
+        approval_prefix = "/api/approvals/"
+        if parsed.path.startswith(approval_prefix):
+            raw = parsed.path[len(approval_prefix):].strip("/")
+            if raw.endswith("/approve"):
+                action_id = raw[:-len("/approve")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, approval_dir, audit_path = self._approval_paths()
+                try:
+                    record = create_approval(queue_path, approval_dir, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                mission = controller.activate_approved_action(action_id) if controller is not None else None
+                self._json(200, {"approval": {
+                    "action_id": record.action_id,
+                    "approved_at": record.approved_at,
+                    "expires_at": record.expires_at,
+                    "status": "approved",
+                    "mission": None if mission is None else self._mission_payload(mission),
+                }})
+                return
+            if raw.endswith("/reject"):
+                action_id = raw[:-len("/reject")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, _, audit_path = self._approval_paths()
+                try:
+                    updated = reject_action(queue_path, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                mission = controller.reject_approved_action(action_id) if controller is not None else None
+                self._json(200, {"approval": {
+                    "action_id": updated.id,
+                    "status": updated.status,
+                    "mission": None if mission is None else self._mission_payload(mission),
+                }})
+                return
+
+        if parsed.path == "/api/missions":
+            try:
+                payload = self._request_json()
+                task = str(payload.get("task", "")).strip()
+                if not task:
+                    raise ValueError("task is required")
+                if len(task) > MAX_TASK_LENGTH:
+                    raise ValueError("task exceeds maximum length")
+                steps = payload.get("steps")
+                record = controller.submit_plan(task, steps) if steps is not None else controller.submit(task)
+            except (TypeError, ValueError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(202 if record.state == "pending" else 422, {"mission": self._mission_payload(record)})
+            return
+        prefix = "/api/missions/"
+        if parsed.path.startswith(prefix) and parsed.path.endswith("/cancel"):
+            mission_id = parsed.path[len(prefix):-len("/cancel")].strip("/")
+            try:
+                record = controller.cancel(mission_id)
+            except KeyError:
+                self._json(404, {"error": "mission not found"})
+                return
+            except ValueError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            self._json(200, {"mission": self._mission_payload(record)})
+            return
+        if parsed.path.startswith(prefix) and parsed.path.endswith("/resume"):
+            mission_id = parsed.path[len(prefix):-len("/resume")].strip("/")
+            try:
+                record = controller.resume(mission_id)
+            except KeyError:
+                self._json(404, {"error": "mission not found"})
+                return
+            except ValueError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            self._json(202, {"mission": self._mission_payload(record)})
             return
         self._json(404, {"error": "not found"})
 
@@ -97,12 +531,19 @@ def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = ThreadingHTTPServer((host, int(port)), RuntimeHandler)
     server.require_auth = require_auth
     server.server_token = token
+    server.mission_controller = MissionController(root=Path.cwd())
+    server.approval_queue_path = Path.cwd() / "state" / "approval_queue.json"
+    server.approval_dir = Path.cwd() / "state" / "approvals"
+    server.approval_audit_path = Path.cwd() / "state" / "approval_audit.jsonl"
+    server.mission_controller.start()
     print(f"Autonomous AI Scout runtime listening on http://{host}:{port}")
+    print(f"Mission Control UI: http://{host}:{port}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        server.mission_controller.stop()
         server.server_close()
 
 
@@ -110,7 +551,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Serve the local Autonomous AI Scout runtime")
     parser.add_argument("--host", default=os.getenv("SCOUT_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("SCOUT_PORT", "8000")))
-    args = parser.parse_args(argv)
+    args = parser.parse_args(list(argv) if argv is not None else None)
     serve(args.host, args.port)
     return 0
 
