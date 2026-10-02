@@ -14,6 +14,7 @@ from .action_queue import build_action_proposal, enqueue_proposal, load_queue
 from .capability_policy import Capability
 from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
+from .execution_audit import append_execution_record
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
@@ -216,6 +217,38 @@ class MissionController:
         if not route.eligible or route.provider is None:
             return "provider=unconfigured"
         return f"provider={route.provider.name}"
+
+    def _record_computer_evidence(self, execution_id: str, result) -> None:
+        for item in getattr(result, "results", ()):
+            command = getattr(item, "command", ())
+            if not isinstance(command, (tuple, list)) or "COMPUTER" not in {str(value).upper() for value in command}:
+                continue
+            raw_output = getattr(item, "output", "")
+            if not isinstance(raw_output, str) or not raw_output.strip():
+                continue
+            try:
+                payload = json.loads(raw_output)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            evidence = {
+                key: payload[key]
+                for key in ("state", "verified", "turns", "actions", "reason")
+                if key in payload
+            }
+            if not evidence:
+                continue
+            append_execution_record(
+                self.audit_path,
+                {
+                    "execution_id": execution_id,
+                    "timestamp": _now(),
+                    "state": ExecutionState.RUNNING.value,
+                    "event": "computer_evidence",
+                    "evidence": evidence,
+                },
+            )
 
     @staticmethod
     def _approval_required(reason: str) -> bool:
@@ -669,6 +702,7 @@ class MissionController:
                 computer_connector=self.computer_connector,
                 computer_request=self._computer_request(node.task),
             )
+            self._record_computer_evidence(step_execution_id, result)
             if result.state is ExecutionState.VERIFIED:
                 latest = self.store.get(existing.mission_id) or existing
                 completed = tuple(sorted(set(latest.completed_steps) | {node.node_id}))
@@ -726,6 +760,7 @@ class MissionController:
                     computer_connector=self.computer_connector,
                     computer_request=self._computer_request(item.task),
                 )
+                self._record_computer_evidence(item.execution_id, result)
                 success = result.state is ExecutionState.VERIFIED
                 runtime_state = "verified" if success else result.state.value
                 reason = result.reason
