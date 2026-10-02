@@ -120,7 +120,7 @@ function render(items) {
       try {
         const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
         const target = document.getElementById('memory-' + button.dataset.memory);
-        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\\n') || 'No matching mission memory.';
+        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\n') || 'No matching mission memory.';
       } catch (error) { notice.textContent = error.message; }
     });
   });
