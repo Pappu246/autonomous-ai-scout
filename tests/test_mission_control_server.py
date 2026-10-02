@@ -155,3 +155,28 @@ def test_memory_endpoint_returns_safe_mission_history(tmp_path: Path):
         assert any(item["kind"] == "episode" for item in payload["memory"])
     finally:
         _close(server, thread)
+
+
+def test_resume_endpoint_requeues_failed_mission(tmp_path: Path):
+    server, thread = _start_server(tmp_path)
+    try:
+        controller = server.mission_controller
+        mission = controller.submit("inspect repository")
+        controller.store.put(mission.__class__(
+            mission.mission_id, mission.task_id, mission.execution_id, mission.task,
+            "failed", "temporary failure", mission.created_at, mission.updated_at,
+            mission.attempts, mission.specialist_role, mission.steps, mission.completed_steps,
+        ))
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions/{mission.mission_id}/resume",
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 202
+        assert payload["mission"]["mission_id"] == mission.mission_id
+        assert payload["mission"]["state"] == "pending"
+        assert payload["mission"]["task_id"] != mission.task_id
+    finally:
+        _close(server, thread)
