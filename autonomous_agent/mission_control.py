@@ -441,6 +441,7 @@ class MissionController:
                     "reason",
                     "attempt",
                     "completed_steps",
+                    "evidence",
                 ):
                     if key in item:
                         value = item[key]
