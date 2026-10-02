@@ -180,3 +180,34 @@ def test_resume_endpoint_requeues_failed_mission(tmp_path: Path):
         assert payload["mission"]["task_id"] != mission.task_id
     finally:
         _close(server, thread)
+
+
+def test_mission_timeline_endpoint_returns_safe_execution_evidence(tmp_path: Path) -> None:
+    server, thread = _start_server(tmp_path)
+    try:
+        controller = server.mission_controller = __import__("autonomous_agent.mission_control", fromlist=["MissionController"]).MissionController(root=tmp_path)
+        mission = controller.submit("inspect repository")
+        controller.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        controller.audit_path.write_text(
+            json.dumps({
+                "execution_id": mission.execution_id,
+                "timestamp": "2026-10-02T18:30:00+00:00",
+                "event": "tool_result",
+                "state": "running",
+                "tool": "github.inspect",
+                "result": "success",
+                "verification": "verified",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions/{mission.mission_id}/timeline"
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert any(item.get("event") == "tool_result" for item in payload["timeline"])
+        assert any(item.get("event") == "mission_state" for item in payload["timeline"])
+        assert all("secret" not in json.dumps(item).lower() for item in payload["timeline"])
+    finally:
+        _close(server, thread)
