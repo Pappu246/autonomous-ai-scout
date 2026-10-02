@@ -294,14 +294,14 @@ def test_provider_rebuilds_diff_when_reviewable_shape_cannot_materialize(monkeyp
                 "message": {
                     "content": _json.dumps({
                         "unified_diff": (
-                            "diff --git a/README.md b/README.md\\n"
-                            "--- a/README.md\\n"
-                            "+++ b/README.md\\n"
-                            "@@ -1 +1 @@\\n"
-                            "-stale-model-baseline\\n"
-                            "+updated\\n"
+                            "diff --git a/README.md b/README.md\n"
+                            "--- a/README.md\n"
+                            "+++ b/README.md\n"
+                            "@@ -1 +1 @@\n"
+                            "-stale-model-baseline\n"
+                            "+updated\n"
                         ),
-                        "file_contents": {"README.md": "updated\\n"},
+                        "file_contents": {"README.md": "updated\n"},
                         "summary": "update docs",
                         "test_commands": [],
                     })
@@ -322,21 +322,20 @@ def test_provider_rebuilds_diff_when_reviewable_shape_cannot_materialize(monkeyp
         })(),
         context=RepositoryContext(
             "owner/repo",
-            (RepositoryFile("README.md", "original\\n"),),
+            (RepositoryFile("README.md", "original\n"),),
         ),
     )
 
     assert candidate is not None
-    assert candidate.file_contents == {"README.md": "updated\\n"}
+    assert candidate.file_contents == {"README.md": "updated\n"}
     assert candidate.unified_diff == (
-        "diff --git a/README.md b/README.md\\n"
-        "--- a/README.md\\n"
-        "+++ b/README.md\\n"
-        "@@ -1 +1 @@\\n"
-        "-original\\n"
-        "+updated\\n"
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1 @@\n"
+        "-original\n"
+        "+updated\n"
     )
-
 
 def test_provider_normalizes_json_escaped_unified_diff(monkeypatch):
     monkeypatch.setenv("TEST_KEY", "secret")
