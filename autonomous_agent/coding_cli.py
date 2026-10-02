@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 from dataclasses import replace
 from pathlib import Path
@@ -55,6 +56,14 @@ def main(argv: list[str] | None = None) -> int:
     proposal = build_proposal(args.project, finding)
     if args.affected:
         proposal = replace(proposal, affected_area=tuple(args.affected))
+    if os.getenv("SCOUT_GATE3_SMOKE") == "1":
+        # Gate 3 is a bounded live-provider smoke. Validate only the deterministic
+        # provider contract tests inside the network-isolated sandbox instead of the
+        # full repository suite, which intentionally contains external-integration tests.
+        proposal = replace(
+            proposal,
+            validation_strategy=("python -m pytest -q tests/test_coding_provider.py",),
+        )
     run = pipeline.run(proposal)
 
     print(json.dumps(summarize_approval(run), indent=2, sort_keys=True))
