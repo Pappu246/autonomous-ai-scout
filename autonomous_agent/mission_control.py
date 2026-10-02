@@ -14,6 +14,7 @@ from .background_worker import BackgroundTaskWorker
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
+from .specialist_policy import specialist_for_task, specialist_grants
 from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
 from .mission_orchestrator import MissionOrchestrator
@@ -191,10 +192,11 @@ class MissionController:
         return f"mission-{uuid.uuid4().hex}", f"exec-{uuid.uuid4().hex}"
 
     def submit(self, task: str) -> MissionRecord:
-        prepared = self.core.prepare(task)
+        normalized_task = " ".join(str(task).split())
+        role, grants = specialist_for_task(normalized_task)
+        prepared = self.core.prepare(normalized_task, granted=grants)
         mission_id, execution_id = self._new_ids()
         now = _now()
-        role = choose_specialist(prepared.task)
         history = self._history_hint(prepared.task)
         if not prepared.plan.executable:
             return self.store.put(MissionRecord(
@@ -223,7 +225,8 @@ class MissionController:
         grants = []
         seen = set()
         for spec in specs:
-            for capability in default_grants_for_task(spec.task, self.core._registry):
+            step_role, step_grants = specialist_for_task(spec.task)
+            for capability in step_grants:
                 if capability not in seen:
                     seen.add(capability)
                     grants.append(capability)
@@ -350,6 +353,7 @@ class MissionController:
 
         def runner(node):
             step_execution_id = f"{item.execution_id}:{node.node_id}"
+            step_role, step_grants = specialist_for_task(node.task)
             result = run_task(
                 node.task,
                 root=self.root,
@@ -358,6 +362,7 @@ class MissionController:
                 execution_id=step_execution_id,
                 memory=self.memory.store,
                 project=self.MEMORY_PROJECT,
+                granted=step_grants,
             )
             if result.state is ExecutionState.VERIFIED:
                 latest = self.store.get(existing.mission_id) or existing
@@ -405,6 +410,7 @@ class MissionController:
                     execution_id=item.execution_id,
                     memory=self.memory.store,
                     project=self.MEMORY_PROJECT,
+                    granted=specialist_grants(item.task, role),
                 )
                 success = result.state is ExecutionState.VERIFIED
                 runtime_state = "verified" if success else result.state.value
