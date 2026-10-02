@@ -154,6 +154,7 @@ function render(items) {
       <div class="muted">ID: ${esc(item.mission_id)}</div>
       <pre>${esc(item.reason)}</pre>
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
+      ${item.approval_action_id ? '<div class="muted">Approval: ' + esc(item.approval_action_id) + '</div>' : ''}
       <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
       ${['failed','recovery_required','blocked'].includes(item.state) ? '<button class="secondary" data-resume="' + esc(item.mission_id) + '">Resume</button>' : ''}
       ${['pending','recovery_required'].includes(item.state) ? '<button class="secondary" data-cancel="' + esc(item.mission_id) + '">Cancel</button>' : ''}
@@ -272,6 +273,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             "specialist_role": record.specialist_role,
             "steps": list(record.steps),
             "completed_steps": list(record.completed_steps),
+            "approval_action_id": record.approval_action_id,
         }
 
     def _approval_paths(self) -> tuple[Path, Path, Path]:
@@ -409,11 +411,13 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     self._json(409, {"error": str(exc)})
                     return
+                mission = controller.activate_approved_action(action_id) if controller is not None else None
                 self._json(200, {"approval": {
                     "action_id": record.action_id,
                     "approved_at": record.approved_at,
                     "expires_at": record.expires_at,
                     "status": "approved",
+                    "mission": None if mission is None else self._mission_payload(mission),
                 }})
                 return
             if raw.endswith("/reject"):
@@ -430,7 +434,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     self._json(409, {"error": str(exc)})
                     return
-                self._json(200, {"approval": {"action_id": updated.id, "status": updated.status}})
+                mission = controller.reject_approved_action(action_id) if controller is not None else None
+                self._json(200, {"approval": {
+                    "action_id": updated.id,
+                    "status": updated.status,
+                    "mission": None if mission is None else self._mission_payload(mission),
+                }})
                 return
 
         if parsed.path == "/api/missions":
