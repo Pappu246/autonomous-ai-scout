@@ -111,6 +111,7 @@ function render(items) {
       <pre>${esc(item.reason)}</pre>
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
       <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
+      ${['failed','recovery_required','blocked'].includes(item.state) ? '<button class="secondary" data-resume="' + esc(item.mission_id) + '">Resume</button>' : ''}
       ${['pending','recovery_required'].includes(item.state) ? '<button class="secondary" data-cancel="' + esc(item.mission_id) + '">Cancel</button>' : ''}
       <pre id="memory-${esc(item.mission_id)}"></pre>
     </article>`
@@ -121,6 +122,14 @@ function render(items) {
         const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
         const target = document.getElementById('memory-' + button.dataset.memory);
         target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\n') || 'No matching mission memory.';
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+  missions.querySelectorAll('[data-resume]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/missions/' + encodeURIComponent(button.dataset.resume) + '/resume', {method: 'POST'});
+        await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
   });
@@ -213,6 +222,8 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             "updated_at": record.updated_at,
             "attempts": record.attempts,
             "specialist_role": record.specialist_role,
+            "steps": list(record.steps),
+            "completed_steps": list(record.completed_steps),
         }
 
     def _request_json(self) -> dict:
@@ -297,6 +308,18 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 ]})
                 return
             self._json(200, {"mission": self._mission_payload(record)})
+            return
+        if parsed.path.startswith(prefix) and parsed.path.endswith("/resume"):
+            mission_id = parsed.path[len(prefix):-len("/resume")].strip("/")
+            try:
+                record = controller.resume(mission_id)
+            except KeyError:
+                self._json(404, {"error": "mission not found"})
+                return
+            except ValueError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            self._json(202, {"mission": self._mission_payload(record)})
             return
         self._json(404, {"error": "not found"})
 
