@@ -253,7 +253,7 @@ class MissionController:
         return self.store.put(MissionRecord(
             record.mission_id, record.task_id, record.execution_id, record.task, item.state.value,
             "mission cancelled before execution", record.created_at, item.updated_at, item.attempts,
-            record.specialist_role, record.steps,
+            record.specialist_role, record.steps, record.completed_steps,
         ))
 
     def run_once(self) -> MissionRecord | None:
@@ -264,13 +264,13 @@ class MissionController:
         items = self.worker.recover()
         recovered: list[MissionRecord] = []
         for item in items:
-            existing = self.store.get(item.task_id)
+            existing = self.store.get_by_task_id(item.task_id)
             if existing:
                 recovered.append(self.store.put(MissionRecord(
                     existing.mission_id, existing.task_id, existing.execution_id, existing.task,
                     item.state.value, _bounded_text(item.last_error, 1000),
                     existing.created_at, item.updated_at, item.attempts,
-                    existing.specialist_role, existing.steps,
+                    existing.specialist_role, existing.steps, existing.completed_steps,
                 )))
         return tuple(recovered)
 
@@ -382,14 +382,14 @@ class MissionController:
         return outcome.success, _bounded_text(outcome.reason, 1000)
 
     def _handle_queue_item(self, item: QueueItem) -> bool:
-        existing = self.store.get(item.task_id)
+        existing = self.store.get_by_task_id(item.task_id)
         role = existing.specialist_role if existing else choose_specialist(item.task).role.value
         if existing:
             self.store.put(MissionRecord(
                 existing.mission_id, existing.task_id, existing.execution_id, existing.task,
                 QueueState.RUNNING.value,
                 _bounded_text(f"mission executing; specialist={role}", 1000),
-                existing.created_at, _now(), item.attempts, role, existing.steps,
+                existing.created_at, _now(), item.attempts, role, existing.steps, existing.completed_steps,
             ))
         runtime_state = QueueState.FAILED.value
         try:
