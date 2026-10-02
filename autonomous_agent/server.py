@@ -347,47 +347,6 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             actions = pending_actions(queue_path)
             self._json(200, {"approvals": [self._approval_payload(item) for item in actions]})
             return
-        approval_prefix = "/api/approvals/"
-        if parsed.path.startswith(approval_prefix):
-            raw = parsed.path[len(approval_prefix):].strip("/")
-            if raw.endswith("/approve"):
-                action_id = raw[:-len("/approve")].strip("/")
-                if not action_id or "/" in action_id:
-                    self._json(404, {"error": "approval not found"})
-                    return
-                queue_path, approval_dir, audit_path = self._approval_paths()
-                try:
-                    record = create_approval(queue_path, approval_dir, action_id, audit_path=audit_path)
-                except KeyError:
-                    self._json(404, {"error": "approval not found"})
-                    return
-                except ValueError as exc:
-                    self._json(409, {"error": str(exc)})
-                    return
-                self._json(200, {"approval": {
-                    "action_id": record.action_id,
-                    "approved_at": record.approved_at,
-                    "expires_at": record.expires_at,
-                    "status": "approved",
-                }})
-                return
-            if raw.endswith("/reject"):
-                action_id = raw[:-len("/reject")].strip("/")
-                if not action_id or "/" in action_id:
-                    self._json(404, {"error": "approval not found"})
-                    return
-                queue_path, _, audit_path = self._approval_paths()
-                try:
-                    updated = reject_action(queue_path, action_id, audit_path=audit_path)
-                except KeyError:
-                    self._json(404, {"error": "approval not found"})
-                    return
-                except ValueError as exc:
-                    self._json(409, {"error": str(exc)})
-                    return
-                self._json(200, {"approval": {"action_id": updated.id, "status": updated.status}})
-                return
-
         if parsed.path == "/api/missions":
             controller = self._controller()
             if controller is None:
@@ -433,6 +392,47 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         if controller is None and not parsed.path.startswith("/api/approvals/"):
             self._json(503, {"error": "mission control is not running"})
             return
+        approval_prefix = "/api/approvals/"
+        if parsed.path.startswith(approval_prefix):
+            raw = parsed.path[len(approval_prefix):].strip("/")
+            if raw.endswith("/approve"):
+                action_id = raw[:-len("/approve")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, approval_dir, audit_path = self._approval_paths()
+                try:
+                    record = create_approval(queue_path, approval_dir, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"approval": {
+                    "action_id": record.action_id,
+                    "approved_at": record.approved_at,
+                    "expires_at": record.expires_at,
+                    "status": "approved",
+                }})
+                return
+            if raw.endswith("/reject"):
+                action_id = raw[:-len("/reject")].strip("/")
+                if not action_id or "/" in action_id:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                queue_path, _, audit_path = self._approval_paths()
+                try:
+                    updated = reject_action(queue_path, action_id, audit_path=audit_path)
+                except KeyError:
+                    self._json(404, {"error": "approval not found"})
+                    return
+                except ValueError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
+                self._json(200, {"approval": {"action_id": updated.id, "status": updated.status}})
+                return
+
         if parsed.path == "/api/missions":
             try:
                 payload = self._request_json()
