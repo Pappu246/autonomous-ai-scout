@@ -34,7 +34,7 @@ def test_computer_evidence_is_recorded_without_raw_final_text(tmp_path: Path) ->
     assert lines
     event = json.loads(lines[-1])
     assert event["event"] == "computer_evidence"
-    evidence = json.loads(event["evidence"])
+    evidence = json.loads(event["evidence_json"])
     assert evidence["verified"] is True
     assert evidence["actions"] == 7
     assert "final_text" not in json.dumps(evidence)
