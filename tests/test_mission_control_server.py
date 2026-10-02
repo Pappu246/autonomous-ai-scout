@@ -132,3 +132,26 @@ def test_blocked_mission_is_reported_without_queueing(tmp_path: Path):
         assert server.mission_controller.queue.list() == ()
     finally:
         _close(server, thread)
+
+def test_memory_endpoint_returns_safe_mission_history(tmp_path: Path):
+    server, thread = _start_server(tmp_path)
+    try:
+        created_request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions",
+            data=b'{"task":"research the project"}',
+            headers={"Content-Type":"application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(created_request, timeout=3) as response:
+            mission_id = json.loads(response.read().decode("utf-8"))["mission"]["mission_id"]
+
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/missions/{mission_id}/memory",
+            timeout=3,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert isinstance(payload["memory"], list)
+        assert any(item["kind"] == "episode" for item in payload["memory"])
+    finally:
+        _close(server, thread)
