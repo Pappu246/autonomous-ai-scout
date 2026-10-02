@@ -18,7 +18,9 @@ from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
 from .specialist_policy import specialist_grants
+from .specialist_provider import SpecialistProviderRouter
 from .specialist_router import SpecialistRole, choose_specialist
+from .provider_router import providers_from_env
 from .task_core import AutonomousTaskCore
 from .mission_orchestrator import MissionOrchestrator
 from .tool_registry import ApprovalRequirement
@@ -194,6 +196,7 @@ class MissionController:
         self.approval_dir = self.root / "state" / "approvals"
         self.approval_audit_path = self.root / "state" / "approval_audit.jsonl"
         self.computer_connector = computer_connector or BoundedComputerConnector()
+        self.provider_router = SpecialistProviderRouter(providers_from_env())
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -205,6 +208,14 @@ class MissionController:
 
     def _new_ids(self) -> tuple[str, str]:
         return f"mission-{uuid.uuid4().hex}", f"exec-{uuid.uuid4().hex}"
+
+
+    def _provider_route_hint(self, role: SpecialistRole | str) -> str:
+        resolved = role.value if isinstance(role, SpecialistRole) else str(role)
+        route = self.provider_router.route(resolved)
+        if not route.eligible or route.provider is None:
+            return "provider=unconfigured"
+        return f"provider={route.provider.name}"
 
     @staticmethod
     def _approval_required(reason: str) -> bool:
@@ -251,6 +262,7 @@ class MissionController:
         mission_id, execution_id = self._new_ids()
         now = _now()
         history = self._history_hint(prepared.task)
+        provider_hint = self._provider_route_hint(role)
         if not prepared.plan.executable:
             if approval_preview.plan.executable and self._plan_requires_approval(approval_preview.plan):
                 approval_id = self._queue_approval(
@@ -261,7 +273,7 @@ class MissionController:
                 return self.store.put(MissionRecord(
                     mission_id, mission_id, execution_id, prepared.task, "requires_approval",
                     _bounded_text(
-                        f"{prepared.plan.reason}; approval_action={approval_id}; specialist={role.value}; memory={history}",
+                        f"{prepared.plan.reason}; approval_action={approval_id}; specialist={role.value}; {provider_hint}; memory={history}",
                         1000,
                     ),
                     now, now, 0, role.value, (), (), approval_id,
@@ -272,7 +284,12 @@ class MissionController:
                 now, now, 0, role.value, (),
             ))
         item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
-        self.memory.record_episode(self.MEMORY_PROJECT, prepared.task, outcome="queued", metadata={"specialist_role": role.value})
+        self.memory.record_episode(
+            self.MEMORY_PROJECT,
+            prepared.task,
+            outcome="queued",
+            metadata={"specialist_role": role.value, "provider_hint": provider_hint},
+        )
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; memory={history}", 1000),
@@ -317,6 +334,7 @@ class MissionController:
         mission_id, execution_id = self._new_ids()
         now = _now()
         role = choose_specialist(objective)
+        provider_hint = self._provider_route_hint(role.role)
         if not prepared.executable:
             if approval_preview.executable and any(
                 self._plan_requires_approval(node.plan) for node in approval_preview.nodes
@@ -329,7 +347,7 @@ class MissionController:
                 return self.store.put(MissionRecord(
                     mission_id, mission_id, execution_id, _bounded_text(objective, 4000), "requires_approval",
                     _bounded_text(
-                        f"{prepared.reason}; approval_action={approval_id}",
+                        f"{prepared.reason}; approval_action={approval_id}; {provider_hint}",
                         1000,
                     ),
                     now, now, 0, role.role.value, normalized, (), approval_id,
@@ -339,10 +357,15 @@ class MissionController:
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
             ))
         item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
-        self.memory.record_episode(self.MEMORY_PROJECT, objective, outcome="queued", metadata={"specialist_role": role.role.value, "kind": "dag"})
+        self.memory.record_episode(
+            self.MEMORY_PROJECT,
+            objective,
+            outcome="queued",
+            metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
+        )
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
-            _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}", 1000),
+            _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}; {provider_hint}", 1000),
             item.created_at, item.updated_at, item.attempts, role.role.value, normalized,
         ))
 
@@ -675,7 +698,7 @@ class MissionController:
             self.store.put(MissionRecord(
                 existing.mission_id, existing.task_id, existing.execution_id, existing.task,
                 QueueState.RUNNING.value,
-                _bounded_text(f"mission executing; specialist={role}", 1000),
+                _bounded_text(f"mission executing; specialist={role}; {self._provider_route_hint(role)}", 1000),
                 existing.created_at, _now(), item.attempts, role, existing.steps, existing.completed_steps,
                 existing.approval_action_id,
             ))
