@@ -173,6 +173,15 @@ function render(items) {
       <pre id="memory-${esc(item.mission_id)}"></pre>
     </article>`
   ).join('');
+  missions.querySelectorAll('[data-timeline]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        const body = await api('/api/missions/' + encodeURIComponent(button.dataset.timeline) + '/timeline');
+        notice.innerHTML = '<div class="panel">' + renderTimeline(body.timeline) + '</div>';
+      } catch (error) { notice.textContent = error.message; }
+    });
+  });
+
   missions.querySelectorAll('[data-memory]').forEach(button => {
     button.addEventListener('click', async () => {
       try {
@@ -373,7 +382,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             controller = self._controller()
             raw_id = parsed.path[len(prefix):].strip("/")
             is_memory = raw_id.endswith("/memory")
-            mission_id = raw_id[:-len("/memory")].strip("/") if is_memory else raw_id
+            is_timeline = raw_id.endswith("/timeline")
+            mission_id = raw_id
+            if is_memory:
+                mission_id = raw_id[:-len("/memory")].strip("/")
+            elif is_timeline:
+                mission_id = raw_id[:-len("/timeline")].strip("/")
             if controller is None or not mission_id or "/" in mission_id:
                 self._json(404, {"error": "mission not found"})
                 return
@@ -393,7 +407,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     for item in matches
                 ]})
                 return
-            if raw_id.endswith("/timeline"):
+            if is_timeline:
                 try:
                     timeline = controller.timeline(mission_id)
                 except KeyError:
