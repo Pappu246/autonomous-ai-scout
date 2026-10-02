@@ -227,7 +227,7 @@ class MissionController:
         grants = []
         seen = set()
         for spec in specs:
-            step_role, step_grants = specialist_for_task(spec.task)
+            step_grants = specialist_grants(spec.task)
             for capability in step_grants:
                 if capability not in seen:
                     seen.add(capability)
