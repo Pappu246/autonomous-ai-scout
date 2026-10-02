@@ -274,7 +274,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix):
             controller = self._controller()
-            mission_id = parsed.path[len(prefix):].strip("/")
+            raw_id = parsed.path[len(prefix):].strip("/")
+            is_memory = raw_id.endswith("/memory")
+            mission_id = raw_id[:-len("/memory")].strip("/") if is_memory else raw_id
             if controller is None or not mission_id or "/" in mission_id:
                 self._json(404, {"error": "mission not found"})
                 return
@@ -282,7 +284,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             if record is None:
                 self._json(404, {"error": "mission not found"})
                 return
-            if parsed.path.endswith("/memory"):
+            if is_memory:
                 matches = controller.memory.recall(controller.MEMORY_PROJECT, record.task, limit=5)
                 self._json(200, {"memory": [
                     {
