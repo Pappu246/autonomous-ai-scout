@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from .action_queue import build_action_proposal, enqueue_proposal
 from .background_worker import BackgroundTaskWorker
+from .computer.connector import BoundedComputerConnector
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
@@ -72,6 +74,7 @@ class MissionRecord:
     specialist_role: str = SpecialistRole.GENERAL.value
     steps: tuple[dict[str, object], ...] = ()
     completed_steps: tuple[str, ...] = ()
+    approval_action_id: str = ""
 
     @property
     def terminal(self) -> bool:
@@ -116,6 +119,7 @@ class MissionStore:
                     specialist_role=str(item.get("specialist_role", SpecialistRole.GENERAL.value)),
                     steps=_safe_steps(item.get("steps", ())),
                     completed_steps=tuple(_bounded_text(value, 80) for value in item.get("completed_steps", ()) if str(value).strip()),
+                    approval_action_id=str(item.get("approval_action_id", "")),
                 )
             )
         return records
@@ -148,6 +152,10 @@ class MissionStore:
         wanted = task_id.strip()
         return next((item for item in self.list() if item.task_id == wanted), None)
 
+    def get_by_approval_action_id(self, action_id: str) -> MissionRecord | None:
+        wanted = action_id.strip()
+        return next((item for item in self.list() if item.approval_action_id == wanted), None)
+
     def put(self, record: MissionRecord) -> MissionRecord:
         with self._lock, self._process_lock:
             records = self._load_unlocked()
@@ -172,6 +180,7 @@ class MissionController:
         memory_path: str | Path = "state/mission_memory.json",
         audit_path: str | Path = "state/runtime_execution.jsonl",
         journal_path: str | Path = "state/runtime_runs.jsonl",
+        computer_connector: BoundedComputerConnector | None = None,
     ) -> None:
         self.root = (root or Path.cwd()).resolve()
         self.queue = TaskQueueStore(self.root / queue_path)
@@ -179,6 +188,10 @@ class MissionController:
         self.memory = PersistentMemory(self.root / memory_path)
         self.audit_path = self.root / audit_path
         self.journal_path = self.root / journal_path
+        self.approval_queue_path = self.root / "state" / "approval_queue.json"
+        self.approval_dir = self.root / "state" / "approvals"
+        self.approval_audit_path = self.root / "state" / "approval_audit.jsonl"
+        self.computer_connector = computer_connector or BoundedComputerConnector()
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -191,6 +204,27 @@ class MissionController:
     def _new_ids(self) -> tuple[str, str]:
         return f"mission-{uuid.uuid4().hex}", f"exec-{uuid.uuid4().hex}"
 
+    @staticmethod
+    def _approval_required(reason: str) -> bool:
+        text = str(reason).lower()
+        return "explicit approval" in text or "requires explicit approval" in text or "human review" in text
+
+    @staticmethod
+    def _computer_request(task: str) -> dict[str, object]:
+        return {
+            "computer.use": {"task": task, "max_turns": 20},
+            "computer.use:credref": None,
+        }
+
+    def _queue_approval(self, task: str, steps: Iterable[str], *, risk: str = "high") -> str:
+        proposal = build_action_proposal(
+            task,
+            tuple(_bounded_text(step, 2048) for step in steps),
+            llm_requires_approval=True,
+        )
+        action = enqueue_proposal(self.approval_queue_path, proposal, risk=risk)
+        return "" if action is None else action.id
+
     def submit(self, task: str) -> MissionRecord:
         normalized_task = " ".join(str(task).split())
         role_decision = choose_specialist(normalized_task)
@@ -201,6 +235,20 @@ class MissionController:
         now = _now()
         history = self._history_hint(prepared.task)
         if not prepared.plan.executable:
+            if self._approval_required(prepared.plan.reason):
+                approval_id = self._queue_approval(
+                    prepared.task,
+                    (step.description for step in prepared.plan.steps),
+                    risk=prepared.plan.risk.value,
+                )
+                return self.store.put(MissionRecord(
+                    mission_id, mission_id, execution_id, prepared.task, "requires_approval",
+                    _bounded_text(
+                        f"{prepared.plan.reason}; approval_action={approval_id}; specialist={role.value}; memory={history}",
+                        1000,
+                    ),
+                    now, now, 0, role.value, (), (), approval_id,
+                ))
             return self.store.put(MissionRecord(
                 mission_id, mission_id, execution_id, prepared.task, "blocked",
                 _bounded_text(f"{prepared.plan.reason}; specialist={role.value}; memory={history}", 1000),
@@ -237,6 +285,20 @@ class MissionController:
         now = _now()
         role = choose_specialist(objective)
         if not prepared.executable:
+            if self._approval_required(prepared.reason):
+                approval_id = self._queue_approval(
+                    _bounded_text(objective, 4000),
+                    (str(step.get("task", "")) for step in normalized),
+                    risk="high",
+                )
+                return self.store.put(MissionRecord(
+                    mission_id, mission_id, execution_id, _bounded_text(objective, 4000), "requires_approval",
+                    _bounded_text(
+                        f"{prepared.reason}; approval_action={approval_id}",
+                        1000,
+                    ),
+                    now, now, 0, role.role.value, normalized, (), approval_id,
+                ))
             return self.store.put(MissionRecord(
                 mission_id, mission_id, execution_id, _bounded_text(objective, 4000), "blocked",
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
@@ -258,7 +320,7 @@ class MissionController:
         return self.store.put(MissionRecord(
             record.mission_id, record.task_id, record.execution_id, record.task, item.state.value,
             "mission cancelled before execution", record.created_at, item.updated_at, item.attempts,
-            record.specialist_role, record.steps, record.completed_steps,
+            record.specialist_role, record.steps, record.completed_steps, record.approval_action_id,
         ))
 
     def run_once(self) -> MissionRecord | None:
@@ -276,6 +338,7 @@ class MissionController:
                     item.state.value, _bounded_text(item.last_error, 1000),
                     existing.created_at, item.updated_at, item.attempts,
                     existing.specialist_role, existing.steps, existing.completed_steps,
+                    existing.approval_action_id,
                 )))
         return tuple(recovered)
 
@@ -293,6 +356,64 @@ class MissionController:
             self._thread.join(timeout=2)
         self._thread = None
 
+    def activate_approved_action(self, action_id: str) -> MissionRecord | None:
+        record = self.store.get_by_approval_action_id(action_id)
+        if record is None:
+            return None
+        if record.state != "requires_approval":
+            return record
+        task_id, execution_id = self._new_ids()
+        item = self.queue.enqueue(record.task, task_id=task_id, execution_id=execution_id)
+        self.memory.record_episode(
+            self.MEMORY_PROJECT,
+            record.task,
+            outcome="approval_accepted",
+            metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id},
+        )
+        return self.store.put(MissionRecord(
+            record.mission_id,
+            item.task_id,
+            item.execution_id,
+            record.task,
+            item.state.value,
+            _bounded_text(f"approval accepted; mission queued; approval_action={action_id}", 1000),
+            record.created_at,
+            item.updated_at,
+            item.attempts,
+            record.specialist_role,
+            record.steps,
+            record.completed_steps,
+            action_id,
+        ))
+
+    def reject_approved_action(self, action_id: str) -> MissionRecord | None:
+        record = self.store.get_by_approval_action_id(action_id)
+        if record is None:
+            return None
+        if record.state != "requires_approval":
+            return record
+        self.memory.record_episode(
+            self.MEMORY_PROJECT,
+            record.task,
+            outcome="approval_rejected",
+            metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id},
+        )
+        return self.store.put(MissionRecord(
+            record.mission_id,
+            record.task_id,
+            record.execution_id,
+            record.task,
+            "rejected",
+            _bounded_text(f"approval rejected; approval_action={action_id}", 1000),
+            record.created_at,
+            _now(),
+            record.attempts,
+            record.specialist_role,
+            record.steps,
+            record.completed_steps,
+            action_id,
+        ))
+
     def resume(self, mission_id: str) -> MissionRecord:
         record = self.store.get(mission_id)
         if record is None:
@@ -303,6 +424,30 @@ class MissionController:
             "blocked",
         }:
             raise ValueError(f"mission cannot be resumed from state {record.state}")
+        if record.approval_action_id:
+            approval_id = self._queue_approval(
+                f"Resume mission {record.mission_id}: {record.task}",
+                (str(step.get("task", "")) for step in record.steps),
+                risk="high",
+            )
+            return self.store.put(MissionRecord(
+                record.mission_id,
+                record.task_id,
+                record.execution_id,
+                record.task,
+                "requires_approval",
+                _bounded_text(
+                    f"resume requires fresh approval; approval_action={approval_id}",
+                    1000,
+                ),
+                record.created_at,
+                _now(),
+                record.attempts,
+                record.specialist_role,
+                record.steps,
+                record.completed_steps,
+                approval_id,
+            ))
         task_id = f"{record.mission_id}-resume-{uuid.uuid4().hex[:12]}"
         execution_id = f"exec-{uuid.uuid4().hex}"
         item = self.queue.enqueue(
@@ -332,6 +477,7 @@ class MissionController:
             record.specialist_role,
             record.steps,
             record.completed_steps,
+            "",
         ))
 
     def _run_steps(self, item: QueueItem, existing: MissionRecord) -> tuple[bool, str]:
@@ -345,12 +491,22 @@ class MissionController:
         )
         grants = []
         seen = set()
+        approved = bool(existing.approval_action_id)
         for spec in specs:
-            for capability in default_grants_for_task(spec.task, self.core._registry):
+            for capability in specialist_grants(
+                spec.task,
+                existing.specialist_role,
+                include_approval_tools=approved,
+            ):
                 if capability not in seen:
                     seen.add(capability)
                     grants.append(capability)
-        plan = self.core.prepare_dag(existing.task, specs, granted=tuple(grants))
+        plan = self.core.prepare_dag(
+            existing.task,
+            specs,
+            granted=tuple(grants),
+            explicitly_approved=approved,
+        )
         orchestrator = MissionOrchestrator()
 
         def runner(node):
@@ -364,7 +520,14 @@ class MissionController:
                 execution_id=step_execution_id,
                 memory=self.memory.store,
                 project=self.MEMORY_PROJECT,
-                granted=step_grants,
+                granted=specialist_grants(
+                    node.task,
+                    existing.specialist_role,
+                    include_approval_tools=approved,
+                ),
+                explicitly_approved=approved,
+                computer_connector=self.computer_connector,
+                computer_request=self._computer_request(node.task),
             )
             if result.state is ExecutionState.VERIFIED:
                 latest = self.store.get(existing.mission_id) or existing
@@ -377,7 +540,7 @@ class MissionController:
                         1000,
                     ),
                     latest.created_at, _now(), item.attempts, latest.specialist_role,
-                    latest.steps, completed,
+                    latest.steps, completed, latest.approval_action_id,
                 ))
             return result
 
@@ -397,6 +560,7 @@ class MissionController:
                 QueueState.RUNNING.value,
                 _bounded_text(f"mission executing; specialist={role}", 1000),
                 existing.created_at, _now(), item.attempts, role, existing.steps, existing.completed_steps,
+                existing.approval_action_id,
             ))
         runtime_state = QueueState.FAILED.value
         try:
@@ -404,6 +568,7 @@ class MissionController:
                 success, reason = self._run_steps(item, existing)
                 runtime_state = "verified" if success else QueueState.FAILED.value
             else:
+                approved = bool(existing and existing.approval_action_id)
                 result = run_task(
                     item.task,
                     root=self.root,
@@ -412,7 +577,14 @@ class MissionController:
                     execution_id=item.execution_id,
                     memory=self.memory.store,
                     project=self.MEMORY_PROJECT,
-                    granted=specialist_grants(item.task, role),
+                    granted=specialist_grants(
+                        item.task,
+                        role,
+                        include_approval_tools=approved,
+                    ),
+                    explicitly_approved=approved,
+                    computer_connector=self.computer_connector,
+                    computer_request=self._computer_request(item.task),
                 )
                 success = result.state is ExecutionState.VERIFIED
                 runtime_state = "verified" if success else result.state.value
