@@ -430,7 +430,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "authentication required"})
             return
         controller = self._controller()
-        if controller is None:
+        if controller is None and not parsed.path.startswith("/api/approvals/"):
             self._json(503, {"error": "mission control is not running"})
             return
         if parsed.path == "/api/missions":
