@@ -17,6 +17,7 @@ from .persistent_memory import PersistentMemory
 from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
 from .task_dag import DAGTaskSpec
+from .task_planner import default_grants_for_task
 from .task_queue import QueueItem, QueueState, TaskQueueStore
 from .runtime import run_task
 
@@ -195,7 +196,7 @@ class MissionController:
                 now, now, 0, role.role.value, (),
             ))
         item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
-        self.memory.record_task(self.MEMORY_PROJECT, prepared.task, intent=role.role.value, outcome="queued")
+        self.memory.store.record_task(self.MEMORY_PROJECT, prepared.task, intent=role.role.value, outcome="queued")
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"mission accepted; specialist={role.role.value}; confidence={role.confidence}; memory={history}", 1000),
@@ -212,7 +213,14 @@ class MissionController:
             )
             for step in normalized
         )
-        prepared = self.core.prepare_dag(objective, specs)
+        grants = []
+        seen = set()
+        for spec in specs:
+            for capability in default_grants_for_task(spec.task, self.core._registry):
+                if capability not in seen:
+                    seen.add(capability)
+                    grants.append(capability)
+        prepared = self.core.prepare_dag(objective, specs, granted=tuple(grants))
         mission_id, execution_id = self._new_ids()
         now = _now()
         role = choose_specialist(objective)
@@ -222,7 +230,7 @@ class MissionController:
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
             ))
         item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
-        self.memory.record_task(self.MEMORY_PROJECT, objective, intent=f"dag:{role.role.value}", outcome="queued")
+        self.memory.store.record_task(self.MEMORY_PROJECT, objective, intent=f"dag:{role.role.value}", outcome="queued")
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}", 1000),
@@ -234,7 +242,7 @@ class MissionController:
         if record is None:
             raise KeyError(mission_id)
         item = self.queue.cancel(record.task_id)
-        self.memory.record_task(self.MEMORY_PROJECT, record.task, intent=record.specialist_role, outcome="cancelled")
+        self.memory.store.record_task(self.MEMORY_PROJECT, record.task, intent=record.specialist_role, outcome="cancelled")
         return self.store.put(MissionRecord(
             record.mission_id, record.task_id, record.execution_id, record.task, item.state.value,
             "mission cancelled before execution", record.created_at, item.updated_at, item.attempts,
@@ -338,7 +346,7 @@ class MissionController:
             success = False
             reason = f"runtime raised {type(exc).__name__}"
         outcome = "verified" if success else QueueState.FAILED.value
-        self.memory.record_task(self.MEMORY_PROJECT, item.task, intent=role, outcome=outcome)
+        self.memory.store.record_task(self.MEMORY_PROJECT, item.task, intent=role, outcome=outcome)
         if existing:
             self.store.put(MissionRecord(
                 existing.mission_id, existing.task_id, existing.execution_id, existing.task,
