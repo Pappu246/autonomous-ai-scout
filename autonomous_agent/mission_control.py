@@ -16,6 +16,7 @@ from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
 from .specialist_router import SpecialistRole, choose_specialist
 from .task_core import AutonomousTaskCore
+from .mission_orchestrator import MissionOrchestrator
 from .task_dag import DAGTaskSpec
 from .task_planner import default_grants_for_task
 from .task_queue import QueueItem, QueueState, TaskQueueStore
@@ -69,6 +70,7 @@ class MissionRecord:
     attempts: int = 0
     specialist_role: str = SpecialistRole.GENERAL.value
     steps: tuple[dict[str, object], ...] = ()
+    completed_steps: tuple[str, ...] = ()
 
     @property
     def terminal(self) -> bool:
@@ -112,6 +114,7 @@ class MissionStore:
                     attempts=int(item.get("attempts", 0)),
                     specialist_role=str(item.get("specialist_role", SpecialistRole.GENERAL.value)),
                     steps=_safe_steps(item.get("steps", ())),
+                    completed_steps=tuple(_bounded_text(value, 80) for value in item.get("completed_steps", ()) if str(value).strip()),
                 )
             )
         return records
@@ -281,41 +284,98 @@ class MissionController:
             self._thread.join(timeout=2)
         self._thread = None
 
+    def resume(self, mission_id: str) -> MissionRecord:
+        record = self.store.get(mission_id)
+        if record is None:
+            raise KeyError(mission_id)
+        if record.state not in {
+            QueueState.FAILED.value,
+            QueueState.RECOVERY_REQUIRED.value,
+            "blocked",
+        }:
+            raise ValueError(f"mission cannot be resumed from state {record.state}")
+        task_id = f"{record.mission_id}-resume-{uuid.uuid4().hex[:12]}"
+        execution_id = f"exec-{uuid.uuid4().hex}"
+        item = self.queue.enqueue(
+            record.task,
+            task_id=task_id,
+            execution_id=execution_id,
+        )
+        self.memory.record_episode(
+            self.MEMORY_PROJECT,
+            record.task,
+            outcome="resume_queued",
+            metadata={"specialist_role": record.specialist_role, "completed_steps": len(record.completed_steps)},
+        )
+        return self.store.put(MissionRecord(
+            record.mission_id,
+            item.task_id,
+            item.execution_id,
+            record.task,
+            item.state.value,
+            _bounded_text(
+                f"mission resumed; {len(record.completed_steps)}/{len(record.steps) or 1} verified steps will be retained",
+                1000,
+            ),
+            record.created_at,
+            item.updated_at,
+            item.attempts,
+            record.specialist_role,
+            record.steps,
+            record.completed_steps,
+        ))
+
     def _run_steps(self, item: QueueItem, existing: MissionRecord) -> tuple[bool, str]:
-        by_id = {str(step["node_id"]): step for step in existing.steps}
-        remaining = set(by_id)
-        completed: set[str] = set()
-        while remaining:
-            ready = sorted(
-                node_id for node_id in remaining
-                if set(by_id[node_id]["depends_on"]).issubset(completed)
+        specs = tuple(
+            DAGTaskSpec(
+                str(step["node_id"]),
+                str(step["task"]),
+                tuple(step["depends_on"]),
             )
-            if not ready:
-                return False, "mission DAG reached a dependency deadlock"
-            for node_id in ready:
-                step = by_id[node_id]
-                step_task = str(step["task"])
-                step_execution_id = f"{item.execution_id}:{node_id}"
-                result = run_task(
-                    step_task,
-                    root=self.root,
-                    audit_path=self.audit_path,
-                    journal_path=self.journal_path,
-                    execution_id=step_execution_id,
-                    memory=self.memory.store,
-                    project=self.MEMORY_PROJECT,
-                )
-                if result.state is not ExecutionState.VERIFIED:
-                    return False, _bounded_text(f"step {node_id} {result.state.value}: {result.reason}", 1000)
-                completed.add(node_id)
-                remaining.remove(node_id)
-            self.store.put(MissionRecord(
-                existing.mission_id, existing.task_id, existing.execution_id, existing.task,
-                QueueState.RUNNING.value,
-                _bounded_text(f"DAG progress {len(completed)}/{len(by_id)} steps verified", 1000),
-                existing.created_at, _now(), item.attempts, existing.specialist_role, existing.steps,
-            ))
-        return True, _bounded_text(f"all {len(completed)} mission steps verified", 1000)
+            for step in existing.steps
+        )
+        grants = []
+        seen = set()
+        for spec in specs:
+            for capability in default_grants_for_task(spec.task, self.core._registry):
+                if capability not in seen:
+                    seen.add(capability)
+                    grants.append(capability)
+        plan = self.core.prepare_dag(existing.task, specs, granted=tuple(grants))
+        orchestrator = MissionOrchestrator()
+
+        def runner(node):
+            step_execution_id = f"{item.execution_id}:{node.node_id}"
+            result = run_task(
+                node.task,
+                root=self.root,
+                audit_path=self.audit_path,
+                journal_path=self.journal_path,
+                execution_id=step_execution_id,
+                memory=self.memory.store,
+                project=self.MEMORY_PROJECT,
+            )
+            if result.state is ExecutionState.VERIFIED:
+                latest = self.store.get(existing.mission_id) or existing
+                completed = tuple(sorted(set(latest.completed_steps) | {node.node_id}))
+                self.store.put(MissionRecord(
+                    latest.mission_id, latest.task_id, latest.execution_id, latest.task,
+                    QueueState.RUNNING.value,
+                    _bounded_text(
+                        f"DAG progress {len(completed)}/{len(existing.steps)} steps verified",
+                        1000,
+                    ),
+                    latest.created_at, _now(), item.attempts, latest.specialist_role,
+                    latest.steps, completed,
+                ))
+            return result
+
+        outcome = orchestrator.execute(
+            plan,
+            completed_steps=existing.completed_steps,
+            runner=runner,
+        )
+        return outcome.success, _bounded_text(outcome.reason, 1000)
 
     def _handle_queue_item(self, item: QueueItem) -> bool:
         existing = self.store.get(item.task_id)
@@ -351,11 +411,12 @@ class MissionController:
             reason = f"runtime raised {type(exc).__name__}"
         outcome = runtime_state
         self.memory.record_episode(self.MEMORY_PROJECT, item.task, outcome=outcome, metadata={"specialist_role": role})
-        if existing:
+        latest = self.store.get(item.task_id) or existing
+        if latest:
             self.store.put(MissionRecord(
-                existing.mission_id, existing.task_id, existing.execution_id, existing.task,
+                latest.mission_id, latest.task_id, latest.execution_id, latest.task,
                 outcome, _bounded_text(reason, 1000),
-                existing.created_at, _now(), item.attempts, role, existing.steps,
+                latest.created_at, _now(), item.attempts, role, latest.steps, latest.completed_steps,
             ))
         return success
 
