@@ -1,6 +1,6 @@
 {
   "dashboard_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/dashboard.md",
-  "fingerprint": "f6c01b51476ea5919db0bdfdb6d07ca9158c94c348981eed74271a41298cc7ee",
+  "fingerprint": "587e21a514caeba275b12ae276d1aa5369d03fcc7769f8cdc9db6f3d795d8aeb",
   "improvement_proposals": [
     {
       "actions": [
@@ -15,7 +15,7 @@
       "title": "Remove hard-coded secret risk"
     }
   ],
-  "last_run": "2026-10-04T02:59:22.301627+00:00",
+  "last_run": "2026-10-04T09:19:50.896770+00:00",
   "last_task": "",
   "meaningful_change": true,
   "opportunity_history_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/opportunity_history.json",
@@ -36,14 +36,14 @@
     }
   ],
   "release_hashes": {
-    "https://ai.google.dev/gemini-api/docs/changelog": "99a7cdb44bd94860de3472f93b1d5b5cc8ccd4650a016e2bd173f2a7e03238e3",
-    "https://console.groq.com/docs/changelog": "3ae15b912b585df3fc7b208a90ce76e36946d277797a2395ddeb6495c204e595",
-    "https://openrouter.ai/models?pricing=free": "8e872f315700a4b5845517f7b9a0598187ba4e73baadfd8ce19f7242e89fbd46"
+    "https://ai.google.dev/gemini-api/docs/changelog": "b45da22659623607ea50f3f9b6302a9c1a2bff80c228080f0cc279b87cc6c5f7",
+    "https://console.groq.com/docs/changelog": "57e933a56d3d6b9eb196b10caf6853e9572a5faa84cbcc0db3b799e01e118c8e",
+    "https://openrouter.ai/models?pricing=free": "f4583018bc2bc953c85a33bbc298a912f7997e94f59ba283326c51954e48894b"
   },
   "report_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/latest_report.md",
   "source_hashes": {
-    "https://ai.google.dev/gemini-api/docs/pricing": "b3ea836302c5c74e285003b9823e65b59767733e73ba39334c0f4d03eb7185b9",
-    "https://console.groq.com/docs/rate-limits": "d3fdee40797a005f299d51bc1f961b043c7dcefe1370cf6d959a78a618d836a2",
+    "https://ai.google.dev/gemini-api/docs/pricing": "7a0d1162b591ffd66524b5dab41cdd67dd3e953b15c7cb2c43471071c60f9b9a",
+    "https://console.groq.com/docs/rate-limits": "b7c6bfb6155a068f20b060bd26cb922a93ef4f037184c659e6c80fe2583db6dd",
     "https://openrouter.ai/pricing": "fff5cbddc3ef1d9c1d4c640bf3b4aed816f1448c76009bf3f13f4b60d7ec407f"
   },
   "verified_free_models": [
