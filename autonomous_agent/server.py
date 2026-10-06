@@ -39,6 +39,16 @@ def _validate_bind_security(host: str, token: str) -> bool:
         )
     return require_auth
 
+DEFAULT_WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolve_workspace_root(value: str | Path | None = None) -> Path:
+    candidate = value if value is not None else os.getenv("SCOUT_WORKSPACE_ROOT", str(DEFAULT_WORKSPACE_ROOT))
+    root = Path(candidate).expanduser().resolve()
+    if not root.is_dir():
+        raise RuntimeError(f"configured workspace root is not a directory: {root}")
+    return root
+
 
 def _mission_ui() -> str:
     return """<!doctype html>
@@ -298,7 +308,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         }
 
     def _approval_paths(self) -> tuple[Path, Path, Path]:
-        root = Path.cwd()
+        root = Path(getattr(self.server, "workspace_root", Path.cwd()))
         return (
             Path(getattr(self.server, "approval_queue_path", root / "state" / "approval_queue.json")),
             Path(getattr(self.server, "approval_dir", root / "state" / "approvals")),
@@ -349,10 +359,11 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             if len(task) > MAX_TASK_LENGTH:
                 self._json(400, {"error": "task exceeds maximum length"})
                 return
+            workspace_root = Path(getattr(self.server, "workspace_root", Path.cwd()))
             result = run_task(
                 task,
-                root=Path.cwd(),
-                audit_path=Path.cwd() / "state" / "runtime_execution.jsonl",
+                root=workspace_root,
+                audit_path=workspace_root / "state" / "runtime_execution.jsonl",
             )
             self._json(200 if result.state is ExecutionState.VERIFIED else 422, {
                 "state": result.state.value,
@@ -525,18 +536,21 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         return
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, root: str | Path | None = None) -> None:
     token = os.getenv("SCOUT_SERVER_TOKEN", "").strip()
     require_auth = _validate_bind_security(host, token)
+    workspace_root = _resolve_workspace_root(root)
     server = ThreadingHTTPServer((host, int(port)), RuntimeHandler)
     server.require_auth = require_auth
     server.server_token = token
-    server.mission_controller = MissionController(root=Path.cwd())
-    server.approval_queue_path = Path.cwd() / "state" / "approval_queue.json"
-    server.approval_dir = Path.cwd() / "state" / "approvals"
-    server.approval_audit_path = Path.cwd() / "state" / "approval_audit.jsonl"
+    server.workspace_root = workspace_root
+    server.mission_controller = MissionController(root=workspace_root)
+    server.approval_queue_path = workspace_root / "state" / "approval_queue.json"
+    server.approval_dir = workspace_root / "state" / "approvals"
+    server.approval_audit_path = workspace_root / "state" / "approval_audit.jsonl"
     server.mission_controller.start()
     print(f"Autonomous AI Scout runtime listening on http://{host}:{port}")
+    print(f"Workspace root: {workspace_root}")
     print(f"Mission Control UI: http://{host}:{port}/")
     try:
         server.serve_forever()
@@ -551,8 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Serve the local Autonomous AI Scout runtime")
     parser.add_argument("--host", default=os.getenv("SCOUT_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("SCOUT_PORT", "8000")))
+    parser.add_argument("--root", default=os.getenv("SCOUT_WORKSPACE_ROOT", str(DEFAULT_WORKSPACE_ROOT)))
     args = parser.parse_args(list(argv) if argv is not None else None)
-    serve(args.host, args.port)
+    serve(args.host, args.port, root=args.root)
     return 0
 
 
