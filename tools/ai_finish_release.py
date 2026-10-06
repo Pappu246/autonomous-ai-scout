@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
+GATE3 = "gate3-coding-provider-smoke.yml"
 GATE4 = "gate4-external-connector-smoke.yml"
 GATE5 = "gate5-github-admin-readiness.yml"
 
@@ -117,6 +118,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=CURRENT_REPO)
     parser.add_argument("--branch", default="feat/mission-control-ui")
+    parser.add_argument("--gate3", action="store_true", help="dispatch the authoritative Gate 3 coding-provider smoke")
     parser.add_argument("--gate4", action="store_true", help="dispatch the authoritative Gate 4 smoke")
     parser.add_argument(
         "--gate5",
@@ -143,7 +145,7 @@ def main() -> int:
         raise RuntimeError("--apply-gate5 requires --gate5")
 
     if args.check_only:
-        for workflow in (GATE4, GATE5):
+        for workflow in (GATE3, GATE4, GATE5):
             matches = [x for x in list_runs(workflow, args.branch) if x.head_sha == head]
             print(f"{workflow}: exact-head-runs={len(matches)}")
             for item in matches[:3]:
@@ -153,8 +155,19 @@ def main() -> int:
                 )
         return 0
 
-    if not args.gate4 and not args.gate5:
-        raise RuntimeError("select at least one of --gate4 or --gate5")
+    if not args.gate3 and not args.gate4 and not args.gate5:
+        raise RuntimeError("select at least one of --gate3, --gate4 or --gate5")
+
+    if args.gate3:
+        print("Dispatching Gate 3 on exact verified branch head…")
+        dispatch(GATE3, args.branch)
+        result = wait_for_exact(GATE3, args.branch, head, args.timeout)
+        if result.conclusion != "success":
+            raise RuntimeError(
+                f"Gate 3 did not pass on exact SHA {head}: run {result.run_id} "
+                f"conclusion={result.conclusion}"
+            )
+        print(f"Gate 3 PASS: run {result.run_id}")
 
     if args.gate4:
         print("Dispatching Gate 4 on exact verified branch head…")
