@@ -204,3 +204,34 @@ def test_run_once_records_secret_safe_specialist_provider_route(monkeypatch, tmp
     assert event["provider"] == ""
     assert "endpoint" not in json.dumps(event).lower()
     assert "api_key" not in json.dumps(event).lower()
+
+
+def test_rejected_mission_is_terminal(tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit("use the computer to complete this task")
+    rejected = controller.reject_approved_action(mission.approval_action_id)
+    assert rejected is not None
+    assert rejected.state == "rejected"
+    assert rejected.terminal is True
+
+
+def test_timeline_surfaces_provider_route_telemetry(monkeypatch, tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit("inspect repository")
+
+    def fake_run_task(task, **kwargs):
+        return type(
+            "Result",
+            (),
+            {"state": ExecutionState.VERIFIED, "reason": "verified", "results": ()},
+        )()
+
+    monkeypatch.setattr("autonomous_agent.mission_control.run_task", fake_run_task)
+    controller.run_once()
+
+    timeline = controller.timeline(mission.mission_id)
+    route_events = [item for item in timeline if item.get("event") == "specialist_provider_route"]
+    assert route_events
+    assert route_events[-1]["specialist_role"] == mission.specialist_role
+    assert route_events[-1]["selection_only"] is True
+    assert route_events[-1]["provider"] == ""
