@@ -79,6 +79,7 @@ def _mission_ui() -> str:
 <main>
   <h1>Autonomous AI Scout</h1>
   <div class="muted">Mission Control · durable missions · specialist routing · persistent memory · verified results</div>
+  <div class="muted" id="workspace-root">Workspace root: loading…</div>
   <section class="panel">
     <form id="mission-form">
       <label for="task">Give Scout a digital goal</label>
@@ -221,10 +222,12 @@ function render(items) {
 
 async function refresh() {
   try {
-    const [missionBody, approvalBody] = await Promise.all([
+    const [missionBody, approvalBody, healthBody] = await Promise.all([
       api('/api/missions'),
-      api('/api/approvals')
+      api('/api/approvals'),
+      api('/health')
     ]);
+    document.getElementById('workspace-root').textContent = 'Workspace root: ' + (healthBody.workspace_root || 'unknown');
     render(missionBody.missions);
     renderApprovals(approvalBody.approvals);
     notice.textContent = '';
@@ -345,7 +348,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            self._json(200, {"status": "ok", "service": "autonomous-ai-scout"})
+            workspace_root = Path(getattr(self.server, "workspace_root", DEFAULT_WORKSPACE_ROOT)).resolve()
+            self._json(200, {
+                "status": "ok",
+                "service": "autonomous-ai-scout",
+                "workspace_root": str(workspace_root),
+            })
             return
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
