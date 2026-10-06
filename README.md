@@ -121,6 +121,18 @@ From the repository root:
 ~~~bash
 python -m autonomous_agent.server --host 127.0.0.1 --port 8000
 
+
+
+### Compound repository health tasks
+
+Mission Control preserves multiple explicit verification requests in one bounded plan. For example:
+
+~~~text
+inspect the repository and summarize current test failures; run lint
+~~~
+
+This selects repository inspection plus the requested test/lint verification. A plain `run tests` request keeps the existing test plan, while change requests such as `fix the failing tests` still cross the normal approval boundary instead of being reclassified as read-only verification.
+
 ### Workspace / repository scope
 
 Mission Control never needs to inherit an arbitrary process working directory. Set `SCOUT_WORKSPACE_ROOT` to the exact repository or workspace the agent is allowed to inspect and test:
