@@ -110,6 +110,199 @@ Full design, guarantees and limitations:
 
 
 
+## Mission Control — how to use it
+
+The next-level runtime is currently delivered through the existing local runtime server. The Mission Control page is the operator UI; the Python runtime remains the execution authority.
+
+### Start Mission Control
+
+From the repository root:
+
+~~~bash
+python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+~~~
+
+Then open:
+
+~~~text
+http://127.0.0.1:8000/
+~~~
+
+The page provides:
+
+- **Start Mission** — enter a natural-language goal.
+- **Recent missions** — state, specialist role, attempts and mission ID.
+- **Memory** — bounded mission history recalled for the goal.
+- **Timeline** — execution, verification, approval and provider-routing evidence.
+- **Resume** — requeue failed/recoverable work while preserving already-verified DAG steps.
+- **Cancel** — cancel a queued/recoverable mission before execution.
+- **Approval Inbox** — approve or reject actions that have meaningful side effects.
+
+The UI refreshes mission and approval state automatically. It does not contain a second authorization system; it talks to the same durable mission, queue, approval and audit stores used by the runtime.
+
+### Give it a task
+
+Use normal language. Examples:
+
+~~~text
+inspect the repository and summarize the current test failures
+~~~
+
+~~~text
+research the latest information about this project and compare the sources
+~~~
+
+~~~text
+open the website and extract the pricing information
+~~~
+
+~~~text
+organize today's downloaded PDFs
+~~~
+
+~~~text
+use the computer to complete this task
+~~~
+
+The runtime first classifies the intent, selects a bounded specialist profile, plans the required capabilities, evaluates authorization/risk, and only then queues or executes the mission.
+
+### What happens after submission
+
+A normal read/analysis mission follows:
+
+~~~text
+Natural-language goal
+    ↓
+Intent + specialist selection
+    ↓
+Bounded plan
+    ↓
+Capability authorization
+    ↓
+Durable mission queue
+    ↓
+Worker execution
+    ↓
+Observe result
+    ↓
+Verify result
+    ↓
+Write audit/evidence
+    ↓
+VERIFIED / FAILED / BLOCKED / RECOVERY_REQUIRED
+~~~
+
+A side-effecting mission is different:
+
+~~~text
+Goal
+  ↓
+Plan preview
+  ↓
+requires_approval
+  ↓
+Approval Inbox
+  ↓
+Human approves
+  ↓
+Durable approved mission
+  ↓
+Bounded execution
+  ↓
+Verification + audit
+~~~
+
+Approval does **not** mean merge or deployment. Those remain outside the mission runtime unless a separate, explicitly authorized worker path is used.
+
+### Computer-use tasks
+
+Computer control is available only through the bounded computer capability. A direct CLI run looks like:
+
+~~~bash
+autonomous-scout-task --computer --approve "control the computer and complete this task"
+~~~
+
+Useful bounds:
+
+~~~text
+--computer       enable bounded Windows computer control
+--approve        explicitly approve state-changing actions for this run
+--max-turns N    cap native computer-use model turns
+--action-budget N
+                 cap bounded desktop actions
+~~~
+
+The computer result is not considered successful merely because a model produced text. The runtime records bounded machine-readable evidence (state, verification flag, turns, actions, reason) and uses the canonical verification result.
+
+### Useful runtime/API surfaces
+
+~~~text
+GET  /health
+GET  /
+GET  /api/missions
+POST /api/missions
+GET  /api/missions/<mission_id>
+GET  /api/missions/<mission_id>/memory
+GET  /api/missions/<mission_id>/timeline
+POST /api/missions/<mission_id>/cancel
+POST /api/missions/<mission_id>/resume
+GET  /api/approvals
+POST /api/approvals/<approval_id>/approve
+POST /api/approvals/<approval_id>/reject
+~~~
+
+Programmatic task submission:
+
+~~~bash
+curl -X POST http://127.0.0.1:8000/api/missions \
+  -H "Content-Type: application/json" \
+  -d '{"task":"inspect the repository and summarize the current test failures"}'
+~~~
+
+PowerShell:
+
+~~~powershell
+Invoke-RestMethod `
+  -Uri http://127.0.0.1:8000/api/missions `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"task":"inspect the repository and summarize the current test failures"}'
+~~~
+
+The HTTP interface returns a mission record with its mission ID, execution ID, state, specialist role and current reason. Poll `/api/missions` or the individual mission endpoint while the background worker progresses.
+
+### Mission states you will see
+
+| State | Meaning |
+|---|---|
+| `pending` | accepted and waiting for the worker |
+| `running` | currently executing |
+| `requires_approval` | blocked until a human approves the proposed side effect |
+| `verified` | execution completed and verification succeeded |
+| `failed` | execution failed; inspect Timeline and use Resume when allowed |
+| `recovery_required` | external outcome is uncertain and requires reconciliation/recovery |
+| `blocked` | the requested goal cannot safely execute with the currently available capabilities |
+| `cancelled` | queued mission was cancelled before execution |
+| `rejected` | a pending approval was explicitly rejected |
+
+### What it can currently do
+
+The current registered domains include filesystem/workspace operations, bounded shell inspection, public web research, browser interaction, Gmail/Calendar read flows, GitHub inspection, testing, bounded Windows computer control, application/document adapters and approval-gated mutation paths.
+
+The system is deliberately **fail-closed**. If the required backend, credential or capability is unavailable, the mission is blocked instead of pretending that the task was completed.
+
+### Where the result is visible
+
+For a local run, the primary operator view is:
+
+~~~text
+http://127.0.0.1:8000/
+~~~
+
+Mission state is also visible through `/api/missions`, detailed evidence through each mission's `/timeline`, and recalled context through `/memory`.
+
+The persistent records are kept under the configured `state/` directory, including mission metadata, queue state, approval state, execution audit and runtime journal. Secrets are not written into these mission records.
+
 ## Local runtime server security
 
 The optional local runtime server listens on 127.0.0.1 by default. Loopback-only binds do not require a request token.
