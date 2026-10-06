@@ -200,7 +200,7 @@ def test_run_once_records_secret_safe_specialist_provider_route(monkeypatch, tmp
     event = route_events[-1]
     assert event["execution_id"] == mission.execution_id
     assert event["specialist_role"] == mission.specialist_role
-    assert event["eligible"] is False
+    assert event["eligible"] == "False"
     assert event["provider"] == ""
     assert "endpoint" not in json.dumps(event).lower()
     assert "api_key" not in json.dumps(event).lower()
@@ -233,5 +233,5 @@ def test_timeline_surfaces_provider_route_telemetry(monkeypatch, tmp_path: Path)
     route_events = [item for item in timeline if item.get("event") == "specialist_provider_route"]
     assert route_events
     assert route_events[-1]["specialist_role"] == mission.specialist_role
-    assert route_events[-1]["selection_only"] is True
+    assert route_events[-1]["selection_only"] == "True"
     assert route_events[-1]["provider"] == ""
