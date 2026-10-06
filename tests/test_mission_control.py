@@ -235,3 +235,38 @@ def test_timeline_surfaces_provider_route_telemetry(monkeypatch, tmp_path: Path)
     assert route_events[-1]["specialist_role"] == mission.specialist_role
     assert route_events[-1]["selection_only"] == "True"
     assert route_events[-1]["provider"] == ""
+
+
+def test_run_once_surfaces_bounded_test_result_summary(monkeypatch, tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit("run tests")
+
+    def fake_run_task(task, **kwargs):
+        return type(
+            "Result",
+            (),
+            {
+                "state": ExecutionState.FAILED,
+                "reason": "tool execution failed after bounded retries: tests.run",
+                "results": (
+                    type(
+                        "ToolResult",
+                        (),
+                        {
+                            "operation": "test",
+                            "success": False,
+                            "verification_status": "failed",
+                            "output": "network isolation unavailable; sandbox refused subprocess execution",
+                        },
+                    )(),
+                ),
+            },
+        )()
+
+    monkeypatch.setattr("autonomous_agent.mission_control.run_task", fake_run_task)
+    result = controller.run_once()
+
+    assert result is not None
+    assert result.state == "failed"
+    assert "tests.run" in result.reason
+    assert "network isolation unavailable" in result.reason
