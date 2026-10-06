@@ -1,4 +1,5 @@
 name: Gate 3 — Coding Provider Smoke (Authoritative)
+# Authoritative push trigger retained for exact-SHA live smoke evidence.
 
 on:
   workflow_dispatch:
