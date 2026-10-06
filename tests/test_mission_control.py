@@ -160,3 +160,46 @@ def test_resume_rejects_verified_mission(tmp_path: Path) -> None:
         assert "cannot be resumed" in str(exc)
     else:
         raise AssertionError("verified mission must not be resumed")
+
+
+def test_empty_mission_task_is_rejected(tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+
+    try:
+        controller.submit("   ")
+    except ValueError as exc:
+        assert "mission task is required" in str(exc)
+    else:
+        raise AssertionError("empty mission task must be rejected")
+
+
+def test_run_once_records_secret_safe_specialist_provider_route(monkeypatch, tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit("inspect repository")
+
+    def fake_run_task(task, **kwargs):
+        return type(
+            "Result",
+            (),
+            {
+                "state": ExecutionState.VERIFIED,
+                "reason": "verified by test",
+                "results": (),
+            },
+        )()
+
+    monkeypatch.setattr("autonomous_agent.mission_control.run_task", fake_run_task)
+
+    result = controller.run_once()
+
+    assert result is not None
+    lines = controller.audit_path.read_text(encoding="utf-8").splitlines()
+    route_events = [json.loads(line) for line in lines if json.loads(line).get("event") == "specialist_provider_route"]
+    assert route_events
+    event = route_events[-1]
+    assert event["execution_id"] == mission.execution_id
+    assert event["specialist_role"] == mission.specialist_role
+    assert event["eligible"] is False
+    assert event["provider"] == ""
+    assert "endpoint" not in json.dumps(event).lower()
+    assert "api_key" not in json.dumps(event).lower()
