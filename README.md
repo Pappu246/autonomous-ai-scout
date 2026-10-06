@@ -1118,3 +1118,22 @@ Mission Control also exposes per-mission execution evidence through:
 `GET /api/missions/<mission_id>/timeline`
 
 The timeline is assembled from bounded audit evidence plus approval state and does not expose raw credentials or approval tokens.
+
+
+### AI release finisher
+
+The repository includes `tools/ai_finish_release.py` for an AI/operator environment that has GitHub CLI access. It verifies the remote branch head before dispatching gates and waits for an authoritative run on that exact SHA.
+
+Check exact-head evidence without changing anything:
+
+~~~text
+python tools/ai_finish_release.py --check-only
+~~~
+
+Run the remaining authoritative gates explicitly:
+
+~~~text
+python tools/ai_finish_release.py --gate3 --gate4 --gate5 --apply-gate5
+~~~
+
+Gate 5 protection application requires the explicit `--apply-gate5` flag. The helper never merges, tags, deploys, or publishes a release.
