@@ -1,6 +1,7 @@
 name: Gate 3 — Coding Provider Smoke (Authoritative)
 # Authoritative push trigger retained for exact-SHA live smoke evidence.
 # Final exact-SHA Gate 3 trigger retained after the compound-planner fix.
+# Final handoff exact-SHA Gate 3 retrigger.
 
 on:
   workflow_dispatch:
