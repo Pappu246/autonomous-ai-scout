@@ -89,6 +89,7 @@ class MissionRecord:
             QueueState.SUCCEEDED.value,
             QueueState.FAILED.value,
             QueueState.CANCELLED.value,
+            "rejected",
         }
 
 
@@ -231,6 +232,7 @@ class MissionController:
                 "specialist_role": route.role,
                 "provider": "" if route.provider is None else route.provider.name,
                 "eligible": route.eligible,
+                "selection_only": True,
                 "reason": _bounded_text(route.reason, 500),
             },
         )
@@ -467,6 +469,10 @@ class MissionController:
                     "attempt",
                     "completed_steps",
                     "evidence_json",
+                    "specialist_role",
+                    "provider",
+                    "eligible",
+                    "selection_only",
                 ):
                     if key in item:
                         value = item[key]
