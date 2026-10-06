@@ -281,6 +281,34 @@ class MissionController:
             "computer.use:credref": None,
         }
 
+    @staticmethod
+    def _result_summary(result) -> str:
+        """Expose bounded, non-sensitive result summaries without copying raw tool output into mission state."""
+        summaries: list[str] = []
+        for item in getattr(result, "results", ()):
+            operation = str(getattr(item, "operation", "unknown"))
+            output = str(getattr(item, "output", "") or "")
+            verification = str(getattr(item, "verification_status", "") or "")
+            if operation == "test":
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                relevant = [
+                    line for line in lines
+                    if any(marker in line.lower() for marker in ("passed", "failed", "error", "skipped", "network isolation unavailable"))
+                ]
+                detail = relevant[-1] if relevant else verification or "no test summary emitted"
+            elif operation == "lint":
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                detail = lines[-1] if lines else verification or "no lint summary emitted"
+            elif operation == "inspect":
+                file_lines = output.splitlines()
+                detail = f"listed_files={max(0, len(file_lines) - 1)}"
+                if "truncated" in output.lower():
+                    detail += "; output_truncated"
+            else:
+                detail = verification or ("success" if getattr(item, "success", False) else "failed")
+            summaries.append(f"{operation}={detail[:240]}")
+        return "; ".join(summaries[:8])
+
     def _queue_approval(self, task: str, steps: Iterable[str], *, risk: str = "high") -> str:
         proposal = build_action_proposal(
             task,
@@ -796,7 +824,11 @@ class MissionController:
                 self._record_computer_evidence(item.execution_id, result)
                 success = result.state is ExecutionState.VERIFIED
                 runtime_state = "verified" if success else result.state.value
-                reason = result.reason
+                summary = self._result_summary(result)
+                reason = _bounded_text(
+                    result.reason if not summary else f"{result.reason}; {summary}",
+                    1000,
+                )
         except Exception as exc:
             success = False
             runtime_state = QueueState.FAILED.value
