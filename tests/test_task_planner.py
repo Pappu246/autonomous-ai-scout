@@ -33,6 +33,7 @@ def test_plan_is_deterministically_auditable():
 def test_compound_repository_health_request_keeps_inspection_and_verification_steps():
     plan = plan_task(
         "inspect the repository and summarize current test failures; run lint",
+        granted=[Capability.INSPECT, Capability.TEST, Capability.LINT],
     )
     assert plan.executable
     assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run", "lint.run"]
@@ -40,6 +41,9 @@ def test_compound_repository_health_request_keeps_inspection_and_verification_st
 
 
 def test_compound_failure_report_request_runs_tests_instead_of_inspect_only():
-    plan = plan_task("inspect repository and report current failing tests")
+    plan = plan_task(
+        "inspect repository and report current failing tests",
+        granted=[Capability.INSPECT, Capability.TEST],
+    )
     assert plan.executable
     assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]
