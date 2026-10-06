@@ -3,6 +3,7 @@ name: Gate 3 — Coding Provider Smoke (Authoritative)
 # Final exact-SHA Gate 3 trigger retained after the compound-planner fix.
 # Final handoff exact-SHA Gate 3 retrigger.
 # Final AI handoff exact-SHA trigger.
+# Final AI finisher syntax-fix exact-SHA trigger.
 
 on:
   workflow_dispatch:
