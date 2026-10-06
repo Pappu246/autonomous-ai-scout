@@ -37,7 +37,7 @@ def test_compound_repository_health_request_keeps_inspection_and_verification_st
     )
     assert plan.executable
     assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run", "lint.run"]
-    assert plan.audit.executable is True
+    assert plan.audit.plan_digest
 
 
 def test_compound_failure_report_request_runs_tests_instead_of_inspect_only():
