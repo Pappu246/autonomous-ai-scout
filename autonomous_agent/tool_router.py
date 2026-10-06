@@ -96,12 +96,21 @@ class DynamicToolRouter:
 
         # Compound repository-health requests must retain every explicitly requested
         # verification capability instead of collapsing to the first detected intent.
-        if any(term in lowered for term in ("inspect repository", "inspect the repository", "repository inspection", "current test failures", "failing tests")):
+        explicit_inspect = any(term in lowered for term in ("inspect repository", "inspect the repository", "repository inspection"))
+        explicit_test_verify = any(term in lowered for term in ("current test failures", "failing tests", "test failures", "run tests", "run the tests", "pytest", "test suite", "validate tests"))
+        explicit_lint_verify = any(term in lowered for term in ("run lint", "run the lint", "lint", "static checks"))
+
+        # Only expand an inspect request when the user explicitly asks for
+        # additional verification. A plain "run tests" request and a
+        # change request such as "fix the failing tests" retain their
+        # established planner/approval semantics.
+        compound_request = explicit_inspect and (explicit_test_verify or explicit_lint_verify)
+        if compound_request:
             compound.append("github.inspect")
-        if any(term in lowered for term in ("run tests", "run the tests", "failing tests", "test failures", "pytest", "test suite", "validate tests")):
-            compound.append("tests.run")
-        if any(term in lowered for term in ("run lint", "run the lint", "lint", "static checks")):
-            compound.append("lint.run")
+            if explicit_test_verify:
+                compound.append("tests.run")
+            if explicit_lint_verify:
+                compound.append("lint.run")
 
         if compound:
             names = tuple(dict.fromkeys(compound))
