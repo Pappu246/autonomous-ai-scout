@@ -218,6 +218,23 @@ class MissionController:
             return "provider=unconfigured"
         return f"provider={route.provider.name}"
 
+    def _record_provider_route(self, execution_id: str, role: SpecialistRole | str) -> None:
+        resolved = role.value if isinstance(role, SpecialistRole) else str(role)
+        route = self.provider_router.route(resolved)
+        append_execution_record(
+            self.audit_path,
+            {
+                "execution_id": execution_id,
+                "timestamp": _now(),
+                "state": ExecutionState.RUNNING.value,
+                "event": "specialist_provider_route",
+                "specialist_role": route.role,
+                "provider": "" if route.provider is None else route.provider.name,
+                "eligible": route.eligible,
+                "reason": _bounded_text(route.reason, 500),
+            },
+        )
+
     def _record_computer_evidence(self, execution_id: str, result) -> None:
         for item in getattr(result, "results", ()):
             command = getattr(item, "command", ())
@@ -282,6 +299,8 @@ class MissionController:
 
     def submit(self, task: str) -> MissionRecord:
         normalized_task = " ".join(str(task).split())
+        if not normalized_task:
+            raise ValueError("mission task is required")
         role_decision = choose_specialist(normalized_task)
         role = role_decision.role
         grants = specialist_grants(normalized_task, role)
@@ -325,11 +344,17 @@ class MissionController:
         )
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
-            _bounded_text(f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; memory={history}", 1000),
+            _bounded_text(
+                f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; {provider_hint}; memory={history}",
+                1000,
+            ),
             item.created_at, item.updated_at, item.attempts, role.value, (),
         ))
 
     def submit_plan(self, objective: str, steps: Sequence[Mapping[str, object]]) -> MissionRecord:
+        normalized_objective = _bounded_text(objective, 4000)
+        if not normalized_objective:
+            raise ValueError("mission objective is required")
         normalized = _safe_steps(steps)
         specs = tuple(
             DAGTaskSpec(
@@ -347,7 +372,7 @@ class MissionController:
                 if capability not in seen:
                     seen.add(capability)
                     grants.append(capability)
-        prepared = self.core.prepare_dag(objective, specs, granted=tuple(grants))
+        prepared = self.core.prepare_dag(normalized_objective, specs, granted=tuple(grants))
         approval_grants: list[Capability] = []
         approval_seen: set[Capability] = set()
         for spec in specs:
@@ -359,21 +384,21 @@ class MissionController:
                     approval_seen.add(capability)
                     approval_grants.append(capability)
         approval_preview = self.core.prepare_dag(
-            objective,
+            normalized_objective,
             specs,
             granted=tuple(approval_grants),
             explicitly_approved=True,
         )
         mission_id, execution_id = self._new_ids()
         now = _now()
-        role = choose_specialist(objective)
+        role = choose_specialist(normalized_objective)
         provider_hint = self._provider_route_hint(role.role)
         if not prepared.executable:
             if approval_preview.executable and any(
                 self._plan_requires_approval(node.plan) for node in approval_preview.nodes
             ):
                 approval_id = self._queue_approval(
-                    _bounded_text(objective, 4000),
+                    normalized_objective,
                     (str(step.get("task", "")) for step in normalized),
                     risk="high",
                 )
@@ -392,7 +417,7 @@ class MissionController:
         item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
         self.memory.record_episode(
             self.MEMORY_PROJECT,
-            objective,
+            normalized_objective,
             outcome="queued",
             metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
         )
@@ -730,6 +755,7 @@ class MissionController:
         existing = self.store.get_by_task_id(item.task_id)
         role = existing.specialist_role if existing else choose_specialist(item.task).role.value
         if existing:
+            self._record_provider_route(item.execution_id, role)
             self.store.put(MissionRecord(
                 existing.mission_id, existing.task_id, existing.execution_id, existing.task,
                 QueueState.RUNNING.value,
