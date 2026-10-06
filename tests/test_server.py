@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 import urllib.error
 import urllib.request
@@ -28,7 +29,9 @@ def test_health_endpoint_reports_runtime_status():
         with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/health", timeout=3) as response:
             payload = json.loads(response.read().decode("utf-8"))
         assert response.status == 200
-        assert payload == {"service": "autonomous-ai-scout", "status": "ok"}
+        assert payload["service"] == "autonomous-ai-scout"
+        assert payload["status"] == "ok"
+        assert payload["workspace_root"] == str(Path(__file__).resolve().parents[1])
     finally:
         server.shutdown()
         server.server_close()
