@@ -91,6 +91,27 @@ class DynamicToolRouter:
 
     def select_names(self, task: str, intent: TaskIntent | None = None) -> ToolSelection:
         raw = " ".join(task.strip().split())
+        lowered = raw.lower()
+        compound: list[str] = []
+
+        # Compound repository-health requests must retain every explicitly requested
+        # verification capability instead of collapsing to the first detected intent.
+        if any(term in lowered for term in ("inspect repository", "inspect the repository", "repository inspection", "current test failures", "failing tests")):
+            compound.append("github.inspect")
+        if any(term in lowered for term in ("run tests", "run the tests", "failing tests", "test failures", "pytest", "test suite", "validate tests")):
+            compound.append("tests.run")
+        if any(term in lowered for term in ("run lint", "run the lint", "lint", "static checks")):
+            compound.append("lint.run")
+
+        if compound:
+            names = tuple(dict.fromkeys(compound))
+            available = tuple(name for name in names if self._registry.get(name) is not None)
+            missing = tuple(name for name in names if self._registry.get(name) is None)
+            if missing:
+                reason = f"Selected compound repository-health capabilities: {', '.join(available) or 'none'}; missing required tools: {', '.join(missing)}."
+            else:
+                reason = "Selected every explicit repository-health capability requested by the compound task."
+            return ToolSelection(raw, intent or TaskIntent.INSPECT, tuple(names), available, reason)
         resolved = intent or TaskIntent.UNKNOWN
         if isinstance(resolved, str):
             try:
