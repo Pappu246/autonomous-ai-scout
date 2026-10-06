@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from autonomous_agent.execution_engine import ExecutionState
