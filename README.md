@@ -120,6 +120,20 @@ From the repository root:
 
 ~~~bash
 python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+
+### Workspace / repository scope
+
+Mission Control never needs to inherit an arbitrary process working directory. Set `SCOUT_WORKSPACE_ROOT` to the exact repository or workspace the agent is allowed to inspect and test:
+
+~~~text
+SCOUT_WORKSPACE_ROOT=/path/to/the/repository
+python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+~~~
+
+The server also accepts `--root /path/to/the/repository`. When neither is supplied, the source checkout root is used instead of the caller's desktop/home CWD. `/run` and Mission Control use the same resolved root, and approval/audit state is stored under that root.
+
+On Windows, the built-in test sandbox still requires an isolated subprocess mechanism. When network isolation is unavailable, `tests.run` fails closed and reports that reason rather than pretending the tests ran. This is intentional safety behavior; the runtime does not silently downgrade to an unsandboxed test subprocess.
+
 ~~~
 
 Then open:
