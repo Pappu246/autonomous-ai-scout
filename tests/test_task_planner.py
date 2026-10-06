@@ -28,3 +28,18 @@ def test_custom_registry_is_the_only_tool_source():
     base=get_tool("tests.run"); registry=ToolRegistry((base,)); plan=plan_task("run tests",granted=[Capability.TEST],registry=registry); assert not plan.executable and "github.inspect" in plan.reason
 def test_plan_is_deterministically_auditable():
     kwargs={"granted":[Capability.INSPECT,Capability.TEST]}; assert plan_task("run tests",**kwargs).audit==plan_task("run tests",**kwargs).audit
+
+
+def test_compound_repository_health_request_keeps_inspection_and_verification_steps():
+    plan = plan_task(
+        "inspect the repository and summarize current test failures; run lint",
+    )
+    assert plan.executable
+    assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run", "lint.run"]
+    assert plan.audit.executable is True
+
+
+def test_compound_failure_report_request_runs_tests_instead_of_inspect_only():
+    plan = plan_task("inspect repository and report current failing tests")
+    assert plan.executable
+    assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]
