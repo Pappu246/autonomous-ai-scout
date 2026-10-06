@@ -64,17 +64,17 @@ def remote_head(repository: str, branch: str) -> str:
     return out.split()[0]
 
 
-def dispatch(workflow: str, branch: str, *, apply_gate5: bool = False) -> None:
-    args = ["gh", "workflow", "run", workflow, "--repo", CURRENT_REPO, "--ref", branch]
+def dispatch(workflow: str, branch: str, repository: str, *, apply_gate5: bool = False) -> None:
+    args = ["gh", "workflow", "run", workflow, "--repo", repository, "--ref", branch]
     if workflow == GATE5:
         args += ["-f", f"apply_protection={'true' if apply_gate5 else 'false'}"]
     run_cmd(*args)
 
 
-def list_runs(workflow: str, branch: str) -> list[WorkflowRun]:
+def list_runs(workflow: str, branch: str, repository: str) -> list[WorkflowRun]:
     raw = run_cmd(
         "gh", "run", "list",
-        "--repo", CURRENT_REPO,
+        "--repo", repository,
         "--workflow", workflow,
         "--branch", branch,
         "--limit", "30",
@@ -93,10 +93,10 @@ def list_runs(workflow: str, branch: str) -> list[WorkflowRun]:
     ]
 
 
-def wait_for_exact(workflow: str, branch: str, head_sha: str, timeout: int) -> WorkflowRun:
+def wait_for_exact(workflow: str, branch: str, repository: str, head_sha: str, timeout: int) -> WorkflowRun:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        matches = [x for x in list_runs(workflow, branch) if x.head_sha == head_sha]
+        matches = [x for x in list_runs(workflow, branch, repository) if x.head_sha == head_sha]
         if matches:
             latest = matches[0]
             print(
@@ -109,9 +109,6 @@ def wait_for_exact(workflow: str, branch: str, head_sha: str, timeout: int) -> W
     raise TimeoutError(
         f"timed out waiting for {workflow} on exact SHA {head_sha}"
     )
-
-
-CURRENT_REPO = "Pappu246/autonomous-ai-scout"
 
 
 def main() -> int:
@@ -134,9 +131,6 @@ def main() -> int:
     parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
 
-    global CURRENT_REPO
-    CURRENT_REPO = args.repository
-
     require_gh()
     head = remote_head(args.repository, args.branch)
     print(f"Verified remote head: {args.repository}:{args.branch} -> {head}")
@@ -146,7 +140,7 @@ def main() -> int:
 
     if args.check_only:
         for workflow in (GATE3, GATE4, GATE5):
-            matches = [x for x in list_runs(workflow, args.branch) if x.head_sha == head]
+            matches = [x for x in list_runs(workflow, args.branch, args.repository) if x.head_sha == head]
             print(f"{workflow}: exact-head-runs={len(matches)}")
             for item in matches[:3]:
                 print(
@@ -160,8 +154,8 @@ def main() -> int:
 
     if args.gate3:
         print("Dispatching Gate 3 on exact verified branch head…")
-        dispatch(GATE3, args.branch)
-        result = wait_for_exact(GATE3, args.branch, head, args.timeout)
+        dispatch(GATE3, args.branch, args.repository)
+        result = wait_for_exact(GATE3, args.branch, args.repository, head, args.timeout)
         if result.conclusion != "success":
             raise RuntimeError(
                 f"Gate 3 did not pass on exact SHA {head}: run {result.run_id} "
@@ -171,8 +165,8 @@ def main() -> int:
 
     if args.gate4:
         print("Dispatching Gate 4 on exact verified branch head…")
-        dispatch(GATE4, args.branch)
-        result = wait_for_exact(GATE4, args.branch, head, args.timeout)
+        dispatch(GATE4, args.branch, args.repository)
+        result = wait_for_exact(GATE4, args.branch, args.repository, head, args.timeout)
         if result.conclusion != "success":
             raise RuntimeError(
                 f"Gate 4 did not pass on exact SHA {head}: run {result.run_id} "
@@ -185,8 +179,8 @@ def main() -> int:
             print("Dispatching Gate 5 with explicit protection application authorization…")
         else:
             print("Dispatching Gate 5 in read/verify-only mode…")
-        dispatch(GATE5, args.branch, apply_gate5=args.apply_gate5)
-        result = wait_for_exact(GATE5, args.branch, head, args.timeout)
+        dispatch(GATE5, args.branch, args.repository, apply_gate5=args.apply_gate5)
+        result = wait_for_exact(GATE5, args.branch, args.repository, head, args.timeout)
         if result.conclusion != "success":
             raise RuntimeError(
                 f"Gate 5 did not pass on exact SHA {head}: run {result.run_id} "
