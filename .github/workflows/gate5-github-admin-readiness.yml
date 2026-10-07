@@ -3,11 +3,19 @@ name: Gate 5 — GitHub Administration Readiness
 # Authoritative exact-SHA admin gate on the feature-branch sentinel path.
 
 on:
+  workflow_dispatch:
+    inputs:
+      apply_protection:
+        description: 'Explicitly authorize main-branch protection application'
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
       - feat/mission-control-ui
     paths:
       - ".github/release-gates/execute.txt"
+      - ".github/workflows/gate3-coding-provider-smoke.yml"
 
 permissions:
   contents: read
@@ -55,6 +63,7 @@ jobs:
           python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"main-protection.json"))); print(json.dumps({"required_status_checks":d.get("required_status_checks") or {}, "required_approvals":(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count"), "enforce_admins":(d.get("enforce_admins") or {}).get("enabled"), "allow_force_pushes":(d.get("allow_force_pushes") or {}).get("enabled"), "allow_deletions":(d.get("allow_deletions") or {}).get("enabled")}, sort_keys=True))'
 
       - name: Apply hardened main-branch protection (apply_protection=true)
+        if: ${{ github.event_name == 'push' || inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
@@ -65,6 +74,7 @@ jobs:
           echo 'Main branch protection applied.'
 
       - name: Verify protection after update
+        if: ${{ github.event_name == 'push' || inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
