@@ -13,8 +13,6 @@ permissions:
 
 jobs:
   smoke:
-    # Push execution is limited to the owner-triggered sentinel path.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.actor == github.repository_owner) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
