@@ -69,7 +69,7 @@ jobs:
           echo 'Main branch protection applied.'
 
       - name: Verify protection after update
-        if: ${{ github.event_name == 'push' || inputs.apply_protection }}
+        if: ${{ inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
