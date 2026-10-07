@@ -7,16 +7,26 @@ This helper is intentionally conservative:
 - it waits for a run whose head SHA exactly matches the verified branch head;
 - Gate 5 protection application requires an explicit --apply-gate5 flag;
 - it never merges, tags, deploys, or publishes a release.
+
+Authentication:
+- Prefer SCOUT_GITHUB_ADMIN_TOKEN (or GITHUB_TOKEN/GH_TOKEN) via the GitHub
+  REST API. This avoids requiring the GitHub CLI on the agent host.
+- Fall back to an authenticated gh CLI when no token environment variable is
+  available.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,9 +55,79 @@ def run_cmd(*args: str, check: bool = True) -> str:
     return result.stdout.strip()
 
 
+def github_token() -> str | None:
+    for name in ("SCOUT_GITHUB_ADMIN_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None
+
+
+def github_api(
+    method: str,
+    path: str,
+    *,
+    repository: str,
+    body: dict[str, Any] | None = None,
+) -> Any:
+    token = github_token()
+    if not token:
+        raise RuntimeError(
+            "no GitHub token found; set SCOUT_GITHUB_ADMIN_TOKEN, GITHUB_TOKEN, "
+            "or GH_TOKEN, or authenticate the gh CLI"
+        )
+
+    url = f"https://api.github.com{path}"
+    payload = None
+    if body is not None:
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        method=method,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2026-03-10",
+            "User-Agent": "autonomous-ai-scout-release-finisher",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"GitHub API {method} {path} failed with HTTP {exc.code}: {detail}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"GitHub API connection failed: {exc.reason}") from exc
+
+
+def require_auth(repository: str) -> None:
+    token = github_token()
+    if token:
+        owner, name = repository.split("/", 1)
+        data = github_api("GET", f"/repos/{owner}/{name}", repository=repository)
+        permissions = data.get("permissions") or {}
+        if permissions and permissions.get("admin") is not True:
+            raise RuntimeError(
+                f"GitHub token can access {repository} but does not report admin permission"
+            )
+        return
+
+    require_gh()
+
+
 def require_gh() -> None:
     if not shutil.which("gh"):
-        raise RuntimeError("GitHub CLI (gh) is required for authoritative workflow dispatch.")
+        raise RuntimeError(
+            "GitHub authentication is unavailable: set SCOUT_GITHUB_ADMIN_TOKEN "
+            "(preferred) or authenticate the GitHub CLI with gh auth login"
+        )
     run_cmd("gh", "auth", "status")
 
 
@@ -65,6 +145,20 @@ def remote_head(repository: str, branch: str) -> str:
 
 
 def dispatch(workflow: str, branch: str, repository: str, *, apply_gate5: bool = False) -> None:
+    token = github_token()
+    if token:
+        owner, name = repository.split("/", 1)
+        inputs: dict[str, str] = {}
+        if workflow == GATE5:
+            inputs["apply_protection"] = "true" if apply_gate5 else "false"
+        github_api(
+            "POST",
+            f"/repos/{owner}/{name}/actions/workflows/{urllib.parse.quote(workflow, safe='')}/dispatches",
+            repository=repository,
+            body={"ref": branch, "inputs": inputs},
+        )
+        return
+
     args = ["gh", "workflow", "run", workflow, "--repo", repository, "--ref", branch]
     if workflow == GATE5:
         args += ["-f", f"apply_protection={'true' if apply_gate5 else 'false'}"]
@@ -72,19 +166,33 @@ def dispatch(workflow: str, branch: str, repository: str, *, apply_gate5: bool =
 
 
 def list_runs(workflow: str, branch: str, repository: str) -> list[WorkflowRun]:
-    raw = run_cmd(
-        "gh", "run", "list",
-        "--repo", repository,
-        "--workflow", workflow,
-        "--branch", branch,
-        "--limit", "30",
-        "--json", "databaseId,headSha,status,conclusion,event",
-    )
-    rows: list[dict[str, Any]] = json.loads(raw or "[]")
+    token = github_token()
+    if token:
+        owner, name = repository.split("/", 1)
+        query = urllib.parse.urlencode(
+            {"branch": branch, "event": "workflow_dispatch", "per_page": "30"}
+        )
+        data = github_api(
+            "GET",
+            f"/repos/{owner}/{name}/actions/workflows/{urllib.parse.quote(workflow, safe='')}/runs?{query}",
+            repository=repository,
+        )
+        rows: list[dict[str, Any]] = data.get("workflow_runs") or []
+    else:
+        raw = run_cmd(
+            "gh", "run", "list",
+            "--repo", repository,
+            "--workflow", workflow,
+            "--branch", branch,
+            "--limit", "30",
+            "--json", "databaseId,headSha,status,conclusion,event",
+        )
+        rows = json.loads(raw or "[]")
+
     return [
         WorkflowRun(
-            run_id=int(row["databaseId"]),
-            head_sha=str(row["headSha"]),
+            run_id=int(row["id"] if token else row["databaseId"]),
+            head_sha=str(row["head_sha"] if token else row["headSha"]),
             status=str(row["status"]),
             conclusion=row.get("conclusion"),
             event=str(row.get("event", "")),
@@ -131,7 +239,7 @@ def main() -> int:
     parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
 
-    require_gh()
+    require_auth(args.repository)
     head = remote_head(args.repository, args.branch)
     print(f"Verified remote head: {args.repository}:{args.branch} -> {head}")
 
