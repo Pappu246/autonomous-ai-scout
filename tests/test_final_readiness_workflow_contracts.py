@@ -20,6 +20,7 @@ def test_gate4_requires_real_read_only_accounts():
     assert 'SCOUT_GMAIL_ACCESS_TOKEN' in text
     assert 'SCOUT_CALENDAR_ACCESS_TOKEN' in text
     assert 'live_gate4_smoke.py' in text
+    assert "github.ref == 'refs/heads/main'" in text
 
 
 def test_gate5_requires_admin_credential_and_explicit_apply():
@@ -28,6 +29,9 @@ def test_gate5_requires_admin_credential_and_explicit_apply():
     assert 'apply_protection' in text
     assert 'required_approving_review_count' in text
     assert 'required_conversation_resolution' in text
+    assert "github.ref == 'refs/heads/main'" in text
+    assert '  push:' not in text
+    assert 'github.event_name == \'push\'' not in text
 
 
 def test_gate6_is_explicit_and_green_sha_gated():
@@ -39,3 +43,14 @@ def test_gate6_is_explicit_and_green_sha_gated():
     assert "x.get('name')=='test'" in text
 
     assert 'gh release create' in text
+
+def test_ci_does_not_dispatch_secret_bearing_gates_from_pull_requests():
+    text = Path('.github/workflows/ci.yml').read_text(encoding='utf-8')
+    assert 'dispatch_external_gates:' not in text
+    assert 'SCOUT_GMAIL_ACCESS_TOKEN' not in text
+    assert 'SCOUT_GITHUB_ADMIN_TOKEN' not in text
+
+
+def test_release_finisher_defaults_to_trusted_main():
+    text = Path('tools/ai_finish_release.py').read_text(encoding='utf-8')
+    assert 'parser.add_argument("--branch", default="main")' in text
