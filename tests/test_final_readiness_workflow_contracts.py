@@ -31,7 +31,7 @@ def test_gate5_requires_admin_credential_and_explicit_apply():
     assert 'required_conversation_resolution' in text
     assert "github.ref == 'refs/heads/main'" in text
     assert '  push:' not in text
-    assert 'github.event_name == \'push\'' not in text
+    assert "github.event_name == 'push'" not in text
 
 
 def test_gate6_is_explicit_and_green_sha_gated():
