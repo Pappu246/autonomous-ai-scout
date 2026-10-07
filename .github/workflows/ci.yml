@@ -31,3 +31,36 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -e . --no-deps && pip install -r requirements.lock
       - name: Test
         run: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+  dispatch_external_gates:
+    needs: test
+    if: >-
+      ${{ github.event_name == 'push'
+          && github.ref == 'refs/heads/feat/mission-control-ui'
+          && github.actor == github.repository_owner
+          && contains(github.event.head_commit.message, 'AI_RELEASE_GATES:DISPATCH') }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch authoritative Gate 4 and Gate 5 on this exact branch head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPO}/actions/workflows"
+          curl -fsS -X POST "${api}/gate4-external-connector-smoke.yml/dispatches" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"${REF}\"}"
+          curl -fsS -X POST "${api}/gate5-github-admin-readiness.yml/dispatches" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"${REF}\",\"inputs\":{\"apply_protection\":\"true\"}}"
+          echo "Dispatched Gate 4 and Gate 5 for ref=${REF}."
