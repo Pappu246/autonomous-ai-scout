@@ -4,7 +4,7 @@
 
 - Repository: `Pappu246/autonomous-ai-scout`
 - Working branch: `feat/mission-control-ui`
-- Current verified code head: `2b016e236a6f42fde26a041d00caf5e087a2e467`
+- Current verified code head: `6ab3a91e58c1872fd720c03f68097726dc988af7`
 - Base `main`: `5434114b33a7b00af053a7c43f9d7181d767b8fb`
 - PR: #271
 - PR state: open, draft, mergeable
@@ -12,9 +12,9 @@
 
 ## Verified evidence
 
-- CI run 3352 / 37572994452: PASS
-- Full test suite: 2433 passed, 6 skipped
-- Gate 3 remains PASS from the previously verified exact candidate; rerun is not required for this helper-only change unless the release process explicitly requires a fresh Gate 3 run
+- CI run 3358 / 37573720519: PASS
+- Full test suite: 2433 passed, 6 skipped on the helper/docs candidate
+- Gate 3 run 68 / 37573717625: PASS on the current exact SHA
 - Gate 3 used the real free Ollama provider path, network-isolated sandbox prerequisite, OpenAI-compatible endpoint probe, bounded coding-provider smoke, diff normalization boundary, and approval boundary.
 
 ## Remaining work
