@@ -42,7 +42,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Dispatch authoritative Gate 4 and Gate 5 on this exact branch head
+      - name: Dispatch authoritative Gate 4 on this exact branch head
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -51,39 +51,16 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/${REPO}/actions/workflows"
-          message="$(curl -fsS \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "https://api.github.com/repos/${REPO}/commits/${SHA}" | python -c 'import json,sys; print(json.load(sys.stdin)["commit"]["message"])')"
+          message="$(curl -fsS -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2026-03-10" "https://api.github.com/repos/${REPO}/commits/${SHA}" | python -c 'import json,sys; print(json.load(sys.stdin)["commit"]["message"])')"
           if ! printf '%s\n' "${message}" | grep -q 'AI_RELEASE_GATES:DISPATCH'; then
-            echo "No exact release-dispatch marker on ${SHA}; leaving external gates untouched."
+            echo "No exact release-dispatch marker on ${SHA}; leaving external Gate 4 untouched."
             exit 0
           fi
-          gate4_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/gate4-external-connector-smoke.yml/dispatches" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            -H "Content-Type: application/json" \
-            -d "{\"ref\":\"${REF}\"}")"
+          gate4_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/gate4-external-connector-smoke.yml/dispatches"             -H "Accept: application/vnd.github+json"             -H "Authorization: Bearer ${GH_TOKEN}"             -H "X-GitHub-Api-Version: 2026-03-10"             -H "Content-Type: application/json"             -d "{\"ref\":\"${REF}\"}")"
           printf '%s\n' "${gate4_response}"
-          gate5_meta="$(curl -fsS \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "${api}/gate5-github-admin-readiness.yml")"
-          printf '%s\n' "${gate5_meta}" | python -c 'import json,sys; d=json.load(sys.stdin); print("Gate5 workflow:", d.get("id"), d.get("path"), d.get("state"))'
-          gate5_id="$(printf '%s\n' "${gate5_meta}" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-          gate5_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/${gate5_id}/dispatches" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            -H "Content-Type: application/json" \
-            -d "{\"ref\":\"${REF}\"}")"
-          printf '%s\n' "${gate5_response}"
-          gate5_status="$(printf '%s\n' "${gate5_response}" | tail -n 1)"
-          if [ "${gate5_status}" != "204" ] && [ "${gate5_status}" != "200" ]; then
-            echo "Gate 5 dispatch failed with HTTP ${gate5_status}."
+          gate4_status="$(printf '%s\n' "${gate4_response}" | tail -n 1)"
+          if [ "${gate4_status}" != "204" ] && [ "${gate4_status}" != "200" ]; then
+            echo "Gate 4 dispatch failed with HTTP ${gate4_status}."
             exit 1
           fi
-          echo "Dispatched Gate 4 and Gate 5 for ref=${REF}."
+          echo "Dispatched Gate 4 for ref=${REF}. Gate 5 runs from its guarded push sentinel workflow."

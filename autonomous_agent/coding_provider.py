@@ -1,3 +1,4 @@
+# Final exact-SHA release-gate marker; runtime behavior unchanged.
 # Final release-gate execution marker; no runtime behavior change.
 # Final exact-SHA gate dispatch marker; runtime behavior unchanged.
 # AI release-gate trigger marker: guarded Gate 3/4/5 execution only.

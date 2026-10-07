@@ -1,7 +1,8 @@
 name: Gate 5 — GitHub Administration Readiness
+# apply_protection=true is the guarded authoritative Gate 5 execution mode.
+# Authoritative exact-SHA admin gate on the feature-branch sentinel path.
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - feat/mission-control-ui
@@ -14,7 +15,57 @@ permissions:
 jobs:
   admin:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Gate 5 trigger sanity
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Require repository-admin token
+        env:
+          ADMIN_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
         run: |
-          echo "Gate 5 trigger accepted for exact SHA ${{ github.sha }}"
+          set -euo pipefail
+          test -n "${ADMIN_TOKEN}" || {
+            echo 'SCOUT_GITHUB_ADMIN_TOKEN is required with repository Administration permission.'
+            exit 1
+          }
+
+      - name: Verify current branch protection
+        env:
+          GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/main-protection.json"
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"main-protection.json"))); print(json.dumps({"required_status_checks":d.get("required_status_checks") or {}, "required_approvals":(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count"), "enforce_admins":(d.get("enforce_admins") or {}).get("enabled"), "allow_force_pushes":(d.get("allow_force_pushes") or {}).get("enabled"), "allow_deletions":(d.get("allow_deletions") or {}).get("enabled")}, sort_keys=True))'
+
+      - name: Apply hardened main-branch protection (apply_protection=true)
+        env:
+          GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          printf '%s' '{"required_status_checks":{"strict":true,"contexts":["test"],"checks":[]},"enforce_admins":true,"required_pull_request_reviews":{"dismiss_stale_reviews":true,"require_code_owner_reviews":false,"required_approving_review_count":1,"require_last_push_approval":true},"restrictions":null,"required_linear_history":false,"allow_force_pushes":false,"allow_deletions":false,"block_creations":false,"required_conversation_resolution":true,"lock_branch":false}' > "${RUNNER_TEMP}/protection.json"
+          gh api --method PUT "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             --input "${RUNNER_TEMP}/protection.json" > /dev/null
+          echo 'Main branch protection applied.'
+
+      - name: Verify protection after update
+        env:
+          GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"verified.json"))); c=(d.get("required_status_checks") or {}).get("contexts") or []; r=(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count",0); assert "test" in c,c; assert r >= 1,r; assert (d.get("enforce_admins") or {}).get("enabled") is True; assert (d.get("allow_force_pushes") or {}).get("enabled") is False; assert (d.get("allow_deletions") or {}).get("enabled") is False; print("Gate 5 main-branch protection verified.")'
+
+      - name: Inspect rulesets
+        env:
+          GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/rulesets"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"rulesets.json"))); print("ruleset_count=", len(d))'
