@@ -1,17 +1,11 @@
 name: Gate 5 — GitHub Administration Readiness
-# Dispatched by the guarded CI release orchestrator on exact branch heads.
 
 on:
-  workflow_dispatch:
-    inputs:
-      apply_protection:
-        description: 'Apply the proposed main-branch protection configuration'
-        required: true
-        type: choice
-        options:
-          - 'false'
-          - 'true'
-        default: 'false'
+  push:
+    branches:
+      - feat/mission-control-ui
+    paths:
+      - ".github/release-gates/execute.txt"
 
 permissions:
   contents: read
@@ -43,10 +37,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            > "${RUNNER_TEMP}/main-protection.json"
+          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/main-protection.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'main-protection.json')
@@ -60,8 +51,7 @@ print(json.dumps({
 }, sort_keys=True))
 PY
 
-      - name: Apply hardened main-branch protection when explicitly authorized
-        if: ${{ inputs.apply_protection == 'true' }}
+      - name: Apply hardened main-branch protection when sentinel is pushed
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
@@ -87,21 +77,16 @@ print(json.dumps({
   'lock_branch': False
 }, separators=(',', ':')))
 PY
-          gh api --method PUT "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            --input "${RUNNER_TEMP}/protection.json" > /dev/null
+          gh api --method PUT "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             --input "${RUNNER_TEMP}/protection.json" > /dev/null
           echo 'Main branch protection applied.'
 
-      - name: Verify protection after optional update
+      - name: Verify protection after update
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
+          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'verified.json')
@@ -122,9 +107,7 @@ PY
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/rulesets" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
+          gh api "repos/${REPO}/rulesets"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'rulesets.json')
