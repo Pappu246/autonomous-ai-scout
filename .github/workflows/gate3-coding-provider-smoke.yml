@@ -1,4 +1,13 @@
+# Exact-SHA live smoke remains authoritative after the token-aware release-finisher update.
 name: Gate 3 — Coding Provider Smoke (Authoritative)
+# Authoritative push trigger retained for exact-SHA live smoke evidence.
+# Final exact-SHA Gate 3 trigger retained after the compound-planner fix.
+# Final handoff exact-SHA Gate 3 retrigger.
+# Final AI handoff exact-SHA trigger.
+# Final AI finisher syntax-fix exact-SHA trigger.
+# Final exact-SHA trigger after release-helper test-loader fix.
+# Release-gate helper compatibility hardening trigger.
+# Final exact-SHA contract regression trigger after release-finisher tests.
 
 on:
   workflow_dispatch:
@@ -50,8 +59,10 @@ on:
 
 
 concurrency:
-  group: autonomous-ai-scout-gate3-live
-  cancel-in-progress: true
+  # Each exact-SHA live smoke gets its own evidence lane. This prevents a
+  # previously hung Ollama job from blocking the next verified SHA.
+  group: autonomous-ai-scout-gate3-live-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -60,7 +71,7 @@ jobs:
   local_ollama:
     name: Live free provider — Ollama
     if: ${{ github.event_name == 'push' || inputs.mode == 'local_ollama' }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout exact workflow head
@@ -84,6 +95,19 @@ jobs:
           pip install -e . --no-deps
           pip install -r requirements.lock
 
+      - name: Verify network-isolated sandbox prerequisite
+        run: |
+          set -euo pipefail
+          command -v unshare >/dev/null
+          if unshare --user --map-root-user --net --mount-proc -- true >/dev/null 2>&1; then
+            echo "Network-isolated subprocess sandbox available through unprivileged user namespace."
+          elif command -v sudo >/dev/null && sudo -n unshare --net --mount-proc -- true >/dev/null 2>&1; then
+            echo "Network-isolated subprocess sandbox available through passwordless sudo."
+          else
+            echo "No supported network-isolation mechanism is available on this runner."
+            exit 1
+          fi
+
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
 
@@ -105,17 +129,32 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],"stream":False}).encode()
-          req=urllib.request.Request(
-              "http://127.0.0.1:11434/v1/chat/completions",
-              data=body,
-              headers={"Authorization":"Bearer "+os.environ["OLLAMA_API_KEY"],"Content-Type":"application/json"},
-              method="POST")
-          with urllib.request.urlopen(req, timeout=180) as response:
-              data=json.load(response)
-          assert data.get("choices"), "no choices"
-          assert data["choices"][0]["message"].get("content"), "empty completion"
-          print("Ollama OpenAI-compatible endpoint returned a completion.")
+          body=json.dumps({
+              "model":"qwen2.5-coder:3b",
+              "messages":[{"role":"user","content":"Reply with JSON only: {\"ok\":true}"}],
+              "stream":False,
+              "max_tokens":16,
+          }).encode()
+          last_error = None
+          for attempt in range(1, 4):
+              req=urllib.request.Request(
+                  "http://127.0.0.1:11434/v1/chat/completions",
+                  data=body,
+                  headers={"Authorization":"Bearer "+os.environ["OLLAMA_API_KEY"],"Content-Type":"application/json"},
+                  method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      data=json.load(response)
+                  assert data.get("choices"), "no choices"
+                  assert data["choices"][0]["message"].get("content"), "empty completion"
+                  print(f"Ollama OpenAI-compatible endpoint returned a completion on attempt {attempt}.")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  if attempt == 3:
+                      raise
+                  print(f"OpenAI-compatible probe attempt {attempt} failed: {exc}; retrying.")
+
           PY
 
       - name: Run bounded coding-provider smoke
@@ -132,9 +171,10 @@ jobs:
           CODING_PROVIDER_1_STRUCTURED_OUTPUT: "true"
           CODING_PROVIDER_1_TEMPERATURE: "0"
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          SCOUT_GATE3_SMOKE: "1"
         run: |
           set -euo pipefail
-          autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Edit only tools/GATE3_SMOKE_TARGET.md. Insert exactly one plain-text line at the end saying: Gate 3 primary smoke marker. Keep every other line unchanged. Return JSON only. Make unified_diff the primary artifact: emit a real git-style unified diff for tools/GATE3_SMOKE_TARGET.md with an actual ---/+++ header and @@ hunk. file_contents may be {} because the provider adapter derives it from the bounded diff. Return a concise summary and an empty test_commands array. Do not touch any other path and do not return prose outside the JSON object."             --affected tools/GATE3_SMOKE_TARGET.md             --base-branch main             --expected-head-sha "${{ github.sha }}"             --timeout 120             --max-revisions 1
+          autonomous-scout-code             --root .             --project "${{ inputs.project || 'Pappu246/autonomous-ai-scout' }}"             --severity medium             --title "Gate 3 local coding provider smoke"             --detail "Prove a real free coding model can produce a reviewable proposal through the bounded coding pipeline."             --recommendation "Edit only tools/GATE3_SMOKE_TARGET.md. Insert exactly one plain-text line at the end saying: Gate 3 primary smoke marker. Keep every other line unchanged. Return JSON only. Make unified_diff the primary artifact: emit a real git-style unified diff for tools/GATE3_SMOKE_TARGET.md with an actual ---/+++ header and @@ hunk. file_contents is REQUIRED and MUST contain the complete exact final UTF-8 contents for tools/GATE3_SMOKE_TARGET.md; never return an empty file_contents object. Return a concise summary and an empty test_commands array. Do not touch any other path and do not return prose outside the JSON object."             --affected tools/GATE3_SMOKE_TARGET.md             --base-branch main             --expected-head-sha "${{ github.sha }}"             --timeout 120             --max-revisions 1
 
 
       - name: Confirm bounded diff normalization boundary

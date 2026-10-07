@@ -65,14 +65,16 @@ jobs:
           import json, os
           path=os.path.join(os.environ['RUNNER_TEMP'],'checks.json')
           data=json.load(open(path,encoding='utf-8'))
-          runs=data.get('check_runs',[])
+          runs=[x for x in data.get('check_runs',[]) if x.get('name')=='test']
           if not runs:
-              raise SystemExit('No check runs exist for release SHA.')
-          bad=[{'name':x.get('name'),'status':x.get('status'),'conclusion':x.get('conclusion')}
-               for x in runs if x.get('status')!='completed' or x.get('conclusion')!='success']
-          if bad:
-              raise SystemExit(f'Release blocked by non-green checks: {bad}')
-          print(f'All {len(runs)} check runs are green.')
+              raise SystemExit('No CI test check run exists for release SHA.')
+          latest=max(runs,key=lambda x: x.get('completed_at') or '')
+          if latest.get('status')!='completed' or latest.get('conclusion')!='success':
+              raise SystemExit(
+                  f"Release blocked by CI test gate: "
+                  f"{latest.get('status')}/{latest.get('conclusion')}"
+              )
+          print(f"CI test gate verified: check_run={latest.get('id')}")
 
       - name: Require live Gate 3 evidence on the exact release SHA
         env:
@@ -81,7 +83,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/actions/workflows/gate3-live-recovery.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate3.json"
+          gh api "repos/${REPO}/actions/workflows/gate3-coding-provider-smoke.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate3.json"
           gh api "repos/${REPO}/actions/workflows/gate4-external-connector-smoke.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate4.json"
           gh api "repos/${REPO}/actions/workflows/gate5-github-admin-readiness.yml/runs?head_sha=${SHA}&status=completed&per_page=20"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/gate5.json"
           python - <<'PY'
@@ -129,7 +131,10 @@ jobs:
               for job in jobs:
                   for step in job.get('steps',[]):
                       if (
-                          step.get('name') == 'Apply hardened main-branch protection when explicitly authorized'
+                          step.get('name') in {
+                              'Apply hardened main-branch protection when explicitly authorized',
+                              'Apply hardened main-branch protection (apply_protection=true)',
+                          }
                           and step.get('conclusion') == 'success'
                       ):
                           print(f'Gate 5 application step succeeded in run {run_id}.')

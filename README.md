@@ -110,6 +110,225 @@ Full design, guarantees and limitations:
 
 
 
+## Mission Control — how to use it
+
+The next-level runtime is currently delivered through the existing local runtime server. The Mission Control page is the operator UI; the Python runtime remains the execution authority.
+
+### Start Mission Control
+
+From the repository root:
+
+~~~bash
+python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+
+
+
+### Compound repository health tasks
+
+Mission Control preserves multiple explicit verification requests in one bounded plan. For example:
+
+~~~text
+inspect the repository and summarize current test failures; run lint
+~~~
+
+This selects repository inspection plus the requested test/lint verification. A plain `run tests` request keeps the existing test plan, while change requests such as `fix the failing tests` still cross the normal approval boundary instead of being reclassified as read-only verification.
+
+### Workspace / repository scope
+
+Mission Control never needs to inherit an arbitrary process working directory. Set `SCOUT_WORKSPACE_ROOT` to the exact repository or workspace the agent is allowed to inspect and test:
+
+~~~text
+SCOUT_WORKSPACE_ROOT=/path/to/the/repository
+python -m autonomous_agent.server --host 127.0.0.1 --port 8000
+~~~
+
+The server also accepts `--root /path/to/the/repository`. When neither is supplied, the source checkout root is used instead of the caller's desktop/home CWD. `/run` and Mission Control use the same resolved root, and approval/audit state is stored under that root.
+
+On Windows, the built-in test sandbox still requires an isolated subprocess mechanism. When network isolation is unavailable, `tests.run` fails closed and reports that reason rather than pretending the tests ran. This is intentional safety behavior; the runtime does not silently downgrade to an unsandboxed test subprocess.
+
+~~~
+
+Then open:
+
+~~~text
+http://127.0.0.1:8000/
+~~~
+
+The page provides:
+
+- **Start Mission** — enter a natural-language goal.
+- **Recent missions** — state, specialist role, attempts and mission ID.
+- **Memory** — bounded mission history recalled for the goal.
+- **Timeline** — execution, verification, approval and provider-routing evidence.
+- **Resume** — requeue failed/recoverable work while preserving already-verified DAG steps.
+- **Cancel** — cancel a queued/recoverable mission before execution.
+- **Approval Inbox** — approve or reject actions that have meaningful side effects.
+
+The UI refreshes mission and approval state automatically. It does not contain a second authorization system; it talks to the same durable mission, queue, approval and audit stores used by the runtime.
+
+### Give it a task
+
+Use normal language. Examples:
+
+~~~text
+inspect the repository and summarize the current test failures
+~~~
+
+~~~text
+research the latest information about this project and compare the sources
+~~~
+
+~~~text
+open the website and extract the pricing information
+~~~
+
+~~~text
+organize today's downloaded PDFs
+~~~
+
+~~~text
+use the computer to complete this task
+~~~
+
+The runtime first classifies the intent, selects a bounded specialist profile, plans the required capabilities, evaluates authorization/risk, and only then queues or executes the mission.
+
+### What happens after submission
+
+A normal read/analysis mission follows:
+
+~~~text
+Natural-language goal
+    ↓
+Intent + specialist selection
+    ↓
+Bounded plan
+    ↓
+Capability authorization
+    ↓
+Durable mission queue
+    ↓
+Worker execution
+    ↓
+Observe result
+    ↓
+Verify result
+    ↓
+Write audit/evidence
+    ↓
+VERIFIED / FAILED / BLOCKED / RECOVERY_REQUIRED
+~~~
+
+A side-effecting mission is different:
+
+~~~text
+Goal
+  ↓
+Plan preview
+  ↓
+requires_approval
+  ↓
+Approval Inbox
+  ↓
+Human approves
+  ↓
+Durable approved mission
+  ↓
+Bounded execution
+  ↓
+Verification + audit
+~~~
+
+Approval does **not** mean merge or deployment. Those remain outside the mission runtime unless a separate, explicitly authorized worker path is used.
+
+### Computer-use tasks
+
+Computer control is available only through the bounded computer capability. A direct CLI run looks like:
+
+~~~bash
+autonomous-scout-task --computer --approve "control the computer and complete this task"
+~~~
+
+Useful bounds:
+
+~~~text
+--computer       enable bounded Windows computer control
+--approve        explicitly approve state-changing actions for this run
+--max-turns N    cap native computer-use model turns
+--action-budget N
+                 cap bounded desktop actions
+~~~
+
+The computer result is not considered successful merely because a model produced text. The runtime records bounded machine-readable evidence (state, verification flag, turns, actions, reason) and uses the canonical verification result.
+
+### Useful runtime/API surfaces
+
+~~~text
+GET  /health
+GET  /
+GET  /api/missions
+POST /api/missions
+GET  /api/missions/<mission_id>
+GET  /api/missions/<mission_id>/memory
+GET  /api/missions/<mission_id>/timeline
+POST /api/missions/<mission_id>/cancel
+POST /api/missions/<mission_id>/resume
+GET  /api/approvals
+POST /api/approvals/<approval_id>/approve
+POST /api/approvals/<approval_id>/reject
+~~~
+
+Programmatic task submission:
+
+~~~bash
+curl -X POST http://127.0.0.1:8000/api/missions \
+  -H "Content-Type: application/json" \
+  -d '{"task":"inspect the repository and summarize the current test failures"}'
+~~~
+
+PowerShell:
+
+~~~powershell
+Invoke-RestMethod `
+  -Uri http://127.0.0.1:8000/api/missions `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"task":"inspect the repository and summarize the current test failures"}'
+~~~
+
+The HTTP interface returns a mission record with its mission ID, execution ID, state, specialist role and current reason. Poll `/api/missions` or the individual mission endpoint while the background worker progresses.
+
+### Mission states you will see
+
+| State | Meaning |
+|---|---|
+| `pending` | accepted and waiting for the worker |
+| `running` | currently executing |
+| `requires_approval` | blocked until a human approves the proposed side effect |
+| `verified` | execution completed and verification succeeded |
+| `failed` | execution failed; inspect Timeline and use Resume when allowed |
+| `recovery_required` | external outcome is uncertain and requires reconciliation/recovery |
+| `blocked` | the requested goal cannot safely execute with the currently available capabilities |
+| `cancelled` | queued mission was cancelled before execution |
+| `rejected` | a pending approval was explicitly rejected |
+
+### What it can currently do
+
+The current registered domains include filesystem/workspace operations, bounded shell inspection, public web research, browser interaction, Gmail/Calendar read flows, GitHub inspection, testing, bounded Windows computer control, application/document adapters and approval-gated mutation paths.
+
+The system is deliberately **fail-closed**. If the required backend, credential or capability is unavailable, the mission is blocked instead of pretending that the task was completed.
+
+### Where the result is visible
+
+For a local run, the primary operator view is:
+
+~~~text
+http://127.0.0.1:8000/
+~~~
+
+Mission state is also visible through `/api/missions`, detailed evidence through each mission's `/timeline`, and recalled context through `/memory`.
+
+The persistent records are kept under the configured `state/` directory, including mission metadata, queue state, approval state, execution audit and runtime journal. Secrets are not written into these mission records.
+
 ## Local runtime server security
 
 The optional local runtime server listens on 127.0.0.1 by default. Loopback-only binds do not require a request token.
@@ -842,3 +1061,79 @@ implicit fallback.
 ## License
 
 See the repository for the current license and project terms.
+
+## Next-level build contract
+
+The next stage continues this architecture rather than replacing it.
+
+The product goal is a practical autonomous-agent platform with Mission Control, durable natural-language missions, specialist agent roles, persistent mission context, always-on scheduling/recovery, expanded Windows computer use, multi-model role routing, and an operator timeline/approval surface.
+
+### Build order
+
+1. Mission Control UI + durable mission lifecycle.
+2. Long-running mission orchestration over the existing planner/DAG/runtime.
+3. Specialist roles for research, coding, browser, computer, documents, and communication.
+4. Mission-linked persistent memory and context.
+5. Always-on scheduling, recovery, and bounded goal loops.
+6. Reliable multi-step Windows computer use.
+7. Multi-model role-based provider routing.
+8. Operator timeline, approvals, evidence, cancellation, and recovery UI.
+9. Finish live external evidence and final release admission.
+
+### Non-negotiable constraints
+
+- Continue from the current repository; do not rebuild from scratch.
+- Reuse the existing planner, tool registry, policy, sandbox, audit, queue, memory, and verification layers.
+- Keep consequential actions behind the existing approval boundaries.
+- Never claim a capability is available when its backend is unavailable.
+- Never report success without verification evidence.
+- Keep main unchanged until the required release evidence is complete.
+
+### Mission Control
+
+The local runtime now exposes a Mission Control surface at:
+
+http://127.0.0.1:8000/
+
+It accepts a natural-language mission, persists it in the durable queue, executes it through the canonical runtime worker, and exposes mission status through /api/missions. It does not introduce a second authorization system.
+
+
+### Specialist provider routing
+
+Provider routes can declare the specialist roles they are eligible to serve without storing credentials in Scout state:
+
+```text
+CODING_PROVIDER_1_NAME=hybrid
+CODING_PROVIDER_1_ENDPOINT=https://...
+CODING_PROVIDER_1_MODEL=model-name
+CODING_PROVIDER_1_API_KEY_ENV=PROVIDER_API_KEY
+CODING_PROVIDER_1_COST_CLASS=free
+CODING_PROVIDER_1_CAPABILITIES=coding,research,computer
+```
+
+The role router selects only configured, eligible routes in deterministic priority order. Unknown or unavailable roles fail closed, and paid providers are never selected unless paid routing is explicitly enabled.
+
+Mission Control also exposes per-mission execution evidence through:
+
+`GET /api/missions/<mission_id>/timeline`
+
+The timeline is assembled from bounded audit evidence plus approval state and does not expose raw credentials or approval tokens.
+
+
+### AI release finisher
+
+The repository includes `tools/ai_finish_release.py` for an AI/operator environment. It verifies the remote branch head before dispatching gates and waits for an authoritative run on that exact SHA. It prefers a GitHub token from `SCOUT_GITHUB_ADMIN_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` and calls the GitHub REST API directly, so the AI runtime does not require the `gh` CLI; it falls back to an authenticated `gh` CLI when no token is present.
+
+Check exact-head evidence without changing anything:
+
+~~~text
+python tools/ai_finish_release.py --check-only
+~~~
+
+Run the remaining authoritative gates explicitly:
+
+~~~text
+python tools/ai_finish_release.py --gate3 --gate4 --gate5 --apply-gate5
+~~~
+
+Gate 5 protection application requires the explicit `--apply-gate5` flag. The helper never merges, tags, deploys, or publishes a release.

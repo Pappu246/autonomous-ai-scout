@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 import urllib.error
 import urllib.request
@@ -9,7 +10,7 @@ import urllib.request
 import pytest
 
 from autonomous_agent.execution_engine import ExecutionState
-from autonomous_agent.server import RuntimeHandler, serve
+from autonomous_agent.server import RuntimeHandler, _resolve_workspace_root, serve
 from http.server import ThreadingHTTPServer
 
 
@@ -28,7 +29,9 @@ def test_health_endpoint_reports_runtime_status():
         with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/health", timeout=3) as response:
             payload = json.loads(response.read().decode("utf-8"))
         assert response.status == 200
-        assert payload == {"service": "autonomous-ai-scout", "status": "ok"}
+        assert payload["service"] == "autonomous-ai-scout"
+        assert payload["status"] == "ok"
+        assert payload["workspace_root"] == str(Path(__file__).resolve().parents[1])
     finally:
         server.shutdown()
         server.server_close()
@@ -130,6 +133,47 @@ def test_run_endpoint_rejects_oversized_task(monkeypatch):
             urllib.request.urlopen(request, timeout=3)
         assert exc_info.value.code == 400
         assert called == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_workspace_root_prefers_explicit_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("SCOUT_WORKSPACE_ROOT", str(tmp_path))
+    assert _resolve_workspace_root() == tmp_path.resolve()
+
+
+def test_workspace_root_rejects_missing_directory(tmp_path):
+    missing = tmp_path / "missing"
+    with pytest.raises(RuntimeError, match="not a directory"):
+        _resolve_workspace_root(missing)
+
+
+def test_run_endpoint_uses_configured_workspace_root(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run_task(task, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(
+            state=ExecutionState.VERIFIED,
+            reason="ok",
+            attempts=1,
+            results=(),
+            audit_path=str(tmp_path / "state" / "runtime_execution.jsonl"),
+        )
+
+    monkeypatch.setattr("autonomous_agent.server.run_task", fake_run_task)
+    server, thread = _start_server()
+    server.workspace_root = tmp_path
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/run?task=inspect"
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            assert response.status == 200
+        assert seen["root"] == tmp_path
+        assert str(seen["audit_path"]).startswith(str(tmp_path))
     finally:
         server.shutdown()
         server.server_close()

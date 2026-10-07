@@ -1,0 +1,10 @@
+OWNER-TRIGGERED RELEASE-GATE EXECUTION
+This sentinel intentionally changes only when the repository owner explicitly triggers the guarded Gate 4 and Gate 5 smoke workflows.
+Owner-triggered final gate verification sentinel refreshed.
+Exact-SHA final verification trigger.
+Dispatcher concurrency fix trigger.
+Gate 5 sentinel execution requested.
+Gate 5 parser sanity trigger.
+Final authoritative Gate 5 protection execution sentinel.
+Gate 5 unprotected-main handling fix sentinel.
+Gate 5 protection payload fix sentinel.

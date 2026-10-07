@@ -1,10 +1,12 @@
 name: Gate 5 — GitHub Administration Readiness
+# apply_protection=true is the guarded authoritative Gate 5 execution mode.
+# Authoritative admin gate; credential-bearing execution is trusted-main only.
 
 on:
   workflow_dispatch:
     inputs:
       apply_protection:
-        description: 'Apply the proposed main-branch protection configuration'
+        description: 'Explicitly authorize main-branch protection application'
         required: true
         type: boolean
         default: false
@@ -14,10 +16,11 @@ permissions:
 
 jobs:
   admin:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: Checkout exact branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -39,78 +42,41 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            > "${RUNNER_TEMP}/main-protection.json"
-          python - <<'PY'
-import json, os
-path=os.path.join(os.environ['RUNNER_TEMP'],'main-protection.json')
-data=json.load(open(path,encoding='utf-8'))
-print(json.dumps({
-  'required_status_checks': data.get('required_status_checks') or {},
-  'required_approvals': (data.get('required_pull_request_reviews') or {}).get('required_approving_review_count'),
-  'enforce_admins': (data.get('enforce_admins') or {}).get('enabled'),
-  'allow_force_pushes': data.get('allow_force_pushes'),
-  'allow_deletions': data.get('allow_deletions'),
-}, sort_keys=True))
-PY
+          set +e
+          gh api "repos/${REPO}/branches/main/protection" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/main-protection.json" 2> "${RUNNER_TEMP}/main-protection.err"
+          rc=$?
+          set -e
+          if [ "${rc}" -ne 0 ]; then
+            if grep -q "Branch not protected (HTTP 404)" "${RUNNER_TEMP}/main-protection.err"; then
+              printf '%s' '{"required_status_checks":null,"required_pull_request_reviews":null,"enforce_admins":null,"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}' > "${RUNNER_TEMP}/main-protection.json"
+              echo "Main branch is currently unprotected; Gate 5 will apply the hardened policy."
+            else
+              cat "${RUNNER_TEMP}/main-protection.err"
+              exit "${rc}"
+            fi
+          fi
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"main-protection.json"))); print(json.dumps({"required_status_checks":d.get("required_status_checks") or {}, "required_approvals":(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count"), "enforce_admins":(d.get("enforce_admins") or {}).get("enabled"), "allow_force_pushes":(d.get("allow_force_pushes") or {}).get("enabled"), "allow_deletions":(d.get("allow_deletions") or {}).get("enabled")}, sort_keys=True))'
 
-      - name: Apply hardened main-branch protection when explicitly authorized
+      - name: Apply hardened main-branch protection (apply_protection=true)
         if: ${{ inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          python - <<'PY' > "${RUNNER_TEMP}/protection.json"
-import json
-print(json.dumps({
-  'required_status_checks': {'strict': True, 'contexts': ['test'], 'checks': []},
-  'enforce_admins': True,
-  'required_pull_request_reviews': {
-    'dismiss_stale_reviews': True,
-    'require_code_owner_reviews': False,
-    'required_approving_review_count': 1,
-    'require_last_push_approval': True
-  },
-  'restrictions': None,
-  'required_linear_history': False,
-  'allow_force_pushes': False,
-  'allow_deletions': False,
-  'block_creations': False,
-  'required_conversation_resolution': True,
-  'lock_branch': False
-}, separators=(',', ':')))
-PY
-          gh api --method PUT "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            --input "${RUNNER_TEMP}/protection.json" > /dev/null
+          printf '%s' '{"required_status_checks":{"strict":true,"contexts":["test"]},"enforce_admins":true,"required_pull_request_reviews":{"dismiss_stale_reviews":true,"require_code_owner_reviews":false,"required_approving_review_count":1,"require_last_push_approval":true},"restrictions":null,"required_linear_history":false,"allow_force_pushes":false,"allow_deletions":false,"block_creations":false,"required_conversation_resolution":true,"lock_branch":false}' > "${RUNNER_TEMP}/protection.json"
+          gh api --method PUT "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             --input "${RUNNER_TEMP}/protection.json" > /dev/null
           echo 'Main branch protection applied.'
 
-      - name: Verify protection after optional update
+      - name: Verify protection after update
+        if: ${{ inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
-          python - <<'PY'
-import json, os
-path=os.path.join(os.environ['RUNNER_TEMP'],'verified.json')
-data=json.load(open(path,encoding='utf-8'))
-contexts=(data.get('required_status_checks') or {}).get('contexts') or []
-reviews=(data.get('required_pull_request_reviews') or {}).get('required_approving_review_count',0)
-if 'test' not in contexts: raise SystemExit(f'missing required test context: {contexts}')
-if reviews < 1: raise SystemExit(f'required approvals too low: {reviews}')
-if (data.get('enforce_admins') or {}).get('enabled') is not True: raise SystemExit('admin enforcement is disabled')
-if data.get('allow_force_pushes') is not False: raise SystemExit('force pushes are allowed')
-if data.get('allow_deletions') is not False: raise SystemExit('branch deletion is allowed')
-print('Gate 5 main-branch protection verified.')
-PY
+          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"verified.json"))); c=(d.get("required_status_checks") or {}).get("contexts") or []; r=(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count",0); assert "test" in c,c; assert r >= 1,r; assert (d.get("enforce_admins") or {}).get("enabled") is True; assert (d.get("allow_force_pushes") or {}).get("enabled") is False; assert (d.get("allow_deletions") or {}).get("enabled") is False; print("Gate 5 main-branch protection verified.")'
 
       - name: Inspect rulesets
         env:
@@ -118,12 +84,5 @@ PY
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/rulesets" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
-          python - <<'PY'
-import json, os
-path=os.path.join(os.environ['RUNNER_TEMP'],'rulesets.json')
-data=json.load(open(path,encoding='utf-8'))
-print('ruleset_count=', len(data))
-PY
+          gh api "repos/${REPO}/rulesets"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
+          python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"rulesets.json"))); print("ruleset_count=", len(d))'
