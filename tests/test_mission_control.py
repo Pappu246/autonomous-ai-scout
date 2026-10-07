@@ -270,3 +270,18 @@ def test_run_once_surfaces_bounded_test_result_summary(monkeypatch, tmp_path: Pa
     assert result.state == "failed"
     assert "tests.run" in result.reason
     assert "network isolation unavailable" in result.reason
+
+
+def test_cancel_approval_pending_mission_invalidates_pending_approval(tmp_path: Path) -> None:
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit("use the computer to complete this task")
+    assert mission.state == "requires_approval"
+
+    cancelled = controller.cancel(mission.mission_id)
+
+    assert cancelled.state == "cancelled"
+    action = next(
+        item for item in load_queue(controller.approval_queue_path)
+        if item.id == mission.approval_action_id
+    )
+    assert action.status == "rejected"
