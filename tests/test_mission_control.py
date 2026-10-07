@@ -1,3 +1,4 @@
+from autonomous_agent.action_queue import load_queue
 from __future__ import annotations
 
 import json
