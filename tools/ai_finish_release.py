@@ -223,7 +223,7 @@ def wait_for_exact(workflow: str, branch: str, repository: str, head_sha: str, t
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default="Pappu246/autonomous-ai-scout")
-    parser.add_argument("--branch", default="feat/mission-control-ui")
+    parser.add_argument("--branch", default="main")
     parser.add_argument("--gate3", action="store_true", help="dispatch the authoritative Gate 3 coding-provider smoke")
     parser.add_argument("--gate4", action="store_true", help="dispatch the authoritative Gate 4 smoke")
     parser.add_argument(
