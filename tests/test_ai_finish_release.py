@@ -77,7 +77,9 @@ def test_list_runs_uses_rest_api_response_shape(monkeypatch):
 
     def fake_api(method, path, *, repository, body=None):
         assert method == "GET"
-        assert "workflow_dispatch" in path
+        assert "branch=feat%2Fmission-control-ui" in path
+        assert "per_page=30" in path
+        assert "event=" not in path
         return {
             "workflow_runs": [
                 {
