@@ -1,4 +1,5 @@
 name: Gate 5 — GitHub Administration Readiness
+# Dispatched by the guarded CI release orchestrator on exact branch heads.
 
 on:
   workflow_dispatch:
@@ -8,14 +9,7 @@ on:
         required: true
         type: boolean
         default: false
-  push:
-    branches:
-      - feat/mission-control-ui
-    paths:
-      - ".github/release-gates/execute.txt"
 
-# Guarded owner-triggered release-gate path; admin credential remains required.
-# Exact-SHA verification follows the current branch head.
 permissions:
   contents: read
 
@@ -64,7 +58,7 @@ print(json.dumps({
 PY
 
       - name: Apply hardened main-branch protection when explicitly authorized
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply_protection) || github.event_name == 'push' }}
+        if: ${{ inputs.apply_protection }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}

@@ -1,12 +1,8 @@
 name: Gate 4 — External Connector Smoke
+# Dispatched by the guarded CI release orchestrator on exact branch heads.
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/mission-control-ui
-    paths:
-      - ".github/release-gates/execute.txt"
 
 permissions:
   contents: read
