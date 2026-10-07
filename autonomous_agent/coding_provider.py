@@ -1,3 +1,4 @@
+# Gate 3 exact-SHA rerun after Gate 5 protection payload fix.
 # Gate 3 exact-SHA rerun after Gate 5 unprotected-branch handling fix.
 # Final exact-SHA release-gate marker; runtime behavior unchanged.
 # Final release-gate execution marker; no runtime behavior change.
