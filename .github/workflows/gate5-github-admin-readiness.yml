@@ -10,18 +10,13 @@ on:
         required: true
         type: boolean
         default: false
-  push:
-    branches:
-      - feat/mission-control-ui
-    paths:
-      - ".github/release-gates/execute.txt"
-      - ".github/workflows/gate3-coding-provider-smoke.yml"
 
 permissions:
   contents: read
 
 jobs:
   admin:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
