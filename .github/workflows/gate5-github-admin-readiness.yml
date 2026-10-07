@@ -11,14 +11,16 @@ on:
   push:
     branches:
       - feat/mission-control-ui
+    paths:
+      - ".github/release-gates/execute.txt"
 
 permissions:
   contents: read
 
 jobs:
   admin:
-    # Push-triggered execution is limited to an explicit release-gate marker.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'AI_RELEASE_GATES:APPLY_GATE5')) }}
+    # Push execution is limited to the owner-triggered sentinel path.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.actor == github.repository_owner) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -62,7 +64,7 @@ print(json.dumps({
 PY
 
       - name: Apply hardened main-branch protection when explicitly authorized
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply_protection) || (github.event_name == 'push' && contains(github.event.head_commit.message, 'AI_RELEASE_GATES:APPLY_GATE5')) }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply_protection) || github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
