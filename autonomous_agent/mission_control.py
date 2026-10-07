@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from .action_queue import build_action_proposal, enqueue_proposal, load_queue
+from .approval_store import load_approval
+from .approved_executor import claim_approval, validate_approval
 from .capability_policy import Capability
 from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
@@ -197,6 +199,7 @@ class MissionController:
         self.approval_queue_path = self.root / "state" / "approval_queue.json"
         self.approval_dir = self.root / "state" / "approvals"
         self.approval_audit_path = self.root / "state" / "approval_audit.jsonl"
+        self.approval_claim_dir = self.root / "state" / "approval_claims"
         self.computer_connector = computer_connector or BoundedComputerConnector()
         self.provider_router = SpecialistProviderRouter(providers_from_env())
         self.core = AutonomousTaskCore()
@@ -584,13 +587,19 @@ class MissionController:
             self._thread.join(timeout=2)
         self._thread = None
 
-    def activate_approved_action(self, action_id: str) -> MissionRecord | None:
+    def _validate_pending_approval(self, action_id: str):
         queue = {item.id: item for item in load_queue(self.approval_queue_path)}
         action = queue.get(action_id)
         if action is None:
             raise KeyError(action_id)
-        if action.status != "approved":
-            raise ValueError("approval action must be explicitly approved before mission activation")
+        approval = load_approval(self.approval_dir, action_id)
+        decision = validate_approval(action, approval, audit_path=self.approval_audit_path)
+        if not decision.allowed:
+            raise ValueError(decision.reason)
+        return action, approval
+
+    def activate_approved_action(self, action_id: str) -> MissionRecord | None:
+        action, _approval = self._validate_pending_approval(action_id)
         record = self.store.get_by_approval_action_id(action_id)
         if record is None:
             return None
@@ -798,12 +807,19 @@ class MissionController:
                 existing.approval_action_id,
             ))
         runtime_state = QueueState.FAILED.value
+        approval_validated = False
         try:
+            if existing and existing.approval_action_id:
+                _action, approval = self._validate_pending_approval(existing.approval_action_id)
+                claim = claim_approval(approval, self.approval_claim_dir)
+                if not claim.allowed:
+                    raise ValueError(claim.reason)
+                approval_validated = True
             if existing and existing.steps:
                 success, reason = self._run_steps(item, existing)
                 runtime_state = "verified" if success else QueueState.FAILED.value
             else:
-                approved = bool(existing and existing.approval_action_id)
+                approved = approval_validated
                 result = run_task(
                     item.task,
                     root=self.root,
