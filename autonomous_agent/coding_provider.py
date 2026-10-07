@@ -1,3 +1,4 @@
+# Final release-gate exact-SHA verification marker after handoff synchronization.
 # Gate 3 exact-SHA verification marker; no runtime behavior change.
 from __future__ import annotations
 import difflib, json, os, re
