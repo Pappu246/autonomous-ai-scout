@@ -7,6 +7,7 @@ name: Gate 3 — Coding Provider Smoke (Authoritative)
 # Final AI finisher syntax-fix exact-SHA trigger.
 # Final exact-SHA trigger after release-helper test-loader fix.
 # Release-gate helper compatibility hardening trigger.
+# Final exact-SHA contract regression trigger after release-finisher tests.
 
 on:
   workflow_dispatch:
