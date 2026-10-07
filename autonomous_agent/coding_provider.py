@@ -1,5 +1,5 @@
 # AI release-gate trigger marker: guarded Gate 3/4/5 execution only.
-# Final guarded gate execution follow-up.
+# Final exact-SHA release verification marker.
 # Final release-gate exact-SHA verification marker after handoff synchronization.
 # Gate 3 exact-SHA verification marker; no runtime behavior change.
 from __future__ import annotations
