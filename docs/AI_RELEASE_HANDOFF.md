@@ -4,7 +4,7 @@
 
 - Repository: `Pappu246/autonomous-ai-scout`
 - Working branch: `feat/mission-control-ui`
-- Current verified code head: `6ab3a91e58c1872fd720c03f68097726dc988af7`
+- Current verified code head: `7df4fec927f18ee0277c6e39e18ba3a196362f5f`
 - Base `main`: `5434114b33a7b00af053a7c43f9d7181d767b8fb`
 - PR: #271
 - PR state: open, draft, mergeable
@@ -12,8 +12,8 @@
 
 ## Verified evidence
 
-- CI run 3358 / 37573720519: PASS
-- Full test suite: 2433 passed, 6 skipped on the helper/docs candidate
+- CI run 3361 / 37573969520: PASS
+- Full test suite: 2433 passed, 6 skipped
 - Gate 3 run 68 / 37573717625: PASS on the current exact SHA
 - Gate 3 used the real free Ollama provider path, network-isolated sandbox prerequisite, OpenAI-compatible endpoint probe, bounded coding-provider smoke, diff normalization boundary, and approval boundary.
 
@@ -62,7 +62,7 @@ No merge, deployment, tag, or release should be synthesized.
 
 Paste this into Mission Control:
 
-> Inspect the Autonomous AI Scout release baseline and continue the remaining release verification from the current repository state. First verify the active workspace root is the repository itself, then verify the current branch and exact HEAD SHA. Confirm CI 3324 and Gate 3 run 63 are green for the verified final SHA. Do not modify main and do not fabricate credentials or external results. For Gate 4, determine whether real SCOUT_GMAIL_ACCESS_TOKEN and SCOUT_CALENDAR_ACCESS_TOKEN credentials are available in the current execution environment; if they are available and the workflow can be legitimately dispatched, execute and verify the authoritative Gate 4 smoke on the exact SHA. For Gate 5, determine whether a repository-admin SCOUT_GITHUB_ADMIN_TOKEN and legitimate workflow dispatch capability are available; if so, execute Gate 5 with apply_protection=true and verify the protection application step. If either gate cannot be legitimately executed, report the exact blocker and do not mark it passed. After any legitimate gate completion, re-check the exact SHA evidence. Do not merge, deploy, tag, or publish a release unless every Gate 6 prerequisite is genuinely satisfied.
+> Inspect the Autonomous AI Scout release baseline and continue the remaining release verification from the current repository state. First verify the active workspace root is the repository itself, then verify the current branch and exact HEAD SHA. Confirm CI 3361 and authoritative Gate 3 run 69 are green for the verified current SHA. Do not modify main and do not fabricate credentials or external results. For Gate 4, determine whether real SCOUT_GMAIL_ACCESS_TOKEN and SCOUT_CALENDAR_ACCESS_TOKEN credentials are available in the current execution environment; if they are available and the workflow can be legitimately dispatched, execute and verify the authoritative Gate 4 smoke on the exact SHA. For Gate 5, determine whether a repository-admin SCOUT_GITHUB_ADMIN_TOKEN and legitimate workflow dispatch capability are available; if so, execute Gate 5 with apply_protection=true and verify the protection application step. If either gate cannot be legitimately executed, report the exact blocker and do not mark it passed. After any legitimate gate completion, re-check the exact SHA evidence. Do not merge, deploy, tag, or publish a release unless every Gate 6 prerequisite is genuinely satisfied.
 
 ## Operational rule
 
