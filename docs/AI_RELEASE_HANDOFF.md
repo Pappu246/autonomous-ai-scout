@@ -4,7 +4,7 @@
 
 - Repository: `Pappu246/autonomous-ai-scout`
 - Working branch: `feat/mission-control-ui`
-- Final verified code head: `cc654f725aaf94553b2497ded3eb028fad0759aa`
+- Current verified code head: `2b016e236a6f42fde26a041d00caf5e087a2e467`
 - Base `main`: `5434114b33a7b00af053a7c43f9d7181d767b8fb`
 - PR: #271
 - PR state: open, draft, mergeable
@@ -12,9 +12,9 @@
 
 ## Verified evidence
 
-- CI run 3324 / 37507328429: PASS
-- Full test suite: 2428 passed, 6 skipped
-- Gate 3 run 63 / 37507324530: PASS
+- CI run 3352 / 37572994452: PASS
+- Full test suite: 2433 passed, 6 skipped
+- Gate 3 remains PASS from the previously verified exact candidate; rerun is not required for this helper-only change unless the release process explicitly requires a fresh Gate 3 run
 - Gate 3 used the real free Ollama provider path, network-isolated sandbox prerequisite, OpenAI-compatible endpoint probe, bounded coding-provider smoke, diff normalization boundary, and approval boundary.
 
 ## Remaining work
@@ -37,7 +37,7 @@ Authoritative execution requires a workflow-dispatch run on the final SHA with:
 - secret `SCOUT_GITHUB_ADMIN_TOKEN` with repository Administration permission
 - input `apply_protection=true`
 
-The workflow verifies current protection, applies the hardened protection configuration, verifies it again, and inspects rulesets.
+The workflow verifies current protection, applies the hardened protection configuration, verifies it again, and inspects rulesets. The local/agent-side `tools/ai_finish_release.py` now uses `SCOUT_GITHUB_ADMIN_TOKEN` directly through the GitHub REST API, so `gh` is no longer a prerequisite when that token is present.
 
 Do not use the normal GitHub integration's read-only 403 as a substitute for the admin workflow evidence.
 
