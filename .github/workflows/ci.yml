@@ -51,16 +51,23 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/${REPO}/actions/workflows"
-          curl -fsS -X POST "${api}/gate4-external-connector-smoke.yml/dispatches" \
+          gate4_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/gate4-external-connector-smoke.yml/dispatches" \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
             -H "Content-Type: application/json" \
-            -d "{\"ref\":\"${REF}\"}"
-          curl -fsS -X POST "${api}/gate5-github-admin-readiness.yml/dispatches" \
+            -d "{\"ref\":\"${REF}\"}")"
+          printf '%s\n' "${gate4_response}"
+          gate5_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/gate5-github-admin-readiness.yml/dispatches" \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
             -H "Content-Type: application/json" \
-            -d "{\"ref\":\"${REF}\",\"inputs\":{\"apply_protection\":\"true\"}}"
+            -d "{\"ref\":\"${REF}\",\"inputs\":{\"apply_protection\":\"true\"}}")"
+          printf '%s\n' "${gate5_response}"
+          gate5_status="$(printf '%s\n' "${gate5_response}" | tail -n 1)"
+          if [ "${gate5_status}" != "204" ] && [ "${gate5_status}" != "200" ]; then
+            echo "Gate 5 dispatch failed with HTTP ${gate5_status}."
+            exit 1
+          fi
           echo "Dispatched Gate 4 and Gate 5 for ref=${REF}."
