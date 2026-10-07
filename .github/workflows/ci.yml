@@ -67,7 +67,14 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"ref\":\"${REF}\"}")"
           printf '%s\n' "${gate4_response}"
-          gate5_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/gate5-github-admin-readiness.yml/dispatches" \
+          gate5_meta="$(curl -fsS \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "${api}/gate5-github-admin-readiness.yml")"
+          printf '%s\n' "${gate5_meta}" | python -c 'import json,sys; d=json.load(sys.stdin); print("Gate5 workflow:", d.get("id"), d.get("path"), d.get("state"))'
+          gate5_id="$(printf '%s\n' "${gate5_meta}" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          gate5_response="$(curl -sS -w '\n%{http_code}' -X POST "${api}/${gate5_id}/dispatches" \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
