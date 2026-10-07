@@ -7,8 +7,11 @@ on:
       apply_protection:
         description: 'Apply the proposed main-branch protection configuration'
         required: true
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+        default: 'false'
 
 permissions:
   contents: read
@@ -58,7 +61,7 @@ print(json.dumps({
 PY
 
       - name: Apply hardened main-branch protection when explicitly authorized
-        if: ${{ inputs.apply_protection }}
+        if: ${{ inputs.apply_protection == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
