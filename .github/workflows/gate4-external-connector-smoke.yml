@@ -1,5 +1,5 @@
 name: Gate 4 — External Connector Smoke
-# Dispatched by the guarded CI release orchestrator on exact branch heads.
+# Credential-bearing live smoke is trusted-main only and must be explicitly dispatched.
 
 on:
   workflow_dispatch:
