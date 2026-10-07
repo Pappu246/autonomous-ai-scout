@@ -1,11 +1,9 @@
 name: Gate 5 — GitHub Administration Readiness
+# Authoritative manual gate; the guarded CI release orchestrator dispatches this
+# workflow against the exact feature-branch head.
 
 on:
-  push:
-    branches:
-      - feat/mission-control-ui
-    paths:
-      - ".github/release-gates/execute.txt"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: Checkout exact branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -37,7 +35,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/main-protection.json"
+          gh api "repos/${REPO}/branches/main/protection" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            > "${RUNNER_TEMP}/main-protection.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'main-protection.json')
@@ -46,12 +47,12 @@ print(json.dumps({
   'required_status_checks': data.get('required_status_checks') or {},
   'required_approvals': (data.get('required_pull_request_reviews') or {}).get('required_approving_review_count'),
   'enforce_admins': (data.get('enforce_admins') or {}).get('enabled'),
-  'allow_force_pushes': data.get('allow_force_pushes'),
-  'allow_deletions': data.get('allow_deletions'),
+  'allow_force_pushes': (data.get('allow_force_pushes') or {}).get('enabled', False),
+  'allow_deletions': (data.get('allow_deletions') or {}).get('enabled', False),
 }, sort_keys=True))
 PY
 
-      - name: Apply hardened main-branch protection when sentinel is pushed
+      - name: Apply hardened main-branch protection
         env:
           GH_TOKEN: ${{ secrets.SCOUT_GITHUB_ADMIN_TOKEN }}
           REPO: ${{ github.repository }}
@@ -77,7 +78,10 @@ print(json.dumps({
   'lock_branch': False
 }, separators=(',', ':')))
 PY
-          gh api --method PUT "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             --input "${RUNNER_TEMP}/protection.json" > /dev/null
+          gh api --method PUT "repos/${REPO}/branches/main/protection" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --input "${RUNNER_TEMP}/protection.json" > /dev/null
           echo 'Main branch protection applied.'
 
       - name: Verify protection after update
@@ -86,7 +90,9 @@ PY
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
+          gh api "repos/${REPO}/branches/main/protection" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/verified.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'verified.json')
@@ -96,8 +102,8 @@ reviews=(data.get('required_pull_request_reviews') or {}).get('required_approvin
 if 'test' not in contexts: raise SystemExit(f'missing required test context: {contexts}')
 if reviews < 1: raise SystemExit(f'required approvals too low: {reviews}')
 if (data.get('enforce_admins') or {}).get('enabled') is not True: raise SystemExit('admin enforcement is disabled')
-if data.get('allow_force_pushes') is not False: raise SystemExit('force pushes are allowed')
-if data.get('allow_deletions') is not False: raise SystemExit('branch deletion is allowed')
+if (data.get('allow_force_pushes') or {}).get('enabled') is not False: raise SystemExit('force pushes are allowed')
+if (data.get('allow_deletions') or {}).get('enabled') is not False: raise SystemExit('branch deletion is allowed')
 print('Gate 5 main-branch protection verified.')
 PY
 
@@ -107,7 +113,9 @@ PY
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/rulesets"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
+          gh api "repos/${REPO}/rulesets" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/rulesets.json"
           python - <<'PY'
 import json, os
 path=os.path.join(os.environ['RUNNER_TEMP'],'rulesets.json')
