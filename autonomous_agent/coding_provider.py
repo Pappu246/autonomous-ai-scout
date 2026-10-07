@@ -1,3 +1,4 @@
+# Final exact-SHA gate dispatch marker; runtime behavior unchanged.
 # AI release-gate trigger marker: guarded Gate 3/4/5 execution only.
 # Final exact-SHA release verification marker.
 # Push CI must finish so the guarded external-gate dispatcher can execute.
