@@ -5,6 +5,7 @@ This helper is intentionally conservative:
 - it verifies the remote branch head before dispatching;
 - it dispatches only the explicitly requested authoritative workflows;
 - it waits for a run whose head SHA exactly matches the verified branch head;
+- it observes both push-triggered and workflow-dispatch gate executions;
 - Gate 5 protection application requires an explicit --apply-gate5 flag;
 - it never merges, tags, deploys, or publishes a release.
 
@@ -170,7 +171,7 @@ def list_runs(workflow: str, branch: str, repository: str) -> list[WorkflowRun]:
     if token:
         owner, name = repository.split("/", 1)
         query = urllib.parse.urlencode(
-            {"branch": branch, "event": "workflow_dispatch", "per_page": "30"}
+            {"branch": branch, "per_page": "30"}
         )
         data = github_api(
             "GET",
@@ -206,7 +207,7 @@ def wait_for_exact(workflow: str, branch: str, repository: str, head_sha: str, t
     while time.time() < deadline:
         matches = [x for x in list_runs(workflow, branch, repository) if x.head_sha == head_sha]
         if matches:
-            latest = matches[0]
+            latest = max(matches, key=lambda x: x.run_id)
             print(
                 f"{workflow}: run={latest.run_id} head={latest.head_sha[:12]} "
                 f"status={latest.status} conclusion={latest.conclusion}"
@@ -250,7 +251,7 @@ def main() -> int:
         for workflow in (GATE3, GATE4, GATE5):
             matches = [x for x in list_runs(workflow, args.branch, args.repository) if x.head_sha == head]
             print(f"{workflow}: exact-head-runs={len(matches)}")
-            for item in matches[:3]:
+            for item in sorted(matches, key=lambda x: x.run_id, reverse=True)[:3]:
                 print(
                     f"  run={item.run_id} event={item.event} "
                     f"status={item.status} conclusion={item.conclusion}"
