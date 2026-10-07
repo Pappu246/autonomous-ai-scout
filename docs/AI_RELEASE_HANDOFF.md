@@ -31,6 +31,7 @@ The live script is `tools/live_gate4_smoke.py`.
 The required result is a completed successful workflow run on the exact release SHA. Do not fabricate or substitute mocked credentials/results.
 
 ### Gate 5 — GitHub administration readiness
+Gate 5 credential-bearing execution is **trusted-main only** and requires explicit `apply_protection=true` authorization.
 
 Authoritative execution requires a workflow-dispatch run on the final SHA with:
 
