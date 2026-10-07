@@ -39,7 +39,19 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api "repos/${REPO}/branches/main/protection"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2026-03-10'             > "${RUNNER_TEMP}/main-protection.json"
+          set +e
+          gh api "repos/${REPO}/branches/main/protection" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' > "${RUNNER_TEMP}/main-protection.json" 2> "${RUNNER_TEMP}/main-protection.err"
+          rc=$?
+          set -e
+          if [ "${rc}" -ne 0 ]; then
+            if grep -q "Branch not protected (HTTP 404)" "${RUNNER_TEMP}/main-protection.err"; then
+              printf '%s' '{"required_status_checks":null,"required_pull_request_reviews":null,"enforce_admins":null,"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}' > "${RUNNER_TEMP}/main-protection.json"
+              echo "Main branch is currently unprotected; Gate 5 will apply the hardened policy."
+            else
+              cat "${RUNNER_TEMP}/main-protection.err"
+              exit "${rc}"
+            fi
+          fi
           python -c 'import json,os; d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"main-protection.json"))); print(json.dumps({"required_status_checks":d.get("required_status_checks") or {}, "required_approvals":(d.get("required_pull_request_reviews") or {}).get("required_approving_review_count"), "enforce_admins":(d.get("enforce_admins") or {}).get("enabled"), "allow_force_pushes":(d.get("allow_force_pushes") or {}).get("enabled"), "allow_deletions":(d.get("allow_deletions") or {}).get("enabled")}, sort_keys=True))'
 
       - name: Apply hardened main-branch protection (apply_protection=true)
