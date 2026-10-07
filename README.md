@@ -1122,7 +1122,7 @@ The timeline is assembled from bounded audit evidence plus approval state and do
 
 ### AI release finisher
 
-The repository includes `tools/ai_finish_release.py` for an AI/operator environment that has GitHub CLI access. It verifies the remote branch head before dispatching gates and waits for an authoritative run on that exact SHA.
+The repository includes `tools/ai_finish_release.py` for an AI/operator environment. It verifies the remote branch head before dispatching gates and waits for an authoritative run on that exact SHA. It prefers a GitHub token from `SCOUT_GITHUB_ADMIN_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` and calls the GitHub REST API directly, so the AI runtime does not require the `gh` CLI; it falls back to an authenticated `gh` CLI when no token is present.
 
 Check exact-head evidence without changing anything:
 
