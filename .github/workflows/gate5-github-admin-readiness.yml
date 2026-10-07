@@ -15,6 +15,7 @@ on:
       - ".github/release-gates/execute.txt"
 
 # Guarded owner-triggered release-gate path; admin credential remains required.
+# Exact-SHA verification follows the current branch head.
 permissions:
   contents: read
 

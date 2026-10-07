@@ -2,3 +2,4 @@ OWNER-TRIGGERED RELEASE-GATE EXECUTION
 This sentinel intentionally changes only when the repository owner explicitly triggers the guarded Gate 4 and Gate 5 smoke workflows.
 Owner-triggered final gate verification sentinel refreshed.
 Exact-SHA final verification trigger.
+Dispatcher concurrency fix trigger.

@@ -6,7 +6,7 @@ on:
 
 concurrency:
   group: autonomous-ai-scout-ci
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
