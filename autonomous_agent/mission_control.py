@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from .action_queue import build_action_proposal, enqueue_proposal, load_queue
-from .approval_store import load_approval
+from .approval_store import load_approval, reject_action
 from .approved_executor import claim_approval, validate_approval
 from .capability_policy import Capability
 from .background_worker import BackgroundTaskWorker
@@ -546,6 +546,37 @@ class MissionController:
         record = self.store.get(mission_id)
         if record is None:
             raise KeyError(mission_id)
+        if record.state == "requires_approval":
+            if record.approval_action_id:
+                queue = {item.id: item for item in load_queue(self.approval_queue_path)}
+                action = queue.get(record.approval_action_id)
+                if action is not None and action.status == "pending":
+                    reject_action(
+                        self.approval_queue_path,
+                        record.approval_action_id,
+                        audit_path=self.approval_audit_path,
+                    )
+            self.memory.record_episode(
+                self.MEMORY_PROJECT,
+                record.task,
+                outcome="cancelled",
+                metadata={"specialist_role": record.specialist_role},
+            )
+            return self.store.put(MissionRecord(
+                record.mission_id,
+                record.task_id,
+                record.execution_id,
+                record.task,
+                "cancelled",
+                "mission cancelled before approval/activation",
+                record.created_at,
+                _now(),
+                record.attempts,
+                record.specialist_role,
+                record.steps,
+                record.completed_steps,
+                record.approval_action_id,
+            ))
         item = self.queue.cancel(record.task_id)
         self.memory.record_episode(self.MEMORY_PROJECT, record.task, outcome="cancelled", metadata={"specialist_role": record.specialist_role})
         return self.store.put(MissionRecord(
