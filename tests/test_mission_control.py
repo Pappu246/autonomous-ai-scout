@@ -1,5 +1,6 @@
-from autonomous_agent.action_queue import load_queue
 from __future__ import annotations
+
+from autonomous_agent.action_queue import load_queue
 
 import json
 from pathlib import Path
