@@ -1,3 +1,4 @@
+# apply_protection=true is the guarded authoritative Gate 5 execution mode.
 name: Gate 5 — GitHub Administration Readiness
 # Authoritative manual gate; the guarded CI release orchestrator dispatches this
 # workflow against the exact feature-branch head.
