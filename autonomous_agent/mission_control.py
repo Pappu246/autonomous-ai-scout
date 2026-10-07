@@ -592,6 +592,8 @@ class MissionController:
         action = queue.get(action_id)
         if action is None:
             raise KeyError(action_id)
+        if action.status != "approved":
+            raise ValueError("approval action must be explicitly approved before mission activation")
         approval = load_approval(self.approval_dir, action_id)
         decision = validate_approval(action, approval, audit_path=self.approval_audit_path)
         if not decision.allowed:
