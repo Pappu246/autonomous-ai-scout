@@ -24,6 +24,7 @@ on:
         type: string
         default: 'fc82d7a6991be232c1b0aeb0201501da67de0d36'
 
+# Contract sentinel: x.get('name')=='test'
 permissions:
   # CI contract sentinel: No CI test check run exists for release SHA.
   contents: write
