@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-10-09T00:43:54.414430+00:00
+Generated: 2026-10-09T06:51:58.003056+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -35,5 +35,5 @@ Meaningful change: YES
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — Release notes | Gemini API | Google AI for Developers — October 6, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
-- Official release change: openrouter — Official release source changed. (https://openrouter.ai/models?pricing=free)
+- Official release change: openrouter — ElevenLabs launch offer: — October 19, 2026 (https://openrouter.ai/models?pricing=free)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
