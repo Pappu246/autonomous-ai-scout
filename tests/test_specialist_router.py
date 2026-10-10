@@ -25,3 +25,12 @@ def test_email_calendar_signal_routes_to_communication_role():
 def test_unknown_goal_uses_general_role():
     decision = choose_specialist("do the thing")
     assert decision.role is SpecialistRole.GENERAL
+
+def test_negative_communication_and_computer_mentions_do_not_change_specialist():
+    task = (
+        "Read file docs/README.md in the isolated workspace and summarize two facts. "
+        "Do not use email, calendar, browser, GitHub, or computer control."
+    )
+    decision = choose_specialist(task)
+    assert decision.role is SpecialistRole.GENERAL
+

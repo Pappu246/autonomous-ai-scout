@@ -47,3 +47,14 @@ def test_router_does_not_expand_capabilities():
     selection = DynamicToolRouter().select("send email")
     assert selection == ("email.send",)
     assert Capability.EMAIL.value == get_tool("email.send").capability
+
+def test_negative_capability_constraints_do_not_override_workspace_read():
+    task = (
+        "Read file docs/README.md in the isolated workspace and summarize two facts. "
+        "Do not change any file. Do not execute shell commands. "
+        "Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    )
+    selection = DynamicToolRouter().select_names(task)
+    assert selection.intent is TaskIntent.WORKSPACE
+    assert selection.tool_names == ("filesystem.read",)
+

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
+from .task_intent import positive_task_text
+
 
 class SpecialistRole(str, Enum):
     PLANNER = "planner"
@@ -58,7 +60,7 @@ _RULES: tuple[tuple[SpecialistRole, tuple[str, ...], str], ...] = (
 
 
 def choose_specialist(task: str) -> RoleDecision:
-    normalized = " ".join(str(task).lower().split())
+    normalized = positive_task_text(task)
     scores: list[tuple[int, SpecialistRole, tuple[str, ...], str]] = []
     for role, keywords, reason in _RULES:
         hits = tuple(keyword for keyword in keywords if keyword in normalized)
