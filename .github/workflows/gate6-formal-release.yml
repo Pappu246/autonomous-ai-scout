@@ -30,6 +30,7 @@ permissions:
   # CI contract sentinel: No CI test check run exists for release SHA.
   contents: write
   actions: read
+  checks: read
 
 jobs:
   release:
@@ -42,7 +43,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 200
-          ref: ${{ inputs.release_sha }}
+          ref: ${{ github.sha }}
 
       - name: Publish verified formal release
         env:

@@ -41,6 +41,9 @@ def test_gate6_is_explicit_and_green_sha_gated():
     assert 'inputs.confirm' in text
     assert 'No CI test check run exists for release SHA.' in text
     assert "x.get('name')=='test'" in text
+    assert 'checks: read' in text
+    assert 'ref: ${{ github.sha }}' in text
+    assert 'inputs.release_sha' in text
 
     assert 'gh release create' in text
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -95,15 +96,31 @@ def main() -> int:
     if not re.fullmatch(r"v0\.[0-9]+\.[0-9]+", args.tag):
         raise RuntimeError(f"invalid release tag format: {args.tag}")
 
-    current = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    if current != args.sha:
-        raise RuntimeError(f"checkout HEAD {current} does not match release SHA {args.sha}")
+    owner, name = args.repository.split("/", 1)
+    comparison = api(
+        "GET",
+        f"/repos/{owner}/{name}/compare/{args.sha}...main",
+        repository=args.repository,
+        token=token,
+    ) or {}
+    if comparison.get("status") not in {"ahead", "identical"}:
+        raise RuntimeError(
+            f"release SHA {args.sha} is not an ancestor of the current main branch."
+        )
 
-    subprocess.run(["git", "fetch", "origin", "main", "--depth", "200"], check=True)
-    subprocess.run(["git", "merge-base", "--is-ancestor", args.sha, "origin/main"], check=True)
-
-    with open("pyproject.toml", "rb") as fh:
-        version = tomllib.load(fh)["project"]["version"]
+    version_file = api(
+        "GET",
+        f"/repos/{owner}/{name}/contents/pyproject.toml?ref={args.sha}",
+        repository=args.repository,
+        token=token,
+    ) or {}
+    try:
+        version_text = base64.b64decode(version_file["content"]).decode("utf-8")
+        version = tomllib.loads(version_text)["project"]["version"]
+    except (KeyError, ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise RuntimeError(
+            "could not read project version from pyproject.toml at the exact release SHA."
+        ) from exc
     expected = f"v{version}"
     if args.tag != expected:
         raise RuntimeError(f"tag {args.tag} does not match project version {expected}")
