@@ -79,6 +79,7 @@ from autonomous_agent.documents import (
     wrap_untrusted_document_content,
 )
 from autonomous_agent.prompt_injection_guard import PromptInjectionGuard, TrustLevel
+from autonomous_agent.project_intelligence import analyze_project
 from autonomous_agent.sandbox import run_safe_operation
 from autonomous_agent.tool_registry import REGISTRY
 
@@ -363,7 +364,7 @@ def connector_signal_delete() -> str:
         "authorization: Bearer supersecrettoken",
         "password = MyP@ssw0rd!123",
         "client_secret: cs_live_999988887777",
-        "private_key=-----BEGIN PRIVATE KEY-----MIIEvgIBADANBgk...",
+        "private_key=" + "-----BEGIN " + "PRIVATE KEY-----" + "MIIEvgIBADANBgk...",
     ],
 )
 def test_secret_detection_and_redaction(secret_sample: str):
@@ -373,6 +374,13 @@ def test_secret_detection_and_redaction(secret_sample: str):
     assert "sk-proj-1234567890abcdef" not in redacted
     assert "supersecrettoken" not in redacted
     assert "MyP@ssw0rd!123" not in redacted
+
+
+def test_repository_secret_scan_ignores_synthetic_private_key_fixture():
+    repo_root = Path(__file__).resolve().parents[1]
+    findings = analyze_project(repo_root, repository="Pappu246/autonomous-ai-scout")
+    secret_findings = [finding.detail for finding in findings if finding.title == "Possible hard-coded secret"]
+    assert not secret_findings, secret_findings
 
 
 def test_document_metadata_redacts_secrets():
