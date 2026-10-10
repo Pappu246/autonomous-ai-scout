@@ -79,6 +79,7 @@ from autonomous_agent.documents import (
     wrap_untrusted_document_content,
 )
 from autonomous_agent.prompt_injection_guard import PromptInjectionGuard, TrustLevel
+from autonomous_agent.project_intelligence import analyze_project
 from autonomous_agent.sandbox import run_safe_operation
 from autonomous_agent.tool_registry import REGISTRY
 
@@ -375,10 +376,10 @@ def test_secret_detection_and_redaction(secret_sample: str):
     assert "MyP@ssw0rd!123" not in redacted
 
 
-def test_private_key_fixture_does_not_trigger_source_scanner():
-    fixture_source = Path(__file__).read_text(encoding="utf-8")
-    private_key_marker = "-----BEGIN " + "PRIVATE KEY-----"
-    assert private_key_marker not in fixture_source
+def test_repository_secret_scan_ignores_synthetic_private_key_fixture():
+    repo_root = Path(__file__).resolve().parents[1]
+    findings = analyze_project(repo_root, repository="Pappu246/autonomous-ai-scout")
+    assert not any(finding.title == "Possible hard-coded secret" for finding in findings)
 
 
 def test_document_metadata_redacts_secrets():
