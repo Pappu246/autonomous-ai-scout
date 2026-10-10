@@ -230,7 +230,7 @@ class MissionController:
             {
                 "execution_id": execution_id,
                 "timestamp": _now(),
-                "state": ExecutionState.RUNNING.value,
+                # This records route selection only; execution has not started.
                 "event": "specialist_provider_route",
                 "specialist_role": route.role,
                 "provider": "" if route.provider is None else route.provider.name,
