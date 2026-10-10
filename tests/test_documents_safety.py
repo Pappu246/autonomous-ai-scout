@@ -379,7 +379,8 @@ def test_secret_detection_and_redaction(secret_sample: str):
 def test_repository_secret_scan_ignores_synthetic_private_key_fixture():
     repo_root = Path(__file__).resolve().parents[1]
     findings = analyze_project(repo_root, repository="Pappu246/autonomous-ai-scout")
-    assert not any(finding.title == "Possible hard-coded secret" for finding in findings)
+    secret_findings = [finding.detail for finding in findings if finding.title == "Possible hard-coded secret"]
+    assert not secret_findings, secret_findings
 
 
 def test_document_metadata_redacts_secrets():
