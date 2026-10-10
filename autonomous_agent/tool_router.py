@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .task_plan_models import TaskIntent
+from .task_intent import positive_task_text
 from .tool_registry import REGISTRY, ToolRegistry
 
 
@@ -91,7 +92,8 @@ class DynamicToolRouter:
 
     def select_names(self, task: str, intent: TaskIntent | None = None) -> ToolSelection:
         raw = " ".join(task.strip().split())
-        lowered = raw.lower()
+        routing_text = positive_task_text(raw)
+        lowered = routing_text.lower()
         compound: list[str] = []
 
         # Compound repository-health requests must retain every explicitly requested
@@ -134,15 +136,15 @@ class DynamicToolRouter:
         if resolved is TaskIntent.COMPUTER:
             names = ("computer.use",)
         elif resolved is TaskIntent.CALENDAR:
-            names = self._calendar_tools(raw)
+            names = self._calendar_tools(routing_text)
         elif resolved is TaskIntent.EMAIL:
-            names = self._email_tools(raw)
+            names = self._email_tools(routing_text)
         elif resolved is TaskIntent.WORKSPACE:
-            names = self._workspace_tools(raw)
+            names = self._workspace_tools(routing_text)
         elif resolved is TaskIntent.RESEARCH:
-            names = self._research_tools(raw)
+            names = self._research_tools(routing_text)
         elif resolved is TaskIntent.AUTOMATE:
-            names = self._browser_tools(raw) if any(x in raw.lower() for x in ("browser", "web", "click", "navigate")) else ()
+            names = self._browser_tools(routing_text) if any(x in routing_text.lower() for x in ("browser", "web", "click", "navigate")) else ()
         elif resolved is TaskIntent.TEST:
             names = ("github.inspect", "lint.run") if "lint" in raw.lower() else ("github.inspect", "tests.run")
         elif resolved in {TaskIntent.CHANGE, TaskIntent.IMPROVE}:
