@@ -97,7 +97,14 @@ def _has_unfinished_execution(path,execution_id):
         for line in lines:
             if not line.strip():continue
             item=json.loads(line)
-            if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
+            if not isinstance(item, dict) or item.get("execution_id") != execution_id:
+                continue
+            # Provider routing is pre-execution telemetry, not evidence that a
+            # task was started. Ignore it even for historical records which
+            # incorrectly carried state="running".
+            if item.get("event") == "specialist_provider_route":
+                continue
+            last = str(item.get("state", ""))
     except (OSError,UnicodeError,json.JSONDecodeError):
         raise ValueError("execution audit contains an invalid record")
     return last==ExecutionState.RUNNING.value or (last is not None and last not in terminal)
