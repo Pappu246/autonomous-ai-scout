@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -17,6 +18,7 @@ from .capability_policy import Capability
 from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
 from .execution_audit import append_execution_record
+from .filesystem_workspace import WorkspaceConnector
 from .execution_engine import ExecutionState
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
@@ -28,7 +30,7 @@ from .task_core import AutonomousTaskCore
 from .mission_orchestrator import MissionOrchestrator
 from .tool_registry import ApprovalRequirement
 from .task_dag import DAGTaskSpec
-from .task_planner import default_grants_for_task
+from .task_planner import candidate_tool_names, default_grants_for_task
 from .task_queue import QueueItem, QueueState, TaskQueueStore
 from .runtime import run_task
 
@@ -189,6 +191,7 @@ class MissionController:
         audit_path: str | Path = "state/runtime_execution.jsonl",
         journal_path: str | Path = "state/runtime_runs.jsonl",
         computer_connector: BoundedComputerConnector | None = None,
+        workspace_connector: WorkspaceConnector | None = None,
     ) -> None:
         self.root = (root or Path.cwd()).resolve()
         self.queue = TaskQueueStore(self.root / queue_path)
@@ -201,6 +204,7 @@ class MissionController:
         self.approval_audit_path = self.root / "state" / "approval_audit.jsonl"
         self.approval_claim_dir = self.root / "state" / "approval_claims"
         self.computer_connector = computer_connector or BoundedComputerConnector()
+        self.workspace_connector = workspace_connector or WorkspaceConnector(self.root)
         self.provider_router = SpecialistProviderRouter(providers_from_env())
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
@@ -283,6 +287,38 @@ class MissionController:
             "computer.use": {"task": task, "max_turns": 20},
             "computer.use:credref": None,
         }
+
+    def _workspace_request(self, task: str) -> dict[str, object]:
+        """Build a minimal, read-only request for explicit local workspace reads/lists."""
+        tool_names = candidate_tool_names(task, self.core._registry)
+        if "filesystem.read" in tool_names:
+            match = re.search(
+                r"\b(?:read|open|inspect|summari[sz]e|show)\s+(?:the\s+)?file\s+(?:at\s+)?[\"'`]?([A-Za-z0-9_.-]+(?:[/\\][A-Za-z0-9_.-]+)*\.[A-Za-z0-9]{1,12})",
+                task,
+                re.IGNORECASE,
+            )
+            if match is None:
+                return {}
+            return {
+                "filesystem.read": {
+                    "operation": "read",
+                    "path": match.group(1).replace("\\", "/"),
+                }
+            }
+        if "filesystem.list" in tool_names:
+            match = re.search(
+                r"\b(?:directory|folder)\s+(?:at\s+)?[\"'`]?([A-Za-z0-9_.-]+(?:[/\\][A-Za-z0-9_.-]+)*)",
+                task,
+                re.IGNORECASE,
+            )
+            return {
+                "filesystem.list": {
+                    "operation": "list",
+                    "path": match.group(1).replace("\\", "/") if match else ".",
+                }
+            }
+        # Writes/transforms need a separate explicit approval/input workflow.
+        return {}
 
     @staticmethod
     def _result_summary(result) -> str:
@@ -803,6 +839,8 @@ class MissionController:
                 explicitly_approved=approved,
                 computer_connector=self.computer_connector,
                 computer_request=self._computer_request(node.task),
+                workspace_connector=self.workspace_connector,
+                workspace_request=self._workspace_request(node.task),
             )
             self._record_computer_evidence(step_execution_id, result)
             if result.state is ExecutionState.VERIFIED:
@@ -869,6 +907,8 @@ class MissionController:
                     explicitly_approved=approved,
                     computer_connector=self.computer_connector,
                     computer_request=self._computer_request(item.task),
+                    workspace_connector=self.workspace_connector,
+                    workspace_request=self._workspace_request(item.task),
                 )
                 self._record_computer_evidence(item.execution_id, result)
                 success = result.state is ExecutionState.VERIFIED
