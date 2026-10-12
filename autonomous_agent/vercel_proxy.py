@@ -51,7 +51,11 @@ def target_is_allowed(path: str, method: str) -> bool:
             return True
         if normalized.startswith("/api/missions/"):
             parts = normalized.strip("/").split("/")
-            return len(parts) == 2 or (len(parts) == 3 and parts[2] in {"memory", "timeline"})
+            return (
+                len(parts) == 3 and bool(parts[2])
+            ) or (
+                len(parts) == 4 and bool(parts[2]) and parts[3] in {"memory", "timeline"}
+            )
         # Nested approval endpoints are mutations and are never GET routes.
         return False
 
