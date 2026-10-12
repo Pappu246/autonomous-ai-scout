@@ -150,3 +150,4 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     assert "Unable to load missions:" in page
     assert "Unable to load approvals:" in page
     assert "if (refreshInProgress) return;" in page
+    assert r".join('\n') || 'No matching mission memory.'" in page
