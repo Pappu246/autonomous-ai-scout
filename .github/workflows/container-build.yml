@@ -1,0 +1,44 @@
+name: Container Build
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "autonomous_agent/**"
+      - "requirements.lock"
+      - "pyproject.toml"
+      - ".github/workflows/container-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "autonomous_agent/**"
+      - "requirements.lock"
+      - "pyproject.toml"
+      - ".github/workflows/container-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout-container-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify checkout integrity
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
+      - name: Build production container
+        run: docker build --pull --tag autonomous-ai-scout:ci .
