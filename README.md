@@ -968,7 +968,7 @@ The operational-readiness notes below were previously presented as live status, 
 ### Current deployment candidate
 
 - PR [#280 — Mission Control fixes and Vercel/container deployment preparation](https://github.com/Pappu246/autonomous-ai-scout/pull/280) contains the current deployment candidate.
-- The latest verified candidate checks before this documentation-only refresh reported **2,464 passed, 6 skipped**, with **Windows Computer Smoke** and **Container Build** successful. The new documentation commit triggers fresh checks; inspect PR #280 for the results on its exact current head.
+- The earlier implementation commit `45f106bcc12c8cca3939a899e8b578c95d0f766b` recorded **2,464 passed, 6 skipped**, with **Windows Computer Smoke** and **Container Build** successful. Gateway route-shape hardening and subsequent documentation edits came afterward, so those results are historical, not evidence for the current head. Merge only after PR #280 reports fresh passing checks for its exact current commit.
 - The candidate includes a Docker runtime, a bounded Vercel gateway, route rewrites, and deployment instructions. These are preparation changes, not a live deployment.
 - At this snapshot, PR #280 is still awaiting independent review and has not been merged to `main`.
 - No Vercel project or public Mission Control URL has been created for this repository, and a production runtime smoke test has not been performed.
