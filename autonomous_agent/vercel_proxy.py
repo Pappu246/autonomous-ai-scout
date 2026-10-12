@@ -48,7 +48,7 @@ def target_is_allowed(path: str, method: str) -> bool:
     verb = method.upper()
     if verb == "GET":
         return (
-            normalized in {"/", "/health", "/api/missions", "/api/approvals"}
+            normalized in {"/", "/login", "/health", "/api/missions", "/api/approvals"}
             or normalized.startswith("/api/missions/")
             or normalized.startswith("/api/approvals/")
         )
@@ -191,13 +191,15 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
         if not target_is_allowed(path, "GET"):
             self._json(404, {"error": "route not found"})
             return
-        if path == "/":
+        if path in {"/", "/login"}:
             if not self._configured_token("SCOUT_WEB_ACCESS_TOKEN"):
                 self._json(503, {"error": "SCOUT_WEB_ACCESS_TOKEN is not configured for this deployment"})
                 return
             if not self._has_session():
                 self._login_page()
                 return
+            if path == "/login":
+                path = "/"
         elif path != "/health" and not self._has_session():
             self._json(401, {"error": "sign in required"})
             return
@@ -264,12 +266,18 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
             try:
                 upstream = opener.open(request, timeout=20)
             except HTTPError as exc:
+                if 300 <= exc.code < 400:
+                    exc.close()
+                    self._json(502, {"error": "backend redirects are not allowed"})
+                    return
                 upstream = exc
-            with upstream:
+            try:
                 payload = upstream.read(MAX_RESPONSE_BYTES + 1)
-                status = int(upstream.status)
+                status = int(getattr(upstream, "status", getattr(upstream, "code", 502)))
                 upstream_type = upstream.headers.get("Content-Type", "application/octet-stream")
                 upstream_cache = upstream.headers.get("Cache-Control", "no-store")
+            finally:
+                upstream.close()
         except (URLError, TimeoutError, OSError) as exc:
             self._json(502, {"error": f"backend request failed: {type(exc).__name__}"})
             return
