@@ -73,8 +73,8 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
     gateway = services["gateway"]
     runtime = services["runtime"]
 
-    assert gateway["framework"] == "python"
-    assert gateway["entrypoint"] == "api.proxy:handler"
+    assert gateway["runtime"] == "container"
+    assert gateway["entrypoint"] == "Dockerfile.gateway.vercel"
     assert gateway["bindings"] == [
         {
             "type": "service",

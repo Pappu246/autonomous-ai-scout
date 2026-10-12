@@ -3,8 +3,8 @@
   "services": {
     "gateway": {
       "root": ".",
-      "framework": "python",
-      "entrypoint": "api.proxy:handler",
+      "runtime": "container",
+      "entrypoint": "Dockerfile.gateway.vercel",
       "bindings": [
         {
           "type": "service",

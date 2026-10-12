@@ -5,6 +5,7 @@ on:
     paths:
       - "Dockerfile"
       - "Dockerfile.vercel"
+      - "Dockerfile.gateway.vercel"
       - "vercel.json"
       - "tests/test_vercel_proxy.py"
       - ".dockerignore"
@@ -51,3 +52,5 @@ jobs:
         run: docker build --pull --tag autonomous-ai-scout:ci .
       - name: Build Vercel runtime container
         run: docker build --pull --file Dockerfile.vercel --tag autonomous-ai-scout:vercel-ci .
+      - name: Build Vercel gateway container
+        run: docker build --pull --file Dockerfile.gateway.vercel --tag autonomous-ai-scout:gateway-ci .
