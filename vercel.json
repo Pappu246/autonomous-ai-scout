@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/", "destination": "/api/proxy?path=/" },
+    { "source": "/login", "destination": "/api/proxy?path=/login" },
+    { "source": "/logout", "destination": "/api/proxy?path=/logout" },
+    { "source": "/health", "destination": "/api/proxy?path=/health" },
+    { "source": "/api/missions", "destination": "/api/proxy?path=/api/missions" },
+    { "source": "/api/missions/:path*", "destination": "/api/proxy?path=/api/missions/:path*" },
+    { "source": "/api/approvals", "destination": "/api/proxy?path=/api/approvals" },
+    { "source": "/api/approvals/:path*", "destination": "/api/proxy?path=/api/approvals/:path*" }
+  ]
+}
