@@ -349,11 +349,15 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             workspace_root = Path(getattr(self.server, "workspace_root", DEFAULT_WORKSPACE_ROOT)).resolve()
-            self._json(200, {
+            payload = {
                 "status": "ok",
                 "service": "autonomous-ai-scout",
-                "workspace_root": str(workspace_root),
-            })
+            }
+            # On a public bind, the health endpoint is deliberately path-free.
+            # Local loopback development retains the helpful workspace diagnostic.
+            if not getattr(self.server, "require_auth", False):
+                payload["workspace_root"] = str(workspace_root)
+            self._json(200, payload)
             return
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
