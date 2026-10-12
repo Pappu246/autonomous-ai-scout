@@ -71,6 +71,26 @@ def target_is_allowed(path: str, method: str) -> bool:
         return len(parts) == 4 and bool(parts[2]) and parts[3] in {"cancel", "resume"}
     return False
 
+
+def resolve_request_path(request_target: str, method: str) -> str:
+    """Resolve direct service paths or a single legacy ?path= target safely."""
+    parsed = urlsplit(request_target)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if "path" in query:
+        if parsed.path != "/api/proxy":
+            return ""
+        values = query["path"]
+        if len(values) != 1:
+            return ""
+        candidate = values[0]
+        return candidate if target_is_allowed(candidate, method) else ""
+    if parsed.query:
+        return ""
+    if target_is_allowed(parsed.path, method):
+        return parsed.path
+    return ""
+
+
 _LOGIN_PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -157,11 +177,7 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
         return value if _TOKEN_PATTERN.fullmatch(value) else ""
 
     def _original_path(self) -> str:
-        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
-        values = query.get("path", [])
-        if len(values) != 1:
-            return ""
-        return values[0]
+        return resolve_request_path(self.path, self.command)
 
     def _has_session(self) -> bool:
         expected = self._configured_token("SCOUT_WEB_ACCESS_TOKEN")

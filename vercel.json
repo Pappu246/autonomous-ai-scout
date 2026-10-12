@@ -21,13 +21,13 @@
     }
   },
   "rewrites": [
-    { "source": "/", "destination": { "service": "gateway", "path": "/api/proxy?path=/" } },
-    { "source": "/login", "destination": { "service": "gateway", "path": "/api/proxy?path=/login" } },
-    { "source": "/logout", "destination": { "service": "gateway", "path": "/api/proxy?path=/logout" } },
-    { "source": "/health", "destination": { "service": "gateway", "path": "/api/proxy?path=/health" } },
-    { "source": "/api/missions", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/missions" } },
-    { "source": "/api/missions/:path*", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/missions/:path*" } },
-    { "source": "/api/approvals", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/approvals" } },
-    { "source": "/api/approvals/:path*", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/approvals/:path*" } }
+    { "source": "/", "destination": { "service": "gateway", "path": "/" } },
+    { "source": "/login", "destination": { "service": "gateway", "path": "/login" } },
+    { "source": "/logout", "destination": { "service": "gateway", "path": "/logout" } },
+    { "source": "/health", "destination": { "service": "gateway", "path": "/health" } },
+    { "source": "/api/missions", "destination": { "service": "gateway", "path": "/api/missions" } },
+    { "source": "/api/missions/:path*", "destination": { "service": "gateway", "path": "/api/missions/:path*" } },
+    { "source": "/api/approvals", "destination": { "service": "gateway", "path": "/api/approvals" } },
+    { "source": "/api/approvals/:path*", "destination": { "service": "gateway", "path": "/api/approvals/:path*" } }
   ]
 }

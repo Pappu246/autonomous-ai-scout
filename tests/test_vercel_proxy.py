@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from autonomous_agent.vercel_gateway_server import _server_port
-from autonomous_agent.vercel_proxy import normalize_backend_origin, target_is_allowed
+from autonomous_agent.vercel_proxy import normalize_backend_origin, resolve_request_path, target_is_allowed
 
 
 def test_backend_origin_accepts_https_origin_only() -> None:
@@ -100,3 +100,39 @@ def test_vercel_gateway_accepts_valid_platform_ports(raw: str, expected: int) ->
 def test_vercel_gateway_rejects_invalid_platform_ports(raw: str) -> None:
     with pytest.raises(SystemExit):
         _server_port(raw)
+
+
+
+@pytest.mark.parametrize(
+    ("request_target", "method", "expected"),
+    [
+        ("/", "GET", "/"),
+        ("/login", "GET", "/login"),
+        ("/health", "GET", "/health"),
+        ("/api/missions/mission-123/timeline", "GET", "/api/missions/mission-123/timeline"),
+        ("/api/proxy?path=/login", "GET", "/login"),
+        ("/api/proxy?path=/api/missions", "POST", "/api/missions"),
+    ],
+)
+def test_request_path_supports_direct_services_and_legacy_proxy_targets(
+    request_target: str, method: str, expected: str
+) -> None:
+    assert resolve_request_path(request_target, method) == expected
+
+
+@pytest.mark.parametrize(
+    ("request_target", "method"),
+    [
+        ("/api/proxy", "GET"),
+        ("/not-allowed", "GET"),
+        ("/login?path=/api/missions", "GET"),
+        ("/api/proxy?path=/unknown", "GET"),
+        ("/api/proxy?path=/login&path=/logout", "GET"),
+        ("/api/proxy?other=value", "GET"),
+        ("/api/approvals/abc/approve", "GET"),
+    ],
+)
+def test_request_path_rejects_ambiguous_or_unlisted_targets(
+    request_target: str, method: str
+) -> None:
+    assert resolve_request_path(request_target, method) == ""
