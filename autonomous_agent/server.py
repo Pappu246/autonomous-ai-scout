@@ -112,9 +112,25 @@ function esc(value) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      cache: 'no-store',
+      signal: controller.signal
+    });
+  } catch (error) {
+    const reason = error && error.name === 'AbortError'
+      ? 'timed out after 8 seconds'
+      : 'network request failed';
+    throw new Error(path + ' ' + reason);
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
+  if (!response.ok) throw new Error(path + ': ' + (body.error || ('HTTP ' + response.status)));
   return body;
 }
 
@@ -220,19 +236,55 @@ function render(items) {
   });
 }
 
+let refreshInProgress = false;
+
 async function refresh() {
+  if (refreshInProgress) return;
+  refreshInProgress = true;
+  const failures = [];
   try {
-    const [missionBody, approvalBody, healthBody] = await Promise.all([
+    const [missionResult, approvalResult, healthResult] = await Promise.allSettled([
       api('/api/missions'),
       api('/api/approvals'),
       api('/health')
     ]);
-    document.getElementById('workspace-root').textContent = 'Workspace root: ' + (healthBody.workspace_root || 'unknown');
-    render(missionBody.missions);
-    renderApprovals(approvalBody.approvals);
-    notice.textContent = '';
-  } catch (error) {
-    notice.textContent = error.message;
+
+    if (healthResult.status === 'fulfilled') {
+      const root = healthResult.value.workspace_root;
+      document.getElementById('workspace-root').textContent =
+        'Workspace root: ' + (root || 'hidden by remote runtime');
+    } else {
+      const message = healthResult.reason instanceof Error
+        ? healthResult.reason.message : String(healthResult.reason);
+      document.getElementById('workspace-root').textContent = 'Workspace status unavailable: ' + message;
+      failures.push(message);
+    }
+
+    if (missionResult.status === 'fulfilled' && Array.isArray(missionResult.value.missions)) {
+      render(missionResult.value.missions);
+    } else {
+      const message = missionResult.status === 'rejected'
+        ? (missionResult.reason instanceof Error ? missionResult.reason.message : String(missionResult.reason))
+        : '/api/missions returned an invalid response';
+      missions.innerHTML = '<div class="muted">Unable to load missions: ' + esc(message) + '</div>';
+      failures.push(message);
+    }
+
+    if (approvalResult.status === 'fulfilled' && Array.isArray(approvalResult.value.approvals)) {
+      renderApprovals(approvalResult.value.approvals);
+    } else {
+      const message = approvalResult.status === 'rejected'
+        ? (approvalResult.reason instanceof Error ? approvalResult.reason.message : String(approvalResult.reason))
+        : '/api/approvals returned an invalid response';
+      approvals.innerHTML = '<div class="muted">Unable to load approvals: ' + esc(message) + '</div>';
+      failures.push(message);
+    }
+
+    notice.textContent = failures.length
+      ? 'Dashboard warning: ' + failures.join(' · ')
+      : '';
+  } finally {
+    refreshInProgress = false;
   }
 }
 
@@ -256,7 +308,7 @@ document.getElementById('mission-form').addEventListener('submit', async event =
 
 document.getElementById('refresh').addEventListener('click', refresh);
 refresh();
-setInterval(refresh, 2000);
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>"""
