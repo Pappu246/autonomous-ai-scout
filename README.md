@@ -964,17 +964,18 @@ never auto-merges or deploys.
 
 ## Current status — 2026-10-12
 
-The operational-readiness notes below were previously presented as live status, but their source snapshot was from 2026-09-30. Use the repository's live pull-request and Actions pages for current CI and merge status; do not treat an old README snapshot as current release evidence.
+The operational-readiness notes below include a historical 2026-09-30 snapshot. Use the current pull request and GitHub Actions runs for release status; do not treat the old snapshot as current release evidence.
 
 ### Current deployment candidate
 
-- PR [#280 — Mission Control fixes and Vercel/container deployment preparation](https://github.com/Pappu246/autonomous-ai-scout/pull/280) contains the current deployment candidate.
-- The earlier implementation commit `45f106bcc12c8cca3939a899e8b578c95d0f766b` recorded **2,464 passed, 6 skipped**, with **Windows Computer Smoke** and **Container Build** successful. Gateway route-shape hardening and subsequent documentation edits came afterward, so those results are historical, not evidence for the current head. Merge only after PR #280 reports fresh passing checks for its exact current commit.
-- The candidate includes a Docker runtime, a bounded Vercel gateway, route rewrites, and deployment instructions. These are preparation changes, not a live deployment.
-- At this snapshot, PR #280 is still awaiting independent review and has not been merged to `main`.
-- A Vercel project and initial Preview build now exist for the candidate branch; runtime gateway wiring and environment configuration are still being validated.
-
-Do not report the application as publicly deployed until a live URL is verified end to end, including sign-in, mission submission, mission status/timeline, approvals, and persistence across a runtime restart.
+- PR [#280 — Mission Control and Vercel deployment](https://github.com/Pappu246/autonomous-ai-scout/pull/280) contains the current candidate.
+- Latest application-code commit verified by CI: `a83d7b572f72b6b3f36c633b4ba46dc23294de10`.
+- CI: **2,492 passed, 6 skipped** — [run #3606](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38256046069).
+- Windows Computer Smoke: **PASS** — [run #30](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38256045863).
+- Container Build (both runtime and gateway images): **PASS** — [run #18](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38256045904).
+- Vercel Preview: [Mission Control login](https://autonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app/login). Live GET checks verified the login page and backend health endpoint return HTTP 200.
+- PR #280 remains open and awaits independent review; the deployment is a Preview, not a production release.
+- The authenticated mission/approval workflow and persistence across runtime replacement still require an end-to-end login/session test. Mission and audit records use file-backed state; do not claim production durability until persistent storage/restart verification is completed.
 
 ### Historical operational readiness
 
