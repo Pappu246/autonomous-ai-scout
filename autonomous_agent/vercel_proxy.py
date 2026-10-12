@@ -47,11 +47,14 @@ def target_is_allowed(path: str, method: str) -> bool:
 
     verb = method.upper()
     if verb == "GET":
-        return (
-            normalized in {"/", "/login", "/health", "/api/missions", "/api/approvals"}
-            or normalized.startswith("/api/missions/")
-            or normalized.startswith("/api/approvals/")
-        )
+        if normalized in {"/", "/login", "/health", "/api/missions", "/api/approvals"}:
+            return True
+        if normalized.startswith("/api/missions/"):
+            parts = normalized.strip("/").split("/")
+            return len(parts) == 2 or (len(parts) == 3 and parts[2] in {"memory", "timeline"})
+        # Nested approval endpoints are mutations and are never GET routes.
+        return False
+
     if verb != "POST":
         return False
     if normalized in {"/login", "/logout", "/api/missions"}:
@@ -61,7 +64,6 @@ def target_is_allowed(path: str, method: str) -> bool:
     if normalized.startswith("/api/missions/"):
         return normalized.endswith("/cancel") or normalized.endswith("/resume")
     return False
-
 
 _LOGIN_PAGE = """<!doctype html>
 <html lang="en">
