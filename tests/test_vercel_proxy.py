@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_agent.vercel_gateway_server import _server_port
 from autonomous_agent.vercel_proxy import normalize_backend_origin, target_is_allowed
 
 
@@ -87,3 +88,15 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
     assert runtime["entrypoint"] == "Dockerfile"
     assert config["rewrites"]
     assert all(route["destination"]["service"] == "gateway" for route in config["rewrites"])
+
+
+
+@pytest.mark.parametrize("raw, expected", [("80", 80), ("3000", 3000), ("65535", 65535)])
+def test_vercel_gateway_accepts_valid_platform_ports(raw: str, expected: int) -> None:
+    assert _server_port(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-1", "65536"])
+def test_vercel_gateway_rejects_invalid_platform_ports(raw: str) -> None:
+    with pytest.raises(SystemExit):
+        _server_port(raw)
