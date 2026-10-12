@@ -38,8 +38,11 @@ The container listens on port 8000. The public-bind security check intentionally
 
 The `vercel.json` rules send the existing Mission Control UI and its required API routes through `api/proxy.py`. The proxy has a route allowlist, rejects non-HTTPS backend origins and redirects, caps request and response sizes, does not forward browser cookies upstream, and does not log credentials or task content. The health response removes the workspace path.
 
-## Important scope and cost boundary
+## Deployment prerequisites
 
-The infrastructure project, registry, Azure Files, and log collection can incur Azure charges. This repository configuration does not create cloud resources automatically. Production provisioning requires an authenticated Azure subscription with permission to create Container Apps, a Container Apps environment, a registry, storage, and logging resources.
+This repository contains deployment configuration only; it does not create cloud resources automatically. Before real missions can run remotely, provision the Container Apps runtime, image registry, durable Azure Files volume, and logging resources. Configure all credentials as encrypted deployment secrets; never commit them to source code or bake them into the container image.
+
+Production provisioning requires an authenticated Azure account with permission to create Container Apps, a Container Apps environment, a registry, storage, and logging resources.
+
 
 Until Azure exists and the three deployment secrets are configured in Vercel, the Vercel gateway intentionally returns a setup error rather than pretending that a backend is connected.
