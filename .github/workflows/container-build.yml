@@ -51,5 +51,3 @@ jobs:
         run: docker build --pull --tag autonomous-ai-scout:ci .
       - name: Build Vercel gateway container
         run: docker build --pull --file Dockerfile.vercel --tag autonomous-ai-scout:gateway-ci .
-      - name: Build Vercel gateway container
-        run: docker build --pull --file Dockerfile.gateway.vercel --tag autonomous-ai-scout:gateway-ci .
