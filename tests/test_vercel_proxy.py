@@ -74,7 +74,7 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
     runtime = services["runtime"]
 
     assert gateway["runtime"] == "container"
-    assert gateway["entrypoint"] == "Dockerfile.gateway.vercel"
+    assert gateway["entrypoint"] == "Dockerfile.vercel"
     assert gateway["bindings"] == [
         {
             "type": "service",
@@ -84,6 +84,6 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
         }
     ]
     assert runtime["runtime"] == "container"
-    assert runtime["entrypoint"] == "Dockerfile.vercel"
+    assert runtime["entrypoint"] == "Dockerfile"
     assert config["rewrites"]
     assert all(route["destination"]["service"] == "gateway" for route in config["rewrites"])

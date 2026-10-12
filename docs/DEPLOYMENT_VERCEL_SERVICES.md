@@ -1,14 +1,14 @@
 # Vercel Services deployment
 
-Autonomous AI Scout is exposed through a password-protected gateway container; the existing persistent Python mission server runs as a separate internal container service in the same Vercel project.
+Autonomous AI Scout is exposed through a password-protected gateway container; the Python mission server runs as a separate internal container service in the same Vercel project.
 
 ## Service layout
 
 - Public routes (`/`, `/login`, `/logout`, `/health`, mission and approval APIs) route to the gateway service.
-- The gateway uses the existing bounded proxy handler and runs it through Python's threaded HTTP server.
-- The gateway has a route/method allowlist, validates the backend HTTPS origin, forwards the backend bearer token server-side, rejects redirects, and limits request/response sizes.
+- The gateway uses the existing bounded proxy handler through a threaded Python HTTP server. Its container is built from `Dockerfile.vercel`.
+- The runtime service uses the existing mission server and root `Dockerfile`; it binds to Vercel's injected `PORT` in Vercel Services and keeps port 8000 as the standalone-host default.
 - A Vercel service binding injects the internal runtime URL as `SCOUT_API_ORIGIN`. Do not hardcode the internal deployment URL.
-- The runtime container listens on `PORT` (default 3000) and requires `SCOUT_SERVER_TOKEN` because it binds to `0.0.0.0`.
+- Both services require `SCOUT_SERVER_TOKEN`; the runtime checks it on non-loopback binds.
 
 ## Environment configuration
 
