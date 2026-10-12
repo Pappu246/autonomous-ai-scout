@@ -287,3 +287,38 @@ def test_cancel_approval_pending_mission_invalidates_pending_approval(tmp_path: 
         if item.id == mission.approval_action_id
     )
     assert action.status == "rejected"
+
+def test_read_only_workspace_mission_uses_bounded_filesystem_connector(tmp_path: Path) -> None:
+    import json
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "README.md").write_text(
+        "# Isolated fixture\\nThe workspace is temporary.\\nIt contains no real user data or credentials.\\n",
+        encoding="utf-8",
+    )
+    task = (
+        "Read file docs/README.md in the isolated workspace and summarize two facts. "
+        "Do not change any file. Do not execute shell commands. "
+        "Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    )
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit(task)
+    assert mission.state == "pending"
+
+    result = controller.run_once()
+
+    assert result is not None
+    assert result.state == "verified", result.reason
+    records = [
+        json.loads(line)
+        for line in controller.audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    executed_tools = [
+        record.get("tool")
+        for record in records
+        if record.get("event") == "tool_result"
+    ]
+    assert executed_tools == ["filesystem.read"]
+
