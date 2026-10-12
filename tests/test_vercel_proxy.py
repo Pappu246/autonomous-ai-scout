@@ -108,7 +108,9 @@ def test_vercel_gateway_rejects_invalid_platform_ports(raw: str) -> None:
     [
         ("/", "GET", "/"),
         ("/login", "GET", "/login"),
+        ("/login?vercel-routing=1", "GET", "/login"),
         ("/health", "GET", "/health"),
+        ("/health?vercel-routing=1", "GET", "/health"),
         ("/api/missions/mission-123/timeline", "GET", "/api/missions/mission-123/timeline"),
         ("/api/proxy?path=/login", "GET", "/login"),
         ("/api/proxy?path=/api/missions", "POST", "/api/missions"),

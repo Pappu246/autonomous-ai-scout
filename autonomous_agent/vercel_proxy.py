@@ -84,8 +84,6 @@ def resolve_request_path(request_target: str, method: str) -> str:
             return ""
         candidate = values[0]
         return candidate if target_is_allowed(candidate, method) else ""
-    if parsed.query:
-        return ""
     if target_is_allowed(parsed.path, method):
         return parsed.path
     return ""
