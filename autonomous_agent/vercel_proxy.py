@@ -64,9 +64,11 @@ def target_is_allowed(path: str, method: str) -> bool:
     if normalized in {"/login", "/logout", "/api/missions"}:
         return True
     if normalized.startswith("/api/approvals/"):
-        return normalized.endswith("/approve") or normalized.endswith("/reject")
+        parts = normalized.strip("/").split("/")
+        return len(parts) == 4 and bool(parts[2]) and parts[3] in {"approve", "reject"}
     if normalized.startswith("/api/missions/"):
-        return normalized.endswith("/cancel") or normalized.endswith("/resume")
+        parts = normalized.strip("/").split("/")
+        return len(parts) == 4 and bool(parts[2]) and parts[3] in {"cancel", "resume"}
     return False
 
 _LOGIN_PAGE = """<!doctype html>
