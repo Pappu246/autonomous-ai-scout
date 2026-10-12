@@ -961,69 +961,23 @@ runs remain terminal. A process interruption leaves an execution marker and does
 not retry automatically. The worker creates only a draft PR and observes CI; it
 never auto-merges or deploys.
 
-## Current status
+## Current status — 2026-10-12
 
-**Current mainline baseline:** `d68ec62d335a5ebfb474ba928c73eb2f01f7d905`
+The operational-readiness notes below were previously presented as live status, but their source snapshot was from 2026-09-30. Use the repository's live pull-request and Actions pages for current CI and merge status; do not treat an old README snapshot as current release evidence.
 
-The current repository is **implementation-complete for the audited autonomy/control layers**, with
-the remaining gaps explicitly separated into live-environment and GitHub-administration boundaries.
+### Current deployment candidate
 
-### Verified repository state
+- PR [#280 — Mission Control fixes and Vercel/container deployment preparation](https://github.com/Pappu246/autonomous-ai-scout/pull/280) contains the current deployment candidate.
+- The latest verified candidate checks before this documentation-only refresh reported **2,464 passed, 6 skipped**, with **Windows Computer Smoke** and **Container Build** successful. The new documentation commit triggers fresh checks; inspect PR #280 for the results on its exact current head.
+- The candidate includes a Docker runtime, a bounded Vercel gateway, route rewrites, and deployment instructions. These are preparation changes, not a live deployment.
+- At this snapshot, PR #280 is still awaiting independent review and has not been merged to `main`.
+- No Vercel project or public Mission Control URL has been created for this repository, and a production runtime smoke test has not been performed.
 
-- Core canonical autonomous lifecycle: **verified**
-- Durable queue/lease/side-effect/trigger/audit/lifecycle/memory coordination: **verified**
-- Native Windows computer control: **verified**
-- Adaptive computer execution: **verified**
-- Bounded provider failure/retry handling: **verified**
-- Dedicated computer final visual verification: **verified**
-- Automatic Windows computer smoke workflow: **verified**
-- Open pull requests: **0**
-- Open issues: **0**
-- Latest mainline CI: **PASS** on exact SHA `d68ec62d335a5ebfb474ba928c73eb2f01f7d905` (run **36748455217**)
-- Latest post-merge Windows smoke: **5 passed, 1 skipped**
+Do not report the application as publicly deployed until a live URL is verified end to end, including sign-in, mission submission, mission status/timeline, approvals, and persistence across a runtime restart.
 
-### Live evidence already established
+### Historical operational readiness
 
-- Scheduled Scout generation + publication path: **live-verified**
-- Approval-gated GitHub worker branch/commit/draft-PR path: **live-verified**
-- Normal pull-request CI path after worker-created change: **live-verified**
-- Scheduled publication revalidated on **2026-09-30** (workflow run **36684385846**); Scout and Publish both succeeded and state branch advanced to **72e823d**.
-
-### Still requiring real external evidence
-
-- Coding-provider execution needs operator credentials and a legitimate target workspace.
-- Gmail/Calendar/application/document external-account smoke tests need legitimate connected accounts.
-- Main branch protection and required-check administration require GitHub repository administration.
-- No formal GitHub release/tag is currently published.
-
-These boundaries are deliberately reported as **not verified**, rather than being represented as
-completed by deterministic tests alone.
-
-### Readiness gate
-
-The authoritative current gate matrix is:
-[Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
-
-The 2026-09-30 Scout secret-scan finding was traced to deliberate PEM test-fixture text. The fixture was rewritten without changing the security assertion, and the reproducibility gap was closed with the checked-in dependency snapshot. The next scheduled Scout report is the independent operational confirmation point for those findings.
-
-
-The Python CI and scheduled Scout workflows now consume the checked-in `requirements.lock` resolution snapshot after editable installation, so the tested dependency set is explicit rather than resolved from floating ranges at runtime.
-
-Do not start another feature phase by skipping a gate. Finish the current gate, verify it with
-evidence, then advance.
-
-### Runtime readiness check
-
-Run the local prerequisite doctor before attempting an external coding run:
-
-```bash
-autonomous-scout-doctor --root .
-```
-
-The doctor reports whether coding-provider routes are configured and whether each configured
-credential environment variable is present. It never prints credential values. A missing
-provider route or credential is reported as unavailable instead of being replaced with an
-implicit fallback.
+The readiness reconciliation dated 2026-09-30 is retained as historical evidence in [Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md). Its commit IDs, pull-request counts, and run IDs describe that dated snapshot only; they are not current-state claims.
 
 ## Documentation
 - [Phase 13 — Live GitHub Worker Evidence](PHASE13_LIVE_WORKER_EVIDENCE.md)
