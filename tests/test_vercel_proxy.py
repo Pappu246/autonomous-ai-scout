@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from autonomous_agent.vercel_proxy import normalize_backend_origin, target_is_allowed
@@ -60,3 +63,27 @@ def test_gateway_allows_only_mission_control_routes_and_expected_methods() -> No
 )
 def test_gateway_rejects_routes_outside_the_bounded_contract(path: str, method: str) -> None:
     assert not target_is_allowed(path, method)
+
+
+def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "vercel.json").read_text(encoding="utf-8"))
+
+    services = config["services"]
+    gateway = services["gateway"]
+    runtime = services["runtime"]
+
+    assert gateway["framework"] == "python"
+    assert gateway["entrypoint"] == "api.proxy:handler"
+    assert gateway["bindings"] == [
+        {
+            "type": "service",
+            "service": "runtime",
+            "format": "url",
+            "env": "SCOUT_API_ORIGIN",
+        }
+    ]
+    assert runtime["runtime"] == "container"
+    assert runtime["entrypoint"] == "Dockerfile.vercel"
+    assert config["rewrites"]
+    assert all(route["destination"]["service"] == "gateway" for route in config["rewrites"])

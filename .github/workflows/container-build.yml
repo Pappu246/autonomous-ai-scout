@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
+      - "Dockerfile.vercel"
+      - "vercel.json"
+      - "tests/test_vercel_proxy.py"
       - ".dockerignore"
       - "autonomous_agent/**"
       - "requirements.lock"
@@ -13,6 +16,9 @@ on:
     branches: [main]
     paths:
       - "Dockerfile"
+      - "Dockerfile.vercel"
+      - "vercel.json"
+      - "tests/test_vercel_proxy.py"
       - ".dockerignore"
       - "autonomous_agent/**"
       - "requirements.lock"
@@ -43,3 +49,5 @@ jobs:
           test "$(git rev-parse HEAD)" = "$expected"
       - name: Build production container
         run: docker build --pull --tag autonomous-ai-scout:ci .
+      - name: Build Vercel runtime container
+        run: docker build --pull --file Dockerfile.vercel --tag autonomous-ai-scout:vercel-ci .

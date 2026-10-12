@@ -99,6 +99,7 @@ print(result.state, result.reason)
 ```
 
 Full design, guarantees and limitations:
+- [Vercel Services deployment](docs/DEPLOYMENT_VERCEL_SERVICES.md)
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [Phase 2 — Bounded Windows Computer Control](PHASE2_WINDOWS_COMPUTER_CONTROL.md)
 - [Phase 4 — Bounded Application and Documents Domains](PHASE4_APPLICATION_DOCUMENTS.md)

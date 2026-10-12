@@ -1,13 +1,33 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "gateway": {
+      "root": ".",
+      "framework": "python",
+      "entrypoint": "api.proxy:handler",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "runtime",
+          "format": "url",
+          "env": "SCOUT_API_ORIGIN"
+        }
+      ]
+    },
+    "runtime": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Dockerfile.vercel"
+    }
+  },
   "rewrites": [
-    { "source": "/", "destination": "/api/proxy?path=/" },
-    { "source": "/login", "destination": "/api/proxy?path=/login" },
-    { "source": "/logout", "destination": "/api/proxy?path=/logout" },
-    { "source": "/health", "destination": "/api/proxy?path=/health" },
-    { "source": "/api/missions", "destination": "/api/proxy?path=/api/missions" },
-    { "source": "/api/missions/:path*", "destination": "/api/proxy?path=/api/missions/:path*" },
-    { "source": "/api/approvals", "destination": "/api/proxy?path=/api/approvals" },
-    { "source": "/api/approvals/:path*", "destination": "/api/proxy?path=/api/approvals/:path*" }
+    { "source": "/", "destination": { "service": "gateway", "path": "/api/proxy?path=/" } },
+    { "source": "/login", "destination": { "service": "gateway", "path": "/api/proxy?path=/login" } },
+    { "source": "/logout", "destination": { "service": "gateway", "path": "/api/proxy?path=/logout" } },
+    { "source": "/health", "destination": { "service": "gateway", "path": "/api/proxy?path=/health" } },
+    { "source": "/api/missions", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/missions" } },
+    { "source": "/api/missions/:path*", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/missions/:path*" } },
+    { "source": "/api/approvals", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/approvals" } },
+    { "source": "/api/approvals/:path*", "destination": { "service": "gateway", "path": "/api/proxy?path=/api/approvals/:path*" } }
   ]
 }
