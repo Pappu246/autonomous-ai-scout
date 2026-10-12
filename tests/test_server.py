@@ -178,3 +178,19 @@ def test_run_endpoint_uses_configured_workspace_root(monkeypatch, tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_public_health_response_does_not_reveal_workspace_path(tmp_path):
+    server, thread = _start_server(require_auth=True, token="x" * 40)
+    server.workspace_root = tmp_path
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/health", timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert payload["status"] == "ok"
+        assert payload["service"] == "autonomous-ai-scout"
+        assert "workspace_root" not in payload
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
