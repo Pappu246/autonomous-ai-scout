@@ -47,3 +47,12 @@ def test_compound_failure_report_request_runs_tests_instead_of_inspect_only():
     )
     assert plan.executable
     assert [step.tool_name for step in plan.steps] == ["github.inspect", "tests.run"]
+
+def test_intent_classification_ignores_negative_tool_constraints():
+    task = (
+        "Read file docs/README.md in the isolated workspace and summarize two facts. "
+        "Do not change any file. Do not execute shell commands. "
+        "Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    )
+    assert classify_intent(task) is TaskIntent.WORKSPACE
+
