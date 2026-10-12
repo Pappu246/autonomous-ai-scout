@@ -115,12 +115,16 @@ async function api(path, options = {}) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
   let response;
+  let body;
   try {
     response = await fetch(path, {
       ...options,
       cache: 'no-store',
       signal: controller.signal
     });
+    // Keep the timeout active while reading the response body too. Some
+    // broken upstream responses send headers but never finish their JSON body.
+    body = await response.json().catch(() => ({}));
   } catch (error) {
     const reason = error && error.name === 'AbortError'
       ? 'timed out after 8 seconds'
@@ -129,7 +133,6 @@ async function api(path, options = {}) {
   } finally {
     window.clearTimeout(timeout);
   }
-  const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(path + ': ' + (body.error || ('HTTP ' + response.status)));
   return body;
 }
@@ -283,6 +286,17 @@ async function refresh() {
     notice.textContent = failures.length
       ? 'Dashboard warning: ' + failures.join(' · ')
       : '';
+  } catch (error) {
+    // Never leave the initial placeholders spinning if rendering or an
+    // unexpected response shape fails outside an individual API request.
+    const message = error instanceof Error ? error.message : String(error);
+    if (missions.textContent.trim() === 'Loading…') {
+      missions.innerHTML = '<div class="muted">Unable to load missions: ' + esc(message) + '</div>';
+    }
+    if (approvals.textContent.trim() === 'Loading…') {
+      approvals.innerHTML = '<div class="muted">Unable to load approvals: ' + esc(message) + '</div>';
+    }
+    notice.textContent = 'Dashboard error: ' + message;
   } finally {
     refreshInProgress = false;
   }
