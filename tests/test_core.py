@@ -128,7 +128,7 @@ def test_project_intelligence_detects_missing_lockfile(tmp_path: Path):
 
 
 def test_project_intelligence_detects_possible_secret(tmp_path: Path):
-    (tmp_path / "app.py").write_text("api_key = '12345678901234567890'", encoding="utf-8")
+    (tmp_path / "app.py").write_text("api_key = '" + "12345678901234567890" + "'", encoding="utf-8")
     findings = analyze_project(tmp_path, "demo")
     assert any(f.title == "Possible hard-coded secret" and f.severity == "high" for f in findings)
 

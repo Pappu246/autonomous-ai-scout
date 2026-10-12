@@ -18,8 +18,7 @@
       "api_key_env": "GEMINI_API_KEY",
       "enabled": true,
       "models": [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash"
+        "gemini-3.8-flash"
       ]
     },
     {
@@ -41,7 +40,7 @@
       "label": "OpenRouter Free Models",
       "docs": "https://openrouter.ai/pricing",
       "release_sources": [
-        "https://openrouter.ai/models?pricing=free"
+        "https://openrouter.ai/blog/announcements/"
       ],
       "api_key_env": "OPENROUTER_API_KEY",
       "enabled": true,

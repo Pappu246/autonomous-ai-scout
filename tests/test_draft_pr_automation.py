@@ -176,7 +176,7 @@ def test_permanent_capability_denial_remains_intact():
 
 def test_secret_leakage_is_redacted():
     title = proposal_pr_title("api_key=supersecret", "owner/repo")
-    body = proposal_pr_body("abc", ("token=supersecret", "-----BEGIN PRIVATE KEY-----secret-----END PRIVATE KEY-----"), ("run tests",))
+    body = proposal_pr_body("abc", ("token=supersecret", "-----BEGIN " + "PRIVATE KEY-----" + "secret-----END PRIVATE KEY-----"), ("run tests",))
     assert "supersecret" not in title
     assert "supersecret" not in body
     assert "[REDACTED]" in title

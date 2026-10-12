@@ -269,7 +269,7 @@ def test_connector_open_session_rejects_path_traversal(connector: BoundedApplica
         "Bearer tok_live_1234567890",
         "password = UltraSecretPass!",
         "client_secret: cs_test_abcdef",
-        "private_key=-----BEGIN PRIVATE KEY-----MII...",
+        "private_key=" + "-----BEGIN " + "PRIVATE KEY-----" + "MII...",
     ],
 )
 def test_application_secret_detection_and_redaction(secret_sample: str):

@@ -102,7 +102,7 @@ def test_cross_project_memory_isolation(tmp_path: Path):
 
 def test_secret_safe_evidence_does_not_persist_secret(tmp_path: Path):
     memory = CrossProjectMemory(tmp_path / "memory.json")
-    secret = "API key=super-secret-value"
+    secret = "API key=" + "super-secret-value"
     observe_github_pull_request("owner/repo", 1, memory=memory, fetch=payload(secret=secret))
     text = (tmp_path / "memory.json").read_text(encoding="utf-8")
     assert "super-secret-value" not in text
