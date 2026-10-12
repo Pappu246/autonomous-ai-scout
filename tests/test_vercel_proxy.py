@@ -138,3 +138,15 @@ def test_request_path_rejects_ambiguous_or_unlisted_targets(
     request_target: str, method: str
 ) -> None:
     assert resolve_request_path(request_target, method) == ""
+
+
+def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() -> None:
+    from autonomous_agent.server import _mission_ui
+
+    page = _mission_ui()
+    assert "const timeout = window.setTimeout(() => controller.abort(), 8000)" in page
+    assert "body = await response.json().catch(() => ({}));" in page
+    assert "Promise.allSettled" in page
+    assert "Unable to load missions:" in page
+    assert "Unable to load approvals:" in page
+    assert "if (refreshInProgress) return;" in page
