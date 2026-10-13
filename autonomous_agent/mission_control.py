@@ -35,6 +35,12 @@ from .task_queue import QueueItem, QueueState, TaskQueueStore
 from .runtime import run_task
 
 
+# Bound timeline scans so a growing audit log cannot block the Mission Control UI.
+MAX_TIMELINE_AUDIT_BYTES = 8 * 1024 * 1024
+MAX_TIMELINE_AUDIT_LINES = 20_000
+MAX_TIMELINE_EVENTS = 500
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -508,7 +514,17 @@ class MissionController:
         events: list[dict[str, object]] = []
         if self.audit_path.exists():
             try:
-                lines = self.audit_path.read_text(encoding="utf-8").splitlines()
+                size = self.audit_path.stat().st_size
+                with self.audit_path.open("rb") as audit_file:
+                    if size > MAX_TIMELINE_AUDIT_BYTES:
+                        audit_file.seek(-MAX_TIMELINE_AUDIT_BYTES, os.SEEK_END)
+                        raw = audit_file.read(MAX_TIMELINE_AUDIT_BYTES)
+                        # The first retained line may begin in the middle of a JSON record.
+                        newline = raw.find(b"\\n")
+                        raw = raw[newline + 1 :] if newline >= 0 else b""
+                    else:
+                        raw = audit_file.read(MAX_TIMELINE_AUDIT_BYTES + 1)
+                lines = raw.decode("utf-8", errors="replace").splitlines()[-MAX_TIMELINE_AUDIT_LINES:]
             except OSError as exc:
                 raise ValueError("mission audit is unreadable") from exc
             for line in lines:
@@ -549,6 +565,10 @@ class MissionController:
                             safe[key] = list(value)[:32]
                 safe["execution_id"] = execution_id
                 events.append(safe)
+
+        # Keep responses small even if one execution generated an unusually long timeline.
+        if len(events) > MAX_TIMELINE_EVENTS - 2:
+            events = events[-(MAX_TIMELINE_EVENTS - 2):]
 
         if record.approval_action_id:
             for action in load_queue(self.approval_queue_path):
