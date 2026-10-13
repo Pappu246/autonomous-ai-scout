@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from enum import Enum
 from typing import Iterable
 
@@ -63,7 +64,12 @@ def choose_specialist(task: str) -> RoleDecision:
     normalized = positive_task_text(task)
     scores: list[tuple[int, SpecialistRole, tuple[str, ...], str]] = []
     for role, keywords, reason in _RULES:
-        hits = tuple(keyword for keyword in keywords if keyword in normalized)
+        # Match whole words/phrases: short signals such as "repo" must not
+        # spuriously match unrelated words such as "report".
+        hits = tuple(
+            keyword for keyword in keywords
+            if re.search(r"(?<!\\w)" + re.escape(keyword) + r"(?!\\w)", normalized)
+        )
         if hits:
             scores.append((len(hits), role, hits, reason))
 
