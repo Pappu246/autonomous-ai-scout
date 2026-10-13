@@ -337,4 +337,4 @@ def test_read_only_project_status_task_is_queued_without_mutation_approval(tmp_p
     assert mission.state == "pending", mission.reason
     assert mission.approval_action_id == ""
     assert len(controller.queue.list()) == 1
-    assert load_queue(controller.approval_queue_path) == ()
+    assert load_queue(controller.approval_queue_path) == []
