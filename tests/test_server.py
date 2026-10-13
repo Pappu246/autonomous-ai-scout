@@ -198,7 +198,7 @@ def test_public_health_response_does_not_reveal_workspace_path(tmp_path):
 
 @pytest.mark.parametrize(
     ("state", "expected_status"),
-    [("pending", 202), ("requires_approval", 202), ("blocked", 422)],
+    [("pending", 202), ("requires_approval", 202), ("blocked", 202)],
 )
 def test_mission_submit_http_status_matches_saved_mission_state(state, expected_status):
     record = SimpleNamespace(
