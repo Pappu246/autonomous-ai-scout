@@ -322,3 +322,19 @@ def test_read_only_workspace_mission_uses_bounded_filesystem_connector(tmp_path:
     ]
     assert executed_tools == ["filesystem.read"]
 
+
+
+def test_read_only_project_status_task_is_queued_without_mutation_approval(tmp_path: Path) -> None:
+    task = (
+        "Inspect the current project status and provide a brief read-only summary of the project's "
+        "structure, recent status, and any visible issues. Do not edit or delete files, execute "
+        "commands, access external accounts, send messages, or perform any action that changes data. "
+        "If information is unavailable, clearly report that."
+    )
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit(task)
+
+    assert mission.state == "pending", mission.reason
+    assert mission.approval_action_id == ""
+    assert len(controller.queue.list()) == 1
+    assert load_queue(controller.approval_queue_path) == ()
