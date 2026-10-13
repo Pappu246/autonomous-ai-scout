@@ -520,7 +520,7 @@ class MissionController:
                         audit_file.seek(-MAX_TIMELINE_AUDIT_BYTES, os.SEEK_END)
                         raw = audit_file.read(MAX_TIMELINE_AUDIT_BYTES)
                         # The first retained line may begin in the middle of a JSON record.
-                        newline = raw.find(b"\\n")
+                        newline = raw.find(b"\n")
                         raw = raw[newline + 1 :] if newline >= 0 else b""
                     else:
                         raw = audit_file.read(MAX_TIMELINE_AUDIT_BYTES + 1)
