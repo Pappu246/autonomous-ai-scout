@@ -212,3 +212,60 @@ def test_mission_timeline_endpoint_returns_safe_execution_evidence(tmp_path: Pat
         assert all("secret" not in json.dumps(item).lower() for item in payload["timeline"])
     finally:
         _close(server, thread)
+
+
+def test_timeline_endpoint_handles_large_audit_log_with_bounded_scan(tmp_path: Path) -> None:
+    server, thread = _start_server(tmp_path)
+    try:
+        controller = server.mission_controller
+        mission = controller.submit("inspect repository timeline fixture")
+        controller.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        unrelated = (
+            b'{"execution_id":"unrelated-execution","event":"noise","timestamp":"2026-01-01T00:00:00Z","padding":"'
+            + b"x" * 512
+            + b'"}\n'
+        )
+        with controller.audit_path.open("wb") as audit:
+            for _ in range(18_000):
+                audit.write(unrelated)
+            audit.write(
+                json.dumps({
+                    "execution_id": mission.execution_id,
+                    "timestamp": "2026-10-13T00:00:00Z",
+                    "event": "target_event",
+                    "state": "verified",
+                }).encode("utf-8") + b"\n"
+            )
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions/{mission.mission_id}/timeline"
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert any(item.get("event") == "target_event" for item in payload["timeline"])
+    finally:
+        _close(server, thread)
+
+
+def test_timeline_endpoint_returns_json_when_unexpected_error_occurs(tmp_path: Path) -> None:
+    server, thread = _start_server(tmp_path)
+    try:
+        controller = server.mission_controller
+        mission = controller.submit("inspect repository timeline error fixture")
+
+        def fail_timeline(_mission_id: str):
+            raise RuntimeError("private diagnostic detail must not be returned")
+
+        controller.timeline = fail_timeline
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions/{mission.mission_id}/timeline"
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(request, timeout=3)
+        assert exc_info.value.code == 500
+        payload = json.loads(exc_info.value.read().decode("utf-8"))
+        assert payload["error"] == "timeline temporarily unavailable; please retry"
+        assert "private diagnostic detail" not in json.dumps(payload)
+    finally:
+        _close(server, thread)
