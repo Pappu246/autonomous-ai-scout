@@ -34,3 +34,9 @@ def test_negative_communication_and_computer_mentions_do_not_change_specialist()
     decision = choose_specialist(task)
     assert decision.role is SpecialistRole.GENERAL
 
+
+
+def test_read_only_project_status_does_not_route_to_coding_specialist():
+    task = "Inspect the current project status and provide a brief read-only summary of the project's structure, recent status, and any visible issues. Do not edit or delete files, execute commands, access external accounts, send messages, or perform any action that changes data. If information is unavailable, clearly report that."
+    decision = choose_specialist(task)
+    assert decision.role is SpecialistRole.GENERAL
