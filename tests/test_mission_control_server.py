@@ -121,9 +121,10 @@ def test_blocked_mission_is_reported_without_queueing(tmp_path: Path):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with pytest.raises(urllib.error.HTTPError) as exc_info:
-            urllib.request.urlopen(request, timeout=3)
-        assert exc_info.value.code == 422
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 202
+        assert payload["mission"]["state"] == "blocked"
 
         blocked = server.mission_controller.store.list()[0]
         assert server.mission_controller.store.get(blocked.mission_id) is not None
