@@ -194,3 +194,47 @@ def test_public_health_response_does_not_reveal_workspace_path(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_status"),
+    [("pending", 202), ("requires_approval", 202), ("blocked", 422)],
+)
+def test_mission_submit_http_status_matches_saved_mission_state(state, expected_status):
+    record = SimpleNamespace(
+        mission_id="mission-test",
+        task_id="mission-test",
+        execution_id="exec-test",
+        task="safe test task",
+        state=state,
+        reason="test mission reason",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        attempts=0,
+        specialist_role="general",
+        steps=(),
+        completed_steps=(),
+        approval_action_id="action-test" if state == "requires_approval" else "",
+    )
+    server, thread = _start_server()
+    server.mission_controller = SimpleNamespace(submit=lambda task: record)
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/missions",
+            data=json.dumps({"task": "safe test task"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                status = response.status
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            payload = json.loads(exc.read().decode("utf-8"))
+        assert status == expected_status
+        assert payload["mission"]["state"] == state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
