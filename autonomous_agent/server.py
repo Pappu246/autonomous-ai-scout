@@ -133,7 +133,7 @@ async function api(path, options = {}) {
   } finally {
     window.clearTimeout(timeout);
   }
-  if (!response.ok) throw new Error(path + ': ' + (body.error || ('HTTP ' + response.status)));
+  if (!response.ok) { const detail = body.error || body.mission?.reason || ('HTTP ' + response.status); throw new Error(path + ': ' + detail); }
   return body;
 }
 
@@ -307,13 +307,20 @@ document.getElementById('mission-form').addEventListener('submit', async event =
   const task = document.getElementById('task').value.trim();
   if (!task) return;
   try {
-    await api('/api/missions', {
+    const response = await api('/api/missions', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({task})
     });
+    const mission = response.mission || {};
     document.getElementById('task').value = '';
-    notice.textContent = 'Mission accepted.';
+    if (mission.state === 'requires_approval') {
+      notice.textContent = 'Mission recorded. Review the Approval Inbox; do not approve any action unless its requested steps are appropriate.';
+    } else if (mission.state === 'pending') {
+      notice.textContent = 'Mission accepted and queued.';
+    } else {
+      notice.textContent = 'Mission recorded with state: ' + (mission.state || 'unknown');
+    }
     await refresh();
   } catch (error) {
     notice.textContent = error.message;
@@ -581,7 +588,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            self._json(202 if record.state == "pending" else 422, {"mission": self._mission_payload(record)})
+            self._json(202 if record.state in {"pending", "requires_approval"} else 422, {"mission": self._mission_payload(record)})
             return
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix) and parsed.path.endswith("/cancel"):
