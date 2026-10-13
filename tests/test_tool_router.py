@@ -58,3 +58,12 @@ def test_negative_capability_constraints_do_not_override_workspace_read():
     assert selection.intent is TaskIntent.WORKSPACE
     assert selection.tool_names == ("filesystem.read",)
 
+
+
+def test_read_only_project_status_does_not_select_mutating_workspace_tools():
+    task = "Inspect the current project status and provide a brief read-only summary of the project's structure, recent status, and any visible issues. Do not edit or delete files, execute commands, access external accounts, send messages, or perform any action that changes data. If information is unavailable, clearly report that."
+    selection = DynamicToolRouter().select_names(task)
+    assert selection.intent is TaskIntent.INSPECT
+    assert selection.tool_names == ("github.inspect",)
+    assert "filesystem.transform" not in selection.tool_names
+    assert "filesystem.write" not in selection.tool_names
