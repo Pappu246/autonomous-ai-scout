@@ -8,7 +8,7 @@ from .task_plan_models import TaskIntent
 _NEGATED_DIRECTIVE = re.compile(
     r"\b(?:do\s+not|don't|dont|never|avoid)\s+"
     r"(?:use|using|access|accessing|open|opening|execute|executing|run|running|"
-    r"invoke|invoking|call|calling|touch|touching|modify|modifying|change|changing|"
+    r"invoke|invoking|call|calling|touch|touching|edit|editing|delete|deleting|remove|removing|erase|erasing|modify|modifying|change|changing|"
     r"write|writing|send|sending|browse|browsing|search|searching|visit|visiting|"
     r"navigate|navigating|connect|connecting|interact|interacting)"
     r"(?:\s+(?:with|to))?\b"
