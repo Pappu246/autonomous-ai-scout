@@ -217,7 +217,7 @@ function render(items) {
       try {
         const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
         const target = document.getElementById('memory-' + button.dataset.memory);
-        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\\n') || 'No matching mission memory.';
+        target.textContent = body.memory.map(item => '[' + item.kind + ' · ' + item.outcome + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\\n') || 'No matching mission memory.'
       } catch (error) { notice.textContent = error.message; }
     });
   });
@@ -517,6 +517,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     return
                 except ValueError as exc:
                     self._json(409, {"error": str(exc)})
+                    return
+                except Exception as exc:
+                    # Do not let unexpected timeline storage/parsing failures drop
+                    # the response and appear as a browser network failure.
+                    print(f"Mission timeline request failed ({type(exc).__name__})", flush=True)
+                    self._json(500, {"error": "timeline temporarily unavailable; please retry"})
                     return
                 self._json(200, {"timeline": list(timeline)})
                 return
