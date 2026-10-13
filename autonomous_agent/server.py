@@ -168,7 +168,7 @@ function renderApprovals(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/approvals/' + encodeURIComponent(button.dataset.approve) + '/approve', {method: 'POST'});
-        notice.textContent = 'Approval recorded. No action was executed.';
+        lastActionNotice = 'Approval recorded. No action was executed.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -177,7 +177,7 @@ function renderApprovals(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/approvals/' + encodeURIComponent(button.dataset.reject) + '/reject', {method: 'POST'});
-        notice.textContent = 'Approval rejected.';
+        lastActionNotice = 'Approval rejected.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -225,6 +225,7 @@ function render(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/missions/' + encodeURIComponent(button.dataset.resume) + '/resume', {method: 'POST'});
+        lastActionNotice = 'Mission resume queued.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -233,6 +234,7 @@ function render(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/missions/' + encodeURIComponent(button.dataset.cancel) + '/cancel', {method: 'POST'});
+        lastActionNotice = 'Mission cancelled.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -240,6 +242,7 @@ function render(items) {
 }
 
 let refreshInProgress = false;
+let lastActionNotice = '';
 
 async function refresh() {
   if (refreshInProgress) return;
@@ -285,7 +288,7 @@ async function refresh() {
 
     notice.textContent = failures.length
       ? 'Dashboard warning: ' + failures.join(' · ')
-      : '';
+      : lastActionNotice;
   } catch (error) {
     // Never leave the initial placeholders spinning if rendering or an
     // unexpected response shape fails outside an individual API request.
@@ -315,11 +318,11 @@ document.getElementById('mission-form').addEventListener('submit', async event =
     const mission = response.mission || {};
     document.getElementById('task').value = '';
     if (mission.state === 'requires_approval') {
-      notice.textContent = 'Mission recorded. Review the Approval Inbox; do not approve any action unless its requested steps are appropriate.';
+      lastActionNotice = 'Mission recorded, but it needs approval. Review the exact proposed steps before approving anything.';
     } else if (mission.state === 'pending') {
-      notice.textContent = 'Mission accepted and queued.';
+      lastActionNotice = 'Mission accepted and queued.';
     } else {
-      notice.textContent = 'Mission recorded with state: ' + (mission.state || 'unknown');
+      lastActionNotice = 'Mission recorded with state: ' + (mission.state || 'unknown');
     }
     await refresh();
   } catch (error) {
@@ -327,9 +330,12 @@ document.getElementById('mission-form').addEventListener('submit', async event =
   }
 });
 
-document.getElementById('refresh').addEventListener('click', refresh);
+document.getElementById('refresh').addEventListener('click', () => {
+  lastActionNotice = '';
+  notice.textContent = '';
+  refresh();
+});
 refresh();
-setInterval(refresh, 5000);
 </script>
 </body>
 </html>"""
@@ -588,7 +594,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            self._json(202 if record.state in {"pending", "requires_approval"} else 422, {"mission": self._mission_payload(record)})
+            # A mission record was successfully created even when policy blocks execution.
+            # Return the resource state in JSON; reserve HTTP errors for malformed or rejected requests.
+            self._json(202, {"mission": self._mission_payload(record)})
             return
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix) and parsed.path.endswith("/cancel"):
