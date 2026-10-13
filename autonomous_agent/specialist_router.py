@@ -62,13 +62,15 @@ _RULES: tuple[tuple[SpecialistRole, tuple[str, ...], str], ...] = (
 
 def choose_specialist(task: str) -> RoleDecision:
     normalized = positive_task_text(task)
+    normalized_terms = " ".join(re.findall(r"[a-z0-9]+", normalized))
     scores: list[tuple[int, SpecialistRole, tuple[str, ...], str]] = []
     for role, keywords, reason in _RULES:
-        # Match whole words/phrases: short signals such as "repo" must not
-        # spuriously match unrelated words such as "report".
+        # Compare complete normalized words/phrases. Short signals such as
+        # "repo" must not match unrelated words such as "report".
         hits = tuple(
             keyword for keyword in keywords
-            if re.search(r"(?<!\\w)" + re.escape(keyword) + r"(?!\\w)", normalized)
+            if " " + " ".join(re.findall(r"[a-z0-9]+", keyword.lower())) + " "
+            in " " + normalized_terms + " "
         )
         if hits:
             scores.append((len(hits), role, hits, reason))
