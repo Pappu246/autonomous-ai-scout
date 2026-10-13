@@ -34,7 +34,7 @@ _RULES: tuple[tuple[SpecialistRole, tuple[str, ...], str], ...] = (
     ),
     (
         SpecialistRole.RESEARCH,
-        ("research", "find", "compare", "source", "sources", "investigate", "latest", "report", "audit", "benchmark"),
+        ("research", "find", "compare", "source", "sources", "investigate", "latest", "audit", "benchmark"),
         "research or evidence language",
     ),
     (
