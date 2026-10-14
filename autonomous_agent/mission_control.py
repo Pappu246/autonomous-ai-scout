@@ -215,7 +215,16 @@ class MissionController:
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self.shared_state_required = bool(
+            os.getenv("VERCEL", "").strip()
+            or os.getenv("VERCEL_ENV", "").strip()
+            or os.getenv("VERCEL_URL", "").strip()
+        )
         self.shared_state_enabled = bool(os.getenv("BLOB_READ_WRITE_TOKEN", "").strip())
+        self.state_backend_ready = not self.shared_state_required or self.shared_state_enabled
+        if self.shared_state_required:
+            mode = "private Vercel Blob configured" if self.shared_state_enabled else "ERROR: private shared state is not configured"
+            print(f"Mission Control state backend: {mode}", flush=True)
         self.worker = BackgroundTaskWorker(
             self.queue,
             self._handle_queue_item,
@@ -767,6 +776,10 @@ class MissionController:
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
+            return
+        if not self.state_backend_ready:
+            # Never run a cloud worker against per-container local state.
+            self._stop.clear()
             return
         if self.shared_state_enabled:
             self.recover_stale_running()
