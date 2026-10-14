@@ -8,6 +8,7 @@ from pathlib import Path
 
 from autonomous_agent.file_lock import InterProcessFileLock
 from autonomous_agent.mission_control import MissionController
+from autonomous_agent.vercel_state import state_blob_key
 
 
 class _FakeBlob:
@@ -109,3 +110,17 @@ def test_file_lock_remains_local_without_blob_token(tmp_path: Path, monkeypatch)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"missions":[]}', encoding="utf-8")
     assert json.loads(path.read_text(encoding="utf-8")) == {"missions": []}
+
+
+def test_state_blob_keys_are_isolated_by_vercel_environment(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "state" / "missions.json"
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    preview = state_blob_key(path)
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    production = state_blob_key(path)
+
+    assert preview is not None
+    assert production is not None
+    assert preview != production
+    assert "/preview/" in preview
+    assert "/production/" in production
