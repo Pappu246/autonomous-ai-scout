@@ -149,7 +149,10 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     assert "Promise.allSettled" in page
     assert "Unable to load missions:" in page
     assert "Unable to load approvals:" in page
-    assert "if (refreshInProgress) return;" in page
+    assert "if (refreshInProgress) return {missionListLoaded: false" in page
     assert "setInterval(refresh" not in page
     assert "lastActionNotice" in page
+    assert "lastRefreshMissionIds" in page
+    assert "refreshResult.missionListLoaded" in page
+    assert "Shared state is inconsistent" in page
     assert r".join('\n') || 'No matching mission memory.'" in page
