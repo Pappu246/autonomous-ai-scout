@@ -354,6 +354,97 @@ class MissionController:
             summaries.append(f"{operation}={detail[:240]}")
         return "; ".join(summaries[:8])
 
+    @staticmethod
+    def _needs_project_status_report(task: str) -> bool:
+        """Detect high-level project-summary requests that need more than a file listing."""
+        text = " ".join(str(task).lower().split())
+        has_project_scope = any(term in text for term in ("project", "repository", "repo", "codebase", "workspace"))
+        has_summary_request = any(term in text for term in ("summary", "summarize", "summarise", "summarize", "project status"))
+        has_status_detail = any(term in text for term in ("structure", "recent status", "visible issue", "project status"))
+        return has_project_scope and has_summary_request and has_status_detail
+
+    def _read_only_project_status_report(self, role: SpecialistRole | str) -> str:
+        """Produce a bounded factual inventory when no generative provider is configured.
+
+        This is deliberately labelled partial; it does not pretend to be an AI
+        code review and never executes commands or accesses external accounts.
+        """
+        route = self.provider_router.route(role.value if isinstance(role, SpecialistRole) else str(role))
+        try:
+            evidence = self.workspace_connector.list(".")
+            entries = tuple(evidence.entries)
+        except Exception as exc:
+            entries = ()
+            inventory_error = f"workspace inventory unavailable ({type(exc).__name__})"
+        else:
+            inventory_error = ""
+
+        def is_dir(name: str) -> bool:
+            try:
+                candidate = (self.root / name).resolve()
+                candidate.relative_to(self.root)
+                return candidate.is_dir()
+            except (OSError, ValueError):
+                return False
+
+        directories = sorted(name for name in entries if is_dir(name))
+        files = sorted(name for name in entries if not is_dir(name))
+        extensions: dict[str, int] = {}
+        for name in files:
+            suffix = Path(name).suffix.lower() or "[no extension]"
+            extensions[suffix] = extensions.get(suffix, 0) + 1
+        common_types = sorted(extensions.items(), key=lambda item: (-item[1], item[0]))[:5]
+
+        metadata: list[str] = []
+        readme_title = ""
+        for name in ("README.md", "pyproject.toml", "requirements.lock", "requirements.txt", "vercel.json", "Dockerfile"):
+            try:
+                content = self.workspace_connector.read(name).content
+            except (OSError, ValueError):
+                continue
+            metadata.append(name)
+            if name == "README.md":
+                title = next((line.strip().lstrip("#").strip() for line in content.splitlines() if line.strip().startswith("#")), "")
+                if title:
+                    readme_title = _bounded_text(title, 100)
+            elif name == "pyproject.toml":
+                package = re.search(r"(?m)^\s*name\s*=\s*['\"]([^'\"]{1,100})['\"]", content)
+                version = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]{1,50})['\"]", content)
+                if package:
+                    metadata.append("package=" + package.group(1))
+                if version:
+                    metadata.append("version=" + version.group(1))
+
+        try:
+            tests = self.workspace_connector.list("tests").entries
+            test_files = sum(1 for name in tests if name.lower().endswith(".py") and Path(name).name.startswith("test_"))
+        except (OSError, ValueError):
+            test_files = None
+
+        provider_status = (
+            route.reason
+            if not route.eligible or route.provider is None
+            else f"provider route selected: {route.provider.name}; this runtime path did not invoke a generative model"
+        )
+        type_summary = ", ".join(f"{ext}={count}" for ext, count in common_types) or "unavailable"
+        dir_summary = ", ".join(directories[:8]) or "no directories listed"
+        lines = [
+            "PARTIAL RESULT — deterministic read-only inventory; NOT an AI-generated review.",
+            f"Workspace entries visible: {len(entries)}; top-level directories: {dir_summary}.",
+            f"Common file types: {type_summary}.",
+            "Project metadata found: " + (", ".join(metadata[:8]) if metadata else "none of the standard manifests found") + ".",
+        ]
+        if readme_title:
+            lines.append(f"README heading: {readme_title}.")
+        if test_files is not None:
+            lines.append(f"Test files visible in tests/: {test_files}.")
+        if inventory_error:
+            lines.append(inventory_error + ".")
+        lines.append("Recent Git status/commits: NOT AVAILABLE from this bounded remote-runtime inspection; no shell/Git command was run.")
+        lines.append("AI synthesis status: " + provider_status + ".")
+        lines.append("No files were changed and no external account or command was used.")
+        return _bounded_text(" ".join(lines), 950)
+
     def _queue_approval(self, task: str, steps: Iterable[str], *, risk: str = "high") -> str:
         proposal = build_action_proposal(
             task,
@@ -899,6 +990,41 @@ class MissionController:
             ))
         runtime_state = QueueState.FAILED.value
         approval_validated = False
+
+        # A successful directory listing is not a completed natural-language report.
+        # If no generative provider is configured for a high-level project summary,
+        # return an honest partial inventory instead of falsely marking the task verified.
+        route = self.provider_router.route(role)
+        if existing and self._needs_project_status_report(item.task) and (not route.eligible or route.provider is None):
+            report = self._read_only_project_status_report(role)
+            append_execution_record(
+                self.audit_path,
+                {
+                    "execution_id": item.execution_id,
+                    "timestamp": _now(),
+                    "state": "partial",
+                    "event": "project_status_fallback",
+                    "specialist_role": role,
+                    "eligible": False,
+                    "reason": "no generative provider is configured; report is a deterministic inventory",
+                    "result": report,
+                },
+            )
+            latest = self.store.get_by_task_id(item.task_id) or existing
+            if latest:
+                self.store.put(MissionRecord(
+                    latest.mission_id, latest.task_id, latest.execution_id, latest.task,
+                    "partial", report, latest.created_at, _now(), item.attempts, role,
+                    latest.steps, latest.completed_steps, latest.approval_action_id,
+                ))
+            self.memory.record_episode(
+                self.MEMORY_PROJECT,
+                item.task,
+                outcome="partial",
+                summary=report,
+                metadata={"specialist_role": role, "provider_status": route.reason},
+            )
+            return False
         try:
             if existing and existing.approval_action_id:
                 _action, approval = self._validate_pending_approval(existing.approval_action_id)
