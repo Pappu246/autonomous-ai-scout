@@ -243,11 +243,13 @@ function render(items) {
 
 let refreshInProgress = false;
 let lastActionNotice = '';
+let lastRefreshMissionIds = new Set();
 
 async function refresh() {
-  if (refreshInProgress) return;
+  if (refreshInProgress) return false;
   refreshInProgress = true;
   const failures = [];
+  let missionListLoaded = false;
   try {
     const [missionResult, approvalResult, healthResult] = await Promise.allSettled([
       api('/api/missions'),
@@ -267,8 +269,13 @@ async function refresh() {
     }
 
     if (missionResult.status === 'fulfilled' && Array.isArray(missionResult.value.missions)) {
+      lastRefreshMissionIds = new Set(
+        missionResult.value.missions.map(item => String(item.mission_id || '')).filter(Boolean)
+      );
+      missionListLoaded = true;
       render(missionResult.value.missions);
     } else {
+      lastRefreshMissionIds = new Set();
       const message = missionResult.status === 'rejected'
         ? (missionResult.reason instanceof Error ? missionResult.reason.message : String(missionResult.reason))
         : '/api/missions returned an invalid response';
@@ -299,10 +306,12 @@ async function refresh() {
     if (approvals.textContent.trim() === 'Loading…') {
       approvals.innerHTML = '<div class="muted">Unable to load approvals: ' + esc(message) + '</div>';
     }
+    failures.push(message);
     notice.textContent = 'Dashboard error: ' + message;
   } finally {
     refreshInProgress = false;
   }
+  return missionListLoaded && failures.length === 0;
 }
 
 document.getElementById('mission-form').addEventListener('submit', async event => {
@@ -324,8 +333,14 @@ document.getElementById('mission-form').addEventListener('submit', async event =
     } else {
       lastActionNotice = 'Mission recorded with state: ' + (mission.state || 'unknown');
     }
-    await refresh();
+    const refreshOk = await refresh();
+    const submittedId = String(mission.mission_id || '');
+    if (!refreshOk || !submittedId || !lastRefreshMissionIds.has(submittedId)) {
+      lastActionNotice = 'Submission response received, but this mission is missing from the refreshed list. Shared state is inconsistent; do not submit it again yet.';
+    }
+    notice.textContent = lastActionNotice;
   } catch (error) {
+    lastActionNotice = '';
     notice.textContent = error.message;
   }
 });
