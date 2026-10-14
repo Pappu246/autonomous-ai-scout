@@ -6,9 +6,15 @@ import threading
 import types
 from pathlib import Path
 
+import pytest
+
 from autonomous_agent.file_lock import InterProcessFileLock
 from autonomous_agent.mission_control import MissionController
 from autonomous_agent.vercel_state import state_blob_key
+
+
+class _FakeBlobNotFoundError(Exception):
+    """Matches the not-found exception raised by the Vercel Blob SDK."""
 
 
 class _FakeBlob:
@@ -48,7 +54,9 @@ class _FakeBlobClient:
         assert token
         with self.mutex:
             content = self.objects.get(path)
-        return None if content is None else _FakeBlob(content)
+        if content is None:
+            raise _FakeBlobNotFoundError(path)
+        return _FakeBlob(content)
 
     def delete(self, path, *, token=None, **_kwargs):
         assert token
@@ -60,6 +68,7 @@ def _install_fake_blob(monkeypatch) -> None:
     _FakeBlobClient.objects = {}
     module = types.ModuleType("vercel.blob")
     module.BlobClient = _FakeBlobClient
+    module.BlobNotFoundError = _FakeBlobNotFoundError
     monkeypatch.setitem(sys.modules, "vercel.blob", module)
     monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "test-only-token")
 
@@ -124,3 +133,21 @@ def test_state_blob_keys_are_isolated_by_vercel_environment(tmp_path: Path, monk
     assert preview != production
     assert "/preview/" in preview
     assert "/production/" in production
+
+
+def test_non_not_found_blob_read_errors_fail_closed(tmp_path: Path, monkeypatch) -> None:
+    _install_fake_blob(monkeypatch)
+    controller = MissionController(root=tmp_path)
+    key = state_blob_key(controller.store.path)
+    assert key is not None
+
+    def unauthorized_get(*_args, **_kwargs):
+        raise PermissionError("private blob authorization failed")
+
+    _FakeBlobClient.get = unauthorized_get
+    try:
+        with pytest.raises(PermissionError, match="authorization failed"):
+            with InterProcessFileLock(controller.store.path.with_name(controller.store.path.name + ".lock")):
+                pass
+    finally:
+        del _FakeBlobClient.get
