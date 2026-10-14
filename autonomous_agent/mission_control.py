@@ -215,7 +215,13 @@ class MissionController:
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.worker = BackgroundTaskWorker(self.queue, self._handle_queue_item, poll_interval=0.25)
+        self.shared_state_enabled = bool(os.getenv("BLOB_READ_WRITE_TOKEN", "").strip())
+        self.worker = BackgroundTaskWorker(
+            self.queue,
+            self._handle_queue_item,
+            poll_interval=2.0 if self.shared_state_enabled else 0.25,
+            recover_on_start=False,
+        )
 
     def _history_hint(self, task: str) -> str:
         matches = self.memory.recall(self.MEMORY_PROJECT, task, limit=3)
@@ -736,8 +742,7 @@ class MissionController:
         item = self.worker.run_once()
         return None if item is None else self.store.get_by_task_id(item.task_id)
 
-    def recover(self) -> tuple[MissionRecord, ...]:
-        items = self.worker.recover()
+    def _persist_recovered_items(self, items: Iterable[QueueItem]) -> tuple[MissionRecord, ...]:
         recovered: list[MissionRecord] = []
         for item in items:
             existing = self.store.get_by_task_id(item.task_id)
@@ -751,10 +756,22 @@ class MissionController:
                 )))
         return tuple(recovered)
 
+    def recover(self) -> tuple[MissionRecord, ...]:
+        """Explicitly recover every interrupted task; suitable for single-worker local mode."""
+        return self._persist_recovered_items(self.worker.recover())
+
+    def recover_stale_running(self, *, stale_after_seconds: float = 600.0) -> tuple[MissionRecord, ...]:
+        """Shared deployments recover only old RUNNING tasks, never active work in another instance."""
+        items = self.queue.recover_stale_running(stale_after_seconds=stale_after_seconds)
+        return self._persist_recovered_items(items)
+
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        self.recover()
+        if self.shared_state_enabled:
+            self.recover_stale_running()
+        else:
+            self.recover()
         self._stop.clear()
         self._thread = threading.Thread(target=self.worker.run_forever, args=(self._stop,), name="autonomous-scout-mission-worker", daemon=True)
         self._thread.start()
