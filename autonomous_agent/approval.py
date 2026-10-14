@@ -6,7 +6,7 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
-from .action_queue import PendingAction, _load_queue_unlocked
+from .action_queue import PendingAction, _load_queue_unlocked, load_queue
 from .approval_audit import append_decision
 from .file_lock import InterProcessFileLock
 
