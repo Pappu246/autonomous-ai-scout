@@ -36,7 +36,7 @@ def _write_private_unlocked(path: Path, payload: dict[str, object]) -> None:
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\\n")
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         try:
