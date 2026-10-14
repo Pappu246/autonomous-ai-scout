@@ -85,11 +85,15 @@ def test_state_file_is_shared_between_separate_runtime_roots(tmp_path: Path, mon
 
 def test_mission_submitted_in_one_runtime_is_visible_in_another(tmp_path: Path, monkeypatch) -> None:
     _install_fake_blob(monkeypatch)
-    first = MissionController(root=tmp_path / "instance-a")
+    first_root = tmp_path / "instance-a"
+    first_root.mkdir(parents=True)
+    first = MissionController(root=first_root)
     mission = first.submit("inspect repository")
     assert mission.state == "pending"
 
-    second = MissionController(root=tmp_path / "instance-b")
+    second_root = tmp_path / "instance-b"
+    second_root.mkdir(parents=True)
+    second = MissionController(root=second_root)
     persisted = second.store.get(mission.mission_id)
 
     assert persisted is not None
