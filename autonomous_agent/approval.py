@@ -6,7 +6,7 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
-from .action_queue import PendingAction, load_queue
+from .action_queue import PendingAction, _load_queue_unlocked
 from .approval_audit import append_decision
 from .file_lock import InterProcessFileLock
 
@@ -23,7 +23,7 @@ def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | N
 
     process_lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
     with process_lock:
-        queue = load_queue(path)
+        queue = _load_queue_unlocked(path)
         for index, action in enumerate(queue):
             if action.id != action_id:
                 continue
