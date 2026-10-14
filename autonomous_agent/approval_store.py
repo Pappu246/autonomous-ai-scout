@@ -11,6 +11,7 @@ from pathlib import Path
 from .action_queue import PendingAction, load_queue
 from .approved_executor import ApprovalRecord
 from .approval import set_decision
+from .file_lock import InterProcessFileLock
 
 
 def _safe_action_id(action_id: str) -> str:
@@ -25,12 +26,17 @@ def _approval_path(directory: Path, action_id: str) -> Path:
 
 
 def _write_private(path: Path, payload: dict[str, object]) -> None:
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        _write_private_unlocked(path, payload)
+
+
+def _write_private_unlocked(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\\n")
             handle.flush()
             os.fsync(handle.fileno())
         try:
@@ -90,14 +96,15 @@ def reject_action(
 
 def load_approval(approval_dir: Path, action_id: str) -> ApprovalRecord:
     path = _approval_path(approval_dir, action_id)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return ApprovalRecord(
-            str(data["action_id"]),
-            str(data["approved_at"]),
-            str(data["expires_at"]),
-            str(data["approval_token"]),
-            str(data.get("action_digest", "")),
-        )
-    except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise ValueError("approval record is missing or invalid") from exc
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return ApprovalRecord(
+                str(data["action_id"]),
+                str(data["approved_at"]),
+                str(data["expires_at"]),
+                str(data["approval_token"]),
+                str(data.get("action_digest", "")),
+            )
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise ValueError("approval record is missing or invalid") from exc
