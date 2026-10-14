@@ -246,7 +246,7 @@ let lastActionNotice = '';
 let lastRefreshMissionIds = new Set();
 
 async function refresh() {
-  if (refreshInProgress) return false;
+  if (refreshInProgress) return {missionListLoaded: false, failures: ['refresh already in progress']};
   refreshInProgress = true;
   const failures = [];
   let missionListLoaded = false;
@@ -311,7 +311,7 @@ async function refresh() {
   } finally {
     refreshInProgress = false;
   }
-  return missionListLoaded && failures.length === 0;
+  return {missionListLoaded, failures};
 }
 
 document.getElementById('mission-form').addEventListener('submit', async event => {
@@ -333,10 +333,12 @@ document.getElementById('mission-form').addEventListener('submit', async event =
     } else {
       lastActionNotice = 'Mission recorded with state: ' + (mission.state || 'unknown');
     }
-    const refreshOk = await refresh();
+    const refreshResult = await refresh();
     const submittedId = String(mission.mission_id || '');
-    if (!refreshOk || !submittedId || !lastRefreshMissionIds.has(submittedId)) {
+    if (!refreshResult.missionListLoaded || !submittedId || !lastRefreshMissionIds.has(submittedId)) {
       lastActionNotice = 'Submission response received, but this mission is missing from the refreshed list. Shared state is inconsistent; do not submit it again yet.';
+    } else if (refreshResult.failures.length) {
+      lastActionNotice = 'Mission is visible, but another dashboard section failed to load: ' + refreshResult.failures.join(' · ');
     }
     notice.textContent = lastActionNotice;
   } catch (error) {
