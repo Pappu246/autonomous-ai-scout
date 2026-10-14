@@ -394,3 +394,16 @@ def test_project_status_without_provider_returns_honest_partial_inventory(
     timeline = controller.timeline(mission.mission_id)
     assert any(item.get("event") == "project_status_fallback" for item in timeline)
     assert any(item.get("event") == "mission_state" and item.get("state") == "partial" for item in timeline)
+
+
+def test_vercel_without_shared_state_token_does_not_start_worker(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    controller = MissionController(root=tmp_path)
+
+    assert controller.shared_state_required is True
+    assert controller.shared_state_enabled is False
+    assert controller.state_backend_ready is False
+
+    controller.start()
+    assert controller._thread is None
