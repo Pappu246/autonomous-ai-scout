@@ -238,3 +238,29 @@ def test_mission_submit_http_status_matches_saved_mission_state(state, expected_
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_mission_api_fails_closed_when_shared_state_is_unavailable():
+    server, thread = _start_server()
+    server.mission_controller = SimpleNamespace(state_backend_ready=False)
+    try:
+        for path, method, body in (
+            ("/api/missions", "GET", None),
+            ("/api/missions", "POST", json.dumps({"task": "inspect repository"}).encode("utf-8")),
+            ("/api/approvals", "GET", None),
+        ):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}{path}",
+                data=body,
+                headers={"Content-Type": "application/json"} if body is not None else {},
+                method=method,
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(request, timeout=3)
+            assert exc_info.value.code == 503
+            payload = json.loads(exc_info.value.read().decode("utf-8"))
+            assert payload["error"] == "persistent shared state is unavailable; mission control is paused"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
