@@ -74,12 +74,20 @@ class VercelBlobStateSync:
         return self.client
 
     def _get_bytes(self, pathname: str) -> bytes | None:
-        result = self._blob_client().get(
-            pathname,
-            access="private",
-            use_cache=False,
-            token=self.token,
-        )
+        # The Vercel Blob Python SDK raises BlobNotFoundError (it does not return
+        # None) for a missing private object. Treat only that documented case as
+        # an empty first-use store; auth/network/server failures must still fail closed.
+        from vercel.blob import BlobNotFoundError
+
+        try:
+            result = self._blob_client().get(
+                pathname,
+                access="private",
+                use_cache=False,
+                token=self.token,
+            )
+        except BlobNotFoundError:
+            return None
         if result is None:
             return None
         content = getattr(result, "content", None)
