@@ -466,10 +466,11 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         )
         if stateful_api:
             controller = self._controller()
-            if controller is None:
+            mission_api = parsed.path == "/api/missions" or parsed.path.startswith("/api/missions/")
+            if mission_api and controller is None:
                 self._json(503, {"error": "mission control is not running"})
                 return
-            if not getattr(controller, "state_backend_ready", True):
+            if controller is not None and not getattr(controller, "state_backend_ready", True):
                 self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
                 return
         if parsed.path == "/":
@@ -577,7 +578,8 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             or parsed.path == "/api/approvals"
             or parsed.path.startswith("/api/approvals/")
         )
-        if stateful_api and controller is None:
+        mission_api = parsed.path == "/api/missions" or parsed.path.startswith("/api/missions/")
+        if mission_api and controller is None:
             self._json(503, {"error": "mission control is not running"})
             return
         if stateful_api and controller is not None and not getattr(controller, "state_backend_ready", True):
