@@ -338,3 +338,59 @@ def test_read_only_project_status_task_is_queued_without_mutation_approval(tmp_p
     assert mission.approval_action_id == ""
     assert len(controller.queue.list()) == 1
     assert load_queue(controller.approval_queue_path) == []
+
+
+def test_project_status_without_provider_returns_honest_partial_inventory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from autonomous_agent.specialist_provider import SpecialistProviderRouter
+
+    (tmp_path / "README.md").write_text(
+        "# Scout Fixture Project\n\nA read-only inventory fixture.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "scout-fixture"\nversion = "1.2.3"\n',
+        encoding="utf-8",
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_example.py").write_text(
+        "def test_example():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    controller = MissionController(root=tmp_path)
+    controller.provider_router = SpecialistProviderRouter(())
+
+    def should_not_run_task(*args, **kwargs):
+        raise AssertionError("fallback must not claim a model-generated analysis")
+
+    monkeypatch.setattr("autonomous_agent.mission_control.run_task", should_not_run_task)
+    task = (
+        "Inspect the current project status and provide a brief read-only summary of the "
+        "project's structure, recent status, and any visible issues. Do not edit or delete "
+        "files, execute commands, access external accounts, send messages, or perform any "
+        "action that changes data. If information is unavailable, clearly report that."
+    )
+    mission = controller.submit(task)
+    result = controller.run_once()
+
+    assert result is not None
+    assert result.state == "partial"
+    assert "PARTIAL RESULT" in result.reason
+    assert "deterministic read-only inventory" in result.reason
+    assert "README heading: Scout Fixture Project" in result.reason
+    assert "package=scout-fixture" in result.reason
+    assert "no eligible configured provider for specialist role general" in result.reason
+    assert "Recent Git status/commits: NOT AVAILABLE" in result.reason
+
+    history = controller.memory.history(controller.MEMORY_PROJECT, kind="episode")
+    task_entries = [entry for entry in history if entry.get("data", {}).get("task") == task]
+    assert len(task_entries) == 1
+    assert task_entries[0]["outcome"] == "partial"
+    assert "Scout Fixture Project" in task_entries[0]["data"]["summary"]
+
+    timeline = controller.timeline(mission.mission_id)
+    assert any(item.get("event") == "project_status_fallback" for item in timeline)
+    assert any(item.get("event") == "mission_state" and item.get("state") == "partial" for item in timeline)
