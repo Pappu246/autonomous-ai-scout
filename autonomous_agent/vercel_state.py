@@ -23,7 +23,12 @@ def state_blob_key(path: str | Path) -> str | None:
     relative = Path(*parts[state_indexes[-1] + 1 :]).as_posix()
     if relative in {"", "."} or relative.startswith("../"):
         return None
-    return STATE_BLOB_PREFIX + relative
+    # Keep deployment environments isolated while sharing state across all
+    # instances and redeployments within the same Vercel environment.
+    scope = os.getenv("VERCEL_ENV", "local").strip().lower()
+    if scope not in {"production", "preview", "development", "local"}:
+        scope = "local"
+    return STATE_BLOB_PREFIX + scope + "/" + relative
 
 
 class VercelBlobStateSync:
