@@ -29,6 +29,7 @@ class BackgroundTaskWorker:
         *,
         poll_interval: float = 0.25,
         lease_store: ExecutionLeaseStore | None = None,
+        recover_on_start: bool = True,
     ) -> None:
         if poll_interval < 0:
             raise ValueError("poll interval cannot be negative")
@@ -36,6 +37,7 @@ class BackgroundTaskWorker:
         self.handler = handler
         self.poll_interval = poll_interval
         self.lease_store = lease_store
+        self.recover_on_start = bool(recover_on_start)
 
     def recover(self) -> tuple[QueueItem, ...]:
         return self.queue.recover_running()
@@ -77,7 +79,8 @@ class BackgroundTaskWorker:
         return WorkerResult(processed, succeeded, failed)
 
     def run_forever(self, stop_event: Event) -> None:
-        self.recover()
+        if self.recover_on_start:
+            self.recover()
         while not stop_event.is_set():
             if self.run_once() is None:
                 stop_event.wait(self.poll_interval)
