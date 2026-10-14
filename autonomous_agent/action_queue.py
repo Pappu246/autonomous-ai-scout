@@ -156,5 +156,5 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
         pending = prioritize_queue([item for item in queue if item.status == "pending"])
         non_pending = [item for item in queue if item.status != "pending"]
         queue = pending[:MAX_PENDING_ACTIONS] + non_pending
-        path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\\n", encoding="utf-8")
+        path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
     return action
