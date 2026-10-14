@@ -458,10 +458,28 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
             return
+        stateful_api = (
+            parsed.path == "/api/missions"
+            or parsed.path.startswith("/api/missions/")
+            or parsed.path == "/api/approvals"
+            or parsed.path.startswith("/api/approvals/")
+        )
+        if stateful_api:
+            controller = self._controller()
+            if controller is None:
+                self._json(503, {"error": "mission control is not running"})
+                return
+            if not getattr(controller, "state_backend_ready", True):
+                self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+                return
         if parsed.path == "/":
             self._text(200, _mission_ui())
             return
         if parsed.path == "/run":
+            controller = self._controller()
+            if controller is not None and not getattr(controller, "state_backend_ready", True):
+                self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+                return
             query = parse_qs(parsed.query)
             task = query.get("task", [os.getenv("TASK_REQUEST", "inspect repository")])[0]
             if len(task) > MAX_TASK_LENGTH:
@@ -553,6 +571,18 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "authentication required"})
             return
         controller = self._controller()
+        stateful_api = (
+            parsed.path == "/api/missions"
+            or parsed.path.startswith("/api/missions/")
+            or parsed.path == "/api/approvals"
+            or parsed.path.startswith("/api/approvals/")
+        )
+        if stateful_api and controller is None:
+            self._json(503, {"error": "mission control is not running"})
+            return
+        if stateful_api and controller is not None and not getattr(controller, "state_backend_ready", True):
+            self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+            return
         if controller is None and not parsed.path.startswith("/api/approvals/"):
             self._json(503, {"error": "mission control is not running"})
             return
