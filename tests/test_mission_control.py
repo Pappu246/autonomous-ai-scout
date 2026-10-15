@@ -428,3 +428,23 @@ def test_shared_state_submit_defers_serial_memory_io(tmp_path: Path, monkeypatch
     assert "history recall deferred until execution" in mission.reason
     assert controller.queue.list()[0].task_id == mission.task_id
     assert controller.store.get(mission.mission_id) == mission
+
+
+def test_submit_persists_mission_record_before_queue_becomes_visible(tmp_path: Path, monkeypatch) -> None:
+    controller = MissionController(root=tmp_path)
+    enqueue = controller.queue.enqueue
+    observed: list[str] = []
+
+    def checked_enqueue(task: str, *, task_id: str, execution_id: str, available_at=None):
+        existing = controller.store.get(task_id)
+        assert existing is not None
+        assert existing.state == "pending"
+        observed.append(existing.mission_id)
+        return enqueue(task, task_id=task_id, execution_id=execution_id, available_at=available_at)
+
+    monkeypatch.setattr(controller.queue, "enqueue", checked_enqueue)
+    mission = controller.submit("inspect repository")
+
+    assert observed == [mission.mission_id]
+    assert mission.state == "pending"
+    assert controller.queue.list()[0].task_id == mission.task_id
