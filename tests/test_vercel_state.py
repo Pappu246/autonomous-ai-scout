@@ -174,3 +174,62 @@ def test_remote_lock_retries_when_conflicting_lease_disappears(tmp_path: Path, m
     assert sync._get_bytes(sync.lock_key) is not None
     sync._release_remote_lock()
     assert sync._get_bytes(sync.lock_key) is None
+
+
+
+def _http_status_error(status_code: int):
+    import httpx
+
+    request = httpx.Request("DELETE", "https://blob.invalid/lock")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError("simulated storage status", request=request, response=response)
+
+
+def test_stale_lease_delete_rate_limit_uses_backoff_and_recovers(tmp_path: Path, monkeypatch) -> None:
+    from time import time
+    from autonomous_agent.vercel_state import VercelBlobStateSync
+
+    _install_fake_blob(monkeypatch)
+    target = tmp_path / "state" / "missions.json"
+    sync = VercelBlobStateSync(target, timeout_seconds=2.0, poll_interval_seconds=0.01)
+    client = sync._blob_client()
+    assert sync.lock_key is not None
+    stale_payload = json.dumps(
+        {"created_at": time() - 300, "target": sync.key},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    client.put(sync.lock_key, stale_payload, overwrite=False, token=sync.token)
+
+    original_delete = _FakeBlobClient.delete
+    calls = {"count": 0}
+
+    def throttled_delete(self, path, *, token=None, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise _http_status_error(429)
+        return original_delete(self, path, token=token, **kwargs)
+
+    monkeypatch.setattr(_FakeBlobClient, "delete", throttled_delete)
+    sync._acquire_remote_lock()
+
+    assert calls["count"] >= 2
+    assert sync._lock_acquired is True
+    sync._release_remote_lock()
+
+
+def test_remote_lease_release_is_idempotent_after_concurrent_delete(tmp_path: Path, monkeypatch) -> None:
+    from autonomous_agent.vercel_state import VercelBlobStateSync
+
+    _install_fake_blob(monkeypatch)
+    target = tmp_path / "state" / "missions.json"
+    sync = VercelBlobStateSync(target, timeout_seconds=1.0, poll_interval_seconds=0.01)
+    sync._acquire_remote_lock()
+
+    def already_deleted(self, path, *, token=None, **kwargs):
+        _FakeBlobClient.objects.pop(path, None)
+        raise _http_status_error(404)
+
+    monkeypatch.setattr(_FakeBlobClient, "delete", already_deleted)
+    sync._release_remote_lock()
+
+    assert sync._lock_acquired is False

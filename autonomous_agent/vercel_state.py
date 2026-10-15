@@ -12,6 +12,20 @@ STATE_BLOB_PREFIX = "scout-state/files/"
 LOCK_BLOB_PREFIX = "scout-state/locks/"
 _LOCK_STALE_SECONDS = 120.0
 
+_RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _http_status_code(error: BaseException) -> int | None:
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(error, "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def _is_retryable_storage_error(error: BaseException) -> bool:
+    return _http_status_code(error) in _RETRYABLE_HTTP_STATUSES
+
 
 def state_blob_key(path: str | Path) -> str | None:
     """Map a local state file to a stable Blob pathname without host-specific roots."""
@@ -50,7 +64,7 @@ class VercelBlobStateSync:
         self.target = Path(target)
         self.token = token or os.getenv("BLOB_READ_WRITE_TOKEN", "").strip()
         self.timeout_seconds = max(1.0, min(float(timeout_seconds), 60.0))
-        self.poll_interval_seconds = max(0.01, min(float(poll_interval_seconds), 0.5))
+        self.poll_interval_seconds = max(0.1, min(float(poll_interval_seconds), 0.5))
         self.key = state_blob_key(self.target)
         self.lock_key = (
             LOCK_BLOB_PREFIX + hashlib.sha256(self.key.encode("utf-8")).hexdigest() + ".json"
@@ -115,6 +129,7 @@ class VercelBlobStateSync:
             separators=(",", ":"),
         ).encode("utf-8")
         client = self._blob_client()
+        delay = self.poll_interval_seconds
         while True:
             try:
                 client.put(
@@ -129,14 +144,24 @@ class VercelBlobStateSync:
                 self._lock_acquired = True
                 return
             except Exception as acquire_error:
-                # Only the explicit create-if-absent conflict means another
-                # runtime may hold the lease. Authentication, configuration,
-                # and network failures must surface immediately.
+                # Only an explicit create-if-absent conflict means another
+                # runtime may hold the lease. Retry temporary upstream errors
+                # with bounded backoff; fail fast for auth/configuration errors.
                 if "already exists" not in str(acquire_error).lower():
+                    if _is_retryable_storage_error(acquire_error) and time.monotonic() < deadline:
+                        time.sleep(delay)
+                        delay = min(delay * 1.5, 0.5)
+                        continue
+                    if _is_retryable_storage_error(acquire_error):
+                        raise TimeoutError("shared state lock timed out after transient storage errors") from acquire_error
                     raise RuntimeError("private shared-state lease could not be created") from acquire_error
                 try:
                     current = self._get_bytes(self.lock_key)
                 except Exception as verification_error:
+                    if _is_retryable_storage_error(verification_error) and time.monotonic() < deadline:
+                        time.sleep(delay)
+                        delay = min(delay * 1.5, 0.5)
+                        continue
                     raise RuntimeError("private shared-state lease could not be verified") from verification_error
                 if current is not None:
                     stale = False
@@ -149,16 +174,25 @@ class VercelBlobStateSync:
                     if stale:
                         try:
                             client.delete(self.lock_key, token=self.token)
-                        except Exception:
-                            pass
+                        except Exception as delete_error:
+                            # A lease disappearing between GET and DELETE is
+                            # already released; rate limits and server failures
+                            # are not. Never tight-loop on failed DELETEs.
+                            if _http_status_code(delete_error) != 404:
+                                if _is_retryable_storage_error(delete_error) and time.monotonic() < deadline:
+                                    time.sleep(delay)
+                                    delay = min(delay * 1.5, 0.5)
+                                    continue
+                                raise RuntimeError("stale shared-state lease could not be removed") from delete_error
+                        time.sleep(min(delay, 0.1))
                         continue
                 # A race can delete the competing lease between the failed PUT
-                # and this GET (or Blob reads can briefly lag writes). Either
-                # way, retry creation; two empty reads are not proof that the
-                # storage write is broken. The deadline remains the hard bound.
+                # and this GET (or Blob reads can briefly lag writes). Retry with
+                # exponential backoff instead of a request storm under contention.
                 if time.monotonic() >= deadline:
                     raise TimeoutError("shared state lock timed out; another runtime may still be updating state") from acquire_error
-                time.sleep(self.poll_interval_seconds)
+                time.sleep(delay)
+                delay = min(delay * 1.5, 0.5)
 
     def __enter__(self):
         if not self.enabled:
@@ -183,7 +217,15 @@ class VercelBlobStateSync:
         if not self._lock_acquired or self.lock_key is None:
             return
         try:
-            self._blob_client().delete(self.lock_key, token=self.token)
+            try:
+                self._blob_client().delete(self.lock_key, token=self.token)
+            except Exception as error:
+                from vercel.blob import BlobNotFoundError
+
+                # Lease release is idempotent: another runtime may have removed
+                # a stale lease between our last operation and cleanup.
+                if not isinstance(error, BlobNotFoundError) and _http_status_code(error) != 404:
+                    raise
         finally:
             self._lock_acquired = False
 
