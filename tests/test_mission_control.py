@@ -407,3 +407,24 @@ def test_vercel_without_shared_state_token_does_not_start_worker(tmp_path: Path,
 
     controller.start()
     assert controller._thread is None
+
+
+def test_shared_state_submit_defers_serial_memory_io(tmp_path: Path, monkeypatch) -> None:
+    controller = MissionController(root=tmp_path)
+    controller.shared_state_enabled = True
+
+    def forbidden_history(_task: str) -> str:
+        raise AssertionError("hosted submission must not synchronously read memory")
+
+    def forbidden_memory_write(*_args, **_kwargs):
+        raise AssertionError("hosted submission must defer queued memory writes")
+
+    monkeypatch.setattr(controller, "_history_hint", forbidden_history)
+    monkeypatch.setattr(controller.memory, "record_episode", forbidden_memory_write)
+
+    mission = controller.submit("inspect repository")
+
+    assert mission.state == "pending"
+    assert "memory recall deferred" in mission.reason
+    assert controller.queue.list()[0].task_id == mission.task_id
+    assert controller.store.get(mission.mission_id) == mission
