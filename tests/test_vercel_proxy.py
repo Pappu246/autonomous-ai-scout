@@ -71,15 +71,15 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
     config = json.loads((root / "vercel.json").read_text(encoding="utf-8"))
 
     services = config["services"]
-    gateway = services["gateway-v2"]
-    runtime = services["runtime-v2"]
+    gateway = services["gateway_next"]
+    runtime = services["runtime_next"]
 
     assert gateway["runtime"] == "container"
     assert gateway["entrypoint"] == "Dockerfile.vercel"
     assert gateway["bindings"] == [
         {
             "type": "service",
-            "service": "runtime-v2",
+            "service": "runtime_next",
             "format": "url",
             "env": "SCOUT_API_ORIGIN",
         }
@@ -87,7 +87,7 @@ def test_vercel_services_route_through_gateway_to_internal_runtime() -> None:
     assert runtime["runtime"] == "container"
     assert runtime["entrypoint"] == "Dockerfile"
     assert config["rewrites"]
-    assert all(route["destination"]["service"] == "gateway-v2" for route in config["rewrites"])
+    assert all(route["destination"]["service"] == "gateway_next" for route in config["rewrites"])
 
 
 
