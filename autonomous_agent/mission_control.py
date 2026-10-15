@@ -523,7 +523,32 @@ class MissionController:
                 _bounded_text(f"{prepared.plan.reason}; specialist={role.value}; memory={history}", 1000),
                 now, now, 0, role.value, (),
             ))
-        item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
+        accepted_at = _now()
+        reason = _bounded_text(
+            f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; {provider_hint}; memory={history}",
+            1000,
+        )
+        # Persist the mission record BEFORE exposing the queue item to background
+        # workers. Otherwise the worker can claim a just-enqueued task while the
+        # slow shared-state write for its mission metadata is still in progress.
+        record = self.store.put(MissionRecord(
+            mission_id, mission_id, execution_id, prepared.task, QueueState.PENDING.value,
+            reason, accepted_at, accepted_at, 0, role.value, (),
+        ))
+        try:
+            item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
+        except Exception:
+            # Avoid leaving a permanently pending record if queue persistence fails.
+            try:
+                self.store.put(MissionRecord(
+                    record.mission_id, record.task_id, record.execution_id, record.task,
+                    QueueState.FAILED.value, "mission queue persistence failed",
+                    record.created_at, _now(), record.attempts, record.specialist_role,
+                    record.steps, record.completed_steps, record.approval_action_id,
+                ))
+            except Exception:
+                pass
+            raise
         if not self.shared_state_enabled:
             self.memory.record_episode(
                 self.MEMORY_PROJECT,
@@ -531,14 +556,7 @@ class MissionController:
                 outcome="queued",
                 metadata={"specialist_role": role.value, "provider_hint": provider_hint},
             )
-        return self.store.put(MissionRecord(
-            mission_id, item.task_id, item.execution_id, item.task, item.state.value,
-            _bounded_text(
-                f"mission accepted; specialist={role.value}; confidence={role_decision.confidence}; {provider_hint}; memory={history}",
-                1000,
-            ),
-            item.created_at, item.updated_at, item.attempts, role.value, (),
-        ))
+        return record
 
     def submit_plan(self, objective: str, steps: Sequence[Mapping[str, object]]) -> MissionRecord:
         normalized_objective = _bounded_text(objective, 4000)
@@ -603,7 +621,28 @@ class MissionController:
                 mission_id, mission_id, execution_id, _bounded_text(objective, 4000), "blocked",
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
             ))
-        item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
+        accepted_at = _now()
+        reason = _bounded_text(
+            f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}; {provider_hint}",
+            1000,
+        )
+        record = self.store.put(MissionRecord(
+            mission_id, mission_id, execution_id, normalized_objective, QueueState.PENDING.value,
+            reason, accepted_at, accepted_at, 0, role.role.value, normalized,
+        ))
+        try:
+            item = self.queue.enqueue(normalized_objective, task_id=mission_id, execution_id=execution_id)
+        except Exception:
+            try:
+                self.store.put(MissionRecord(
+                    record.mission_id, record.task_id, record.execution_id, record.task,
+                    QueueState.FAILED.value, "mission queue persistence failed",
+                    record.created_at, _now(), record.attempts, record.specialist_role,
+                    record.steps, record.completed_steps, record.approval_action_id,
+                ))
+            except Exception:
+                pass
+            raise
         if not self.shared_state_enabled:
             self.memory.record_episode(
                 self.MEMORY_PROJECT,
@@ -611,11 +650,7 @@ class MissionController:
                 outcome="queued",
                 metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
             )
-        return self.store.put(MissionRecord(
-            mission_id, item.task_id, item.execution_id, item.task, item.state.value,
-            _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}; {provider_hint}", 1000),
-            item.created_at, item.updated_at, item.attempts, role.role.value, normalized,
-        ))
+        return record
 
     def timeline(self, mission_id: str) -> tuple[dict[str, object], ...]:
         record = self.store.get(mission_id)
