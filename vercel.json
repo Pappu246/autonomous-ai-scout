@@ -1,33 +1,33 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "gateway": {
+    "gateway-v2": {
       "root": ".",
-      "runtime": "container",
+      "runtime-v2": "container",
       "entrypoint": "Dockerfile.vercel",
       "bindings": [
         {
           "type": "service",
-          "service": "runtime",
+          "service": "runtime-v2",
           "format": "url",
           "env": "SCOUT_API_ORIGIN"
         }
       ]
     },
-    "runtime": {
+    "runtime-v2": {
       "root": ".",
-      "runtime": "container",
+      "runtime-v2": "container",
       "entrypoint": "Dockerfile"
     }
   },
   "rewrites": [
-    { "source": "/", "destination": { "service": "gateway", "path": "/" } },
-    { "source": "/login", "destination": { "service": "gateway", "path": "/login" } },
-    { "source": "/logout", "destination": { "service": "gateway", "path": "/logout" } },
-    { "source": "/health", "destination": { "service": "gateway", "path": "/health" } },
-    { "source": "/api/missions", "destination": { "service": "gateway", "path": "/api/missions" } },
-    { "source": "/api/missions/:path*", "destination": { "service": "gateway", "path": "/api/missions/:path*" } },
-    { "source": "/api/approvals", "destination": { "service": "gateway", "path": "/api/approvals" } },
-    { "source": "/api/approvals/:path*", "destination": { "service": "gateway", "path": "/api/approvals/:path*" } }
+    { "source": "/", "destination": { "service": "gateway-v2", "path": "/" } },
+    { "source": "/login", "destination": { "service": "gateway-v2", "path": "/login" } },
+    { "source": "/logout", "destination": { "service": "gateway-v2", "path": "/logout" } },
+    { "source": "/health", "destination": { "service": "gateway-v2", "path": "/health" } },
+    { "source": "/api/missions", "destination": { "service": "gateway-v2", "path": "/api/missions" } },
+    { "source": "/api/missions/:path*", "destination": { "service": "gateway-v2", "path": "/api/missions/:path*" } },
+    { "source": "/api/approvals", "destination": { "service": "gateway-v2", "path": "/api/approvals" } },
+    { "source": "/api/approvals/:path*", "destination": { "service": "gateway-v2", "path": "/api/approvals/:path*" } }
   ]
 }
