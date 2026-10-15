@@ -425,6 +425,6 @@ def test_shared_state_submit_defers_serial_memory_io(tmp_path: Path, monkeypatch
     mission = controller.submit("inspect repository")
 
     assert mission.state == "pending"
-    assert "memory recall deferred" in mission.reason
+    assert "history recall deferred until execution" in mission.reason
     assert controller.queue.list()[0].task_id == mission.task_id
     assert controller.store.get(mission.mission_id) == mission
