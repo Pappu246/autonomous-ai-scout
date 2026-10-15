@@ -113,7 +113,7 @@ function esc(value) {
 
 async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  const timeout = window.setTimeout(() => controller.abort(), 25000);
   let response;
   let body;
   try {
