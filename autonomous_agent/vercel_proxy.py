@@ -179,6 +179,12 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
     def _original_path(self) -> str:
         return resolve_request_path(self.path, self.command)
 
+    def _vercel_sso_enforced(self) -> bool:
+        # Vercel Deployment Protection authenticates every request for Preview
+        # deployments. Never show a second public credential-collection form
+        # on those URLs; use the platform SSO gate instead.
+        return os.getenv("VERCEL_ENV", "").strip().lower() == "preview"
+
     def _has_session(self) -> bool:
         expected = self._configured_token("SCOUT_WEB_ACCESS_TOKEN")
         if not expected:
@@ -215,6 +221,18 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
         if not target_is_allowed(path, "GET"):
             self._json(404, {"error": "route not found"})
             return
+        if self._vercel_sso_enforced():
+            # The Vercel edge authenticates Preview requests before routing.
+            # /login must not render a password form on a flagged preview host.
+            if path == "/login":
+                self._reply(
+                    303,
+                    b"",
+                    extra_headers={"Location": "/", "Content-Length": "0"},
+                )
+                return
+            self._proxy(path, "GET")
+            return
         if path in {"/", "/login"}:
             if not self._configured_token("SCOUT_WEB_ACCESS_TOKEN"):
                 self._json(503, {"error": "SCOUT_WEB_ACCESS_TOKEN is not configured for this deployment"})
@@ -232,6 +250,12 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = self._original_path()
         if path == "/login":
+            if self._vercel_sso_enforced():
+                self._json(
+                    410,
+                    {"error": "Preview access uses Vercel Authentication; this endpoint does not accept passwords."},
+                )
+                return
             expected = self._configured_token("SCOUT_WEB_ACCESS_TOKEN")
             if not expected:
                 self._json(503, {"error": "SCOUT_WEB_ACCESS_TOKEN is not configured for this deployment"})
@@ -255,7 +279,7 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
         if not target_is_allowed(path, "POST"):
             self._json(404, {"error": "route not found"})
             return
-        if not self._has_session():
+        if not self._vercel_sso_enforced() and not self._has_session():
             self._json(401, {"error": "sign in required"})
             return
         self._proxy(path, "POST")
@@ -318,7 +342,7 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
                     payload = json.dumps(health, sort_keys=True).encode("utf-8")
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
-        if path == "/" and "text/html" in upstream_type.lower():
+        if path == "/" and "text/html" in upstream_type.lower() and not self._vercel_sso_enforced():
             page = payload.decode("utf-8", errors="replace")
             logout = """<aside style="position:fixed;top:12px;right:12px;z-index:9999"><button id="scout-logout" type="button" style="background:#334155;color:white;border:0;border-radius:8px;padding:9px 12px;cursor:pointer">Sign out</button></aside><script>document.getElementById('scout-logout')?.addEventListener('click',async()=>{await fetch('/logout',{method:'POST'});location.replace('/');});</script>"""
             page = page.replace("</body>", logout + "</body>")

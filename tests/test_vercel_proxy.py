@@ -170,3 +170,46 @@ def test_workspace_login_page_is_transparent_and_same_origin_only() -> None:
     assert 'href="https://github.com/Pappu246/autonomous-ai-scout"' in _LOGIN_PAGE
     assert "form-action 'self'" in _LOGIN_PAGE
     assert "connect-src 'self'" in _LOGIN_PAGE
+
+
+
+def test_preview_login_redirects_to_vercel_sso_instead_of_collecting_passwords(monkeypatch) -> None:
+    from autonomous_agent.vercel_proxy import ScoutVercelProxyHandler
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    handler = object.__new__(ScoutVercelProxyHandler)
+    handler.path = "/login"
+    handler.command = "GET"
+    captured = {}
+    monkeypatch.setattr(
+        handler,
+        "_reply",
+        lambda status, body, **kwargs: captured.update(status=status, body=body, **kwargs),
+    )
+
+    handler.do_GET()
+
+    assert captured["status"] == 303
+    assert captured["Location"] == "/"
+    assert captured["body"] == b""
+
+
+def test_preview_login_post_never_accepts_workspace_tokens(monkeypatch) -> None:
+    from autonomous_agent.vercel_proxy import ScoutVercelProxyHandler
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    handler = object.__new__(ScoutVercelProxyHandler)
+    handler.path = "/login"
+    handler.command = "POST"
+    captured = {}
+    monkeypatch.setattr(handler, "_original_path", lambda: "/login")
+    monkeypatch.setattr(
+        handler,
+        "_json",
+        lambda status, payload, **kwargs: captured.update(status=status, payload=payload),
+    )
+
+    handler.do_POST()
+
+    assert captured["status"] == 410
+    assert "does not accept passwords" in captured["payload"]["error"]
