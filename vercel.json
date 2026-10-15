@@ -1,33 +1,33 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "gateway-v2": {
+    "gateway_next": {
       "root": ".",
       "runtime": "container",
       "entrypoint": "Dockerfile.vercel",
       "bindings": [
         {
           "type": "service",
-          "service": "runtime-v2",
+          "service": "runtime_next",
           "format": "url",
           "env": "SCOUT_API_ORIGIN"
         }
       ]
     },
-    "runtime-v2": {
+    "runtime_next": {
       "root": ".",
       "runtime": "container",
       "entrypoint": "Dockerfile"
     }
   },
   "rewrites": [
-    { "source": "/", "destination": { "service": "gateway-v2", "path": "/" } },
-    { "source": "/login", "destination": { "service": "gateway-v2", "path": "/login" } },
-    { "source": "/logout", "destination": { "service": "gateway-v2", "path": "/logout" } },
-    { "source": "/health", "destination": { "service": "gateway-v2", "path": "/health" } },
-    { "source": "/api/missions", "destination": { "service": "gateway-v2", "path": "/api/missions" } },
-    { "source": "/api/missions/:path*", "destination": { "service": "gateway-v2", "path": "/api/missions/:path*" } },
-    { "source": "/api/approvals", "destination": { "service": "gateway-v2", "path": "/api/approvals" } },
-    { "source": "/api/approvals/:path*", "destination": { "service": "gateway-v2", "path": "/api/approvals/:path*" } }
+    { "source": "/", "destination": { "service": "gateway_next", "path": "/" } },
+    { "source": "/login", "destination": { "service": "gateway_next", "path": "/login" } },
+    { "source": "/logout", "destination": { "service": "gateway_next", "path": "/logout" } },
+    { "source": "/health", "destination": { "service": "gateway_next", "path": "/health" } },
+    { "source": "/api/missions", "destination": { "service": "gateway_next", "path": "/api/missions" } },
+    { "source": "/api/missions/:path*", "destination": { "service": "gateway_next", "path": "/api/missions/:path*" } },
+    { "source": "/api/approvals", "destination": { "service": "gateway_next", "path": "/api/approvals" } },
+    { "source": "/api/approvals/:path*", "destination": { "service": "gateway_next", "path": "/api/approvals/:path*" } }
   ]
 }
