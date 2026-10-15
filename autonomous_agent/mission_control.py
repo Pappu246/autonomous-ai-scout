@@ -494,7 +494,14 @@ class MissionController:
         )
         mission_id, execution_id = self._new_ids()
         now = _now()
-        history = self._history_hint(prepared.task)
+        # In hosted mode, distributed memory recall would add three serial Blob
+        # round-trips to the submission request. The worker records the real
+        # outcome after execution, so keep acceptance fast and defer history recall.
+        history = (
+            "shared-state history recall deferred until execution"
+            if self.shared_state_enabled
+            else self._history_hint(prepared.task)
+        )
         provider_hint = self._provider_route_hint(role)
         if not prepared.plan.executable:
             if approval_preview.plan.executable and self._plan_requires_approval(approval_preview.plan):
@@ -517,12 +524,13 @@ class MissionController:
                 now, now, 0, role.value, (),
             ))
         item = self.queue.enqueue(prepared.task, task_id=mission_id, execution_id=execution_id)
-        self.memory.record_episode(
-            self.MEMORY_PROJECT,
-            prepared.task,
-            outcome="queued",
-            metadata={"specialist_role": role.value, "provider_hint": provider_hint},
-        )
+        if not self.shared_state_enabled:
+            self.memory.record_episode(
+                self.MEMORY_PROJECT,
+                prepared.task,
+                outcome="queued",
+                metadata={"specialist_role": role.value, "provider_hint": provider_hint},
+            )
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(
@@ -596,12 +604,13 @@ class MissionController:
                 _bounded_text(prepared.reason, 1000), now, now, 0, role.role.value, normalized,
             ))
         item = self.queue.enqueue(_bounded_text(objective, 4000), task_id=mission_id, execution_id=execution_id)
-        self.memory.record_episode(
-            self.MEMORY_PROJECT,
-            normalized_objective,
-            outcome="queued",
-            metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
-        )
+        if not self.shared_state_enabled:
+            self.memory.record_episode(
+                self.MEMORY_PROJECT,
+                normalized_objective,
+                outcome="queued",
+                metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
+            )
         return self.store.put(MissionRecord(
             mission_id, item.task_id, item.execution_id, item.task, item.state.value,
             _bounded_text(f"bounded mission DAG accepted: {len(normalized)} steps; specialist={role.role.value}; {provider_hint}", 1000),
