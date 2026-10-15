@@ -818,6 +818,25 @@ class MissionController:
         items = self.queue.recover_stale_running(stale_after_seconds=stale_after_seconds)
         return self._persist_recovered_items(items)
 
+    def _run_shared_worker(self, stop_event: threading.Event) -> None:
+        """Retry shared-state recovery off the request-serving startup path."""
+        retry_delay = 1.0
+        while not stop_event.is_set():
+            try:
+                self.recover_stale_running()
+                break
+            except Exception as exc:
+                # A busy or temporarily unavailable Blob lease must not terminate
+                # the HTTP service. Log the exception type only; never log state
+                # payloads, tokens, or task text.
+                print(
+                    f"Mission Control startup recovery will retry: {type(exc).__name__}",
+                    flush=True,
+                )
+                stop_event.wait(retry_delay)
+        if not stop_event.is_set():
+            self.worker.run_forever(stop_event)
+
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
@@ -825,12 +844,20 @@ class MissionController:
             # Never run a cloud worker against per-container local state.
             self._stop.clear()
             return
+        self._stop.clear()
         if self.shared_state_enabled:
-            self.recover_stale_running()
+            # Vercel Blob access can briefly contend across runtime instances.
+            # Do not perform network-backed recovery before HTTP starts serving.
+            target = self._run_shared_worker
         else:
             self.recover()
-        self._stop.clear()
-        self._thread = threading.Thread(target=self.worker.run_forever, args=(self._stop,), name="autonomous-scout-mission-worker", daemon=True)
+            target = self.worker.run_forever
+        self._thread = threading.Thread(
+            target=target,
+            args=(self._stop,),
+            name="autonomous-scout-mission-worker",
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> None:

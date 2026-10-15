@@ -448,3 +448,37 @@ def test_submit_persists_mission_record_before_queue_becomes_visible(tmp_path: P
     assert observed == [mission.mission_id]
     assert mission.state == "pending"
     assert controller.queue.list()[0].task_id == mission.task_id
+
+
+
+def test_shared_worker_startup_retries_recovery_without_failing_service(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from threading import Event
+
+    controller = MissionController(root=tmp_path)
+    monkeypatch.setattr(controller, "shared_state_enabled", True)
+    monkeypatch.setattr(controller, "state_backend_ready", True)
+
+    recovery_attempts = {"count": 0}
+    worker_started = Event()
+
+    def flaky_recovery(*, stale_after_seconds=600.0):
+        recovery_attempts["count"] += 1
+        if recovery_attempts["count"] == 1:
+            raise TimeoutError("simulated shared Blob lease contention")
+        return ()
+
+    def fake_run_forever(stop_event):
+        worker_started.set()
+        stop_event.wait(2)
+
+    monkeypatch.setattr(controller, "recover_stale_running", flaky_recovery)
+    monkeypatch.setattr(controller.worker, "run_forever", fake_run_forever)
+
+    # start() must not perform remote recovery synchronously and raise.
+    controller.start()
+    assert worker_started.wait(timeout=3)
+    controller.stop()
+
+    assert recovery_attempts["count"] >= 2
