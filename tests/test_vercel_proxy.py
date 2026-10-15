@@ -190,7 +190,7 @@ def test_preview_login_redirects_to_vercel_sso_instead_of_collecting_passwords(m
     handler.do_GET()
 
     assert captured["status"] == 303
-    assert captured["Location"] == "/"
+    assert captured["extra_headers"]["Location"] == "/"
     assert captured["body"] == b""
 
 
