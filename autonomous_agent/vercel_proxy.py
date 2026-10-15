@@ -286,7 +286,7 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
             request = Request(origin + path, data=body, headers=headers, method=method)
             opener = build_opener(_NoRedirect())
             try:
-                upstream = opener.open(request, timeout=20)
+                upstream = opener.open(request, timeout=30)
             except HTTPError as exc:
                 if 300 <= exc.code < 400:
                     exc.close()
