@@ -144,7 +144,9 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     from autonomous_agent.server import _mission_ui
 
     page = _mission_ui()
-    assert "const timeout = window.setTimeout(() => controller.abort(), 25000)" in page
+    assert "const API_TIMEOUT_MS = 25000" in page
+    assert "window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)" in page
+    assert "'timed out after ' + Math.round(API_TIMEOUT_MS / 1000) + ' seconds'" in page
     assert "body = await response.json().catch(() => ({}));" in page
     assert "Promise.allSettled" in page
     assert "Unable to load missions:" in page
