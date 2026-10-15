@@ -111,10 +111,31 @@ function esc(value) {
   return node.innerHTML;
 }
 
+const API_TIMEOUT_MS = 25000;
+
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || ('HTTP ' + response.status));
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let response;
+  let body;
+  try {
+    response = await fetch(path, {
+      ...options,
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    // Keep the timeout active while reading the response body too. Some
+    // broken upstream responses send headers but never finish their JSON body.
+    body = await response.json().catch(() => ({}));
+  } catch (error) {
+    const reason = error && error.name === 'AbortError'
+      ? 'timed out after ' + Math.round(API_TIMEOUT_MS / 1000) + ' seconds'
+      : 'network request failed';
+    throw new Error(path + ' ' + reason);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+  if (!response.ok) { const detail = body.error || body.mission?.reason || ('HTTP ' + response.status); throw new Error(path + ': ' + detail); }
   return body;
 }
 
@@ -149,7 +170,7 @@ function renderApprovals(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/approvals/' + encodeURIComponent(button.dataset.approve) + '/approve', {method: 'POST'});
-        notice.textContent = 'Approval recorded. No action was executed.';
+        lastActionNotice = 'Approval recorded. No action was executed.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -158,7 +179,7 @@ function renderApprovals(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/approvals/' + encodeURIComponent(button.dataset.reject) + '/reject', {method: 'POST'});
-        notice.textContent = 'Approval rejected.';
+        lastActionNotice = 'Approval rejected.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -198,7 +219,7 @@ function render(items) {
       try {
         const body = await api('/api/missions/' + encodeURIComponent(button.dataset.memory) + '/memory');
         const target = document.getElementById('memory-' + button.dataset.memory);
-        target.textContent = body.memory.map(item => '[' + item.kind + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\n') || 'No matching mission memory.';
+        target.textContent = body.memory.map(item => '[' + item.kind + ' · ' + item.outcome + '] ' + (item.data.summary || item.data.task || item.outcome)).join('\\n') || 'No matching mission memory.'
       } catch (error) { notice.textContent = error.message; }
     });
   });
@@ -206,6 +227,7 @@ function render(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/missions/' + encodeURIComponent(button.dataset.resume) + '/resume', {method: 'POST'});
+        lastActionNotice = 'Mission resume queued.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
@@ -214,26 +236,84 @@ function render(items) {
     button.addEventListener('click', async () => {
       try {
         await api('/api/missions/' + encodeURIComponent(button.dataset.cancel) + '/cancel', {method: 'POST'});
+        lastActionNotice = 'Mission cancelled.';
         await refresh();
       } catch (error) { notice.textContent = error.message; }
     });
   });
 }
 
+let refreshInProgress = false;
+let lastActionNotice = '';
+let lastRefreshMissionIds = new Set();
+
 async function refresh() {
+  if (refreshInProgress) return {missionListLoaded: false, failures: ['refresh already in progress']};
+  refreshInProgress = true;
+  const failures = [];
+  let missionListLoaded = false;
   try {
-    const [missionBody, approvalBody, healthBody] = await Promise.all([
+    const [missionResult, approvalResult, healthResult] = await Promise.allSettled([
       api('/api/missions'),
       api('/api/approvals'),
       api('/health')
     ]);
-    document.getElementById('workspace-root').textContent = 'Workspace root: ' + (healthBody.workspace_root || 'unknown');
-    render(missionBody.missions);
-    renderApprovals(approvalBody.approvals);
-    notice.textContent = '';
+
+    if (healthResult.status === 'fulfilled') {
+      const root = healthResult.value.workspace_root;
+      document.getElementById('workspace-root').textContent =
+        'Workspace root: ' + (root || 'hidden by remote runtime');
+    } else {
+      const message = healthResult.reason instanceof Error
+        ? healthResult.reason.message : String(healthResult.reason);
+      document.getElementById('workspace-root').textContent = 'Workspace status unavailable: ' + message;
+      failures.push(message);
+    }
+
+    if (missionResult.status === 'fulfilled' && Array.isArray(missionResult.value.missions)) {
+      lastRefreshMissionIds = new Set(
+        missionResult.value.missions.map(item => String(item.mission_id || '')).filter(Boolean)
+      );
+      missionListLoaded = true;
+      render(missionResult.value.missions);
+    } else {
+      lastRefreshMissionIds = new Set();
+      const message = missionResult.status === 'rejected'
+        ? (missionResult.reason instanceof Error ? missionResult.reason.message : String(missionResult.reason))
+        : '/api/missions returned an invalid response';
+      missions.innerHTML = '<div class="muted">Unable to load missions: ' + esc(message) + '</div>';
+      failures.push(message);
+    }
+
+    if (approvalResult.status === 'fulfilled' && Array.isArray(approvalResult.value.approvals)) {
+      renderApprovals(approvalResult.value.approvals);
+    } else {
+      const message = approvalResult.status === 'rejected'
+        ? (approvalResult.reason instanceof Error ? approvalResult.reason.message : String(approvalResult.reason))
+        : '/api/approvals returned an invalid response';
+      approvals.innerHTML = '<div class="muted">Unable to load approvals: ' + esc(message) + '</div>';
+      failures.push(message);
+    }
+
+    notice.textContent = failures.length
+      ? 'Dashboard warning: ' + failures.join(' · ')
+      : lastActionNotice;
   } catch (error) {
-    notice.textContent = error.message;
+    // Never leave the initial placeholders spinning if rendering or an
+    // unexpected response shape fails outside an individual API request.
+    const message = error instanceof Error ? error.message : String(error);
+    if (missions.textContent.trim() === 'Loading…') {
+      missions.innerHTML = '<div class="muted">Unable to load missions: ' + esc(message) + '</div>';
+    }
+    if (approvals.textContent.trim() === 'Loading…') {
+      approvals.innerHTML = '<div class="muted">Unable to load approvals: ' + esc(message) + '</div>';
+    }
+    failures.push(message);
+    notice.textContent = 'Dashboard error: ' + message;
+  } finally {
+    refreshInProgress = false;
   }
+  return {missionListLoaded, failures};
 }
 
 document.getElementById('mission-form').addEventListener('submit', async event => {
@@ -241,22 +321,40 @@ document.getElementById('mission-form').addEventListener('submit', async event =
   const task = document.getElementById('task').value.trim();
   if (!task) return;
   try {
-    await api('/api/missions', {
+    const response = await api('/api/missions', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({task})
     });
+    const mission = response.mission || {};
     document.getElementById('task').value = '';
-    notice.textContent = 'Mission accepted.';
-    await refresh();
+    if (mission.state === 'requires_approval') {
+      lastActionNotice = 'Mission recorded, but it needs approval. Review the exact proposed steps before approving anything.';
+    } else if (mission.state === 'pending') {
+      lastActionNotice = 'Mission accepted and queued.';
+    } else {
+      lastActionNotice = 'Mission recorded with state: ' + (mission.state || 'unknown');
+    }
+    const refreshResult = await refresh();
+    const submittedId = String(mission.mission_id || '');
+    if (!refreshResult.missionListLoaded || !submittedId || !lastRefreshMissionIds.has(submittedId)) {
+      lastActionNotice = 'Submission response received, but this mission is missing from the refreshed list. Shared state is inconsistent; do not submit it again yet.';
+    } else if (refreshResult.failures.length) {
+      lastActionNotice = 'Mission is visible, but another dashboard section failed to load: ' + refreshResult.failures.join(' · ');
+    }
+    notice.textContent = lastActionNotice;
   } catch (error) {
+    lastActionNotice = '';
     notice.textContent = error.message;
   }
 });
 
-document.getElementById('refresh').addEventListener('click', refresh);
+document.getElementById('refresh').addEventListener('click', () => {
+  lastActionNotice = '';
+  notice.textContent = '';
+  refresh();
+});
 refresh();
-setInterval(refresh, 2000);
 </script>
 </body>
 </html>"""
@@ -349,19 +447,42 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             workspace_root = Path(getattr(self.server, "workspace_root", DEFAULT_WORKSPACE_ROOT)).resolve()
-            self._json(200, {
+            payload = {
                 "status": "ok",
                 "service": "autonomous-ai-scout",
-                "workspace_root": str(workspace_root),
-            })
+            }
+            # On a public bind, the health endpoint is deliberately path-free.
+            # Local loopback development retains the helpful workspace diagnostic.
+            if not getattr(self.server, "require_auth", False):
+                payload["workspace_root"] = str(workspace_root)
+            self._json(200, payload)
             return
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
             return
+        stateful_api = (
+            parsed.path == "/api/missions"
+            or parsed.path.startswith("/api/missions/")
+            or parsed.path == "/api/approvals"
+            or parsed.path.startswith("/api/approvals/")
+        )
+        if stateful_api:
+            controller = self._controller()
+            mission_api = parsed.path == "/api/missions" or parsed.path.startswith("/api/missions/")
+            if mission_api and controller is None:
+                self._json(503, {"error": "mission control is not running"})
+                return
+            if controller is not None and not getattr(controller, "state_backend_ready", True):
+                self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+                return
         if parsed.path == "/":
             self._text(200, _mission_ui())
             return
         if parsed.path == "/run":
+            controller = self._controller()
+            if controller is not None and not getattr(controller, "state_backend_ready", True):
+                self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+                return
             query = parse_qs(parsed.query)
             task = query.get("task", [os.getenv("TASK_REQUEST", "inspect repository")])[0]
             if len(task) > MAX_TASK_LENGTH:
@@ -435,6 +556,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     self._json(409, {"error": str(exc)})
                     return
+                except Exception as exc:
+                    # Do not let unexpected timeline storage/parsing failures drop
+                    # the response and appear as a browser network failure.
+                    print(f"Mission timeline request failed ({type(exc).__name__})", flush=True)
+                    self._json(500, {"error": "timeline temporarily unavailable; please retry"})
+                    return
                 self._json(200, {"timeline": list(timeline)})
                 return
             self._json(200, {"mission": self._mission_payload(record)})
@@ -447,6 +574,19 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "authentication required"})
             return
         controller = self._controller()
+        stateful_api = (
+            parsed.path == "/api/missions"
+            or parsed.path.startswith("/api/missions/")
+            or parsed.path == "/api/approvals"
+            or parsed.path.startswith("/api/approvals/")
+        )
+        mission_api = parsed.path == "/api/missions" or parsed.path.startswith("/api/missions/")
+        if mission_api and controller is None:
+            self._json(503, {"error": "mission control is not running"})
+            return
+        if stateful_api and controller is not None and not getattr(controller, "state_backend_ready", True):
+            self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+            return
         if controller is None and not parsed.path.startswith("/api/approvals/"):
             self._json(503, {"error": "mission control is not running"})
             return
@@ -511,7 +651,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            self._json(202 if record.state == "pending" else 422, {"mission": self._mission_payload(record)})
+            # A mission record was successfully created even when policy blocks execution.
+            # Return the resource state in JSON; reserve HTTP errors for malformed or rejected requests.
+            self._json(202, {"mission": self._mission_payload(record)})
             return
         prefix = "/api/missions/"
         if parsed.path.startswith(prefix) and parsed.path.endswith("/cancel"):

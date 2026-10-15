@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
+from .file_lock import InterProcessFileLock
+
 
 class ActionStatus(str, Enum):
     PROPOSED = "proposed"
@@ -81,7 +83,7 @@ def _id(proposal: ActionProposal, risk: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def load_queue(path: Path) -> list[PendingAction]:
+def _load_queue_unlocked(path: Path) -> list[PendingAction]:
     if not path.exists():
         return []
     try:
@@ -101,6 +103,14 @@ def load_queue(path: Path) -> list[PendingAction]:
         except (KeyError, TypeError):
             continue
     return result
+
+
+def load_queue(path: Path) -> list[PendingAction]:
+    # A read lock also refreshes the file from private shared state when running
+    # in Vercel's multi-instance runtime. Call _load_queue_unlocked only while
+    # the same path lock is already held.
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        return _load_queue_unlocked(path)
 
 
 def _is_stale(item: PendingAction, now: datetime) -> bool:
@@ -136,14 +146,15 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
     action = PendingAction(_id(proposal, normalized_risk), _safe_text(proposal.task), tuple(_safe_text(step, 2048) for step in proposal.steps[:12]), normalized_risk,
                            _safe_text(proposal.reason, 2048), "pending", datetime.now(timezone.utc).isoformat())
-    queue = expire_stale_actions(load_queue(path))
-    for item in queue:
-        if item.id == action.id and item.status == "pending":
-            return item
-    queue.append(action)
-    pending = prioritize_queue([item for item in queue if item.status == "pending"])
-    non_pending = [item for item in queue if item.status != "pending"]
-    queue = pending[:MAX_PENDING_ACTIONS] + non_pending
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        queue = expire_stale_actions(_load_queue_unlocked(path))
+        for item in queue:
+            if item.id == action.id and item.status == "pending":
+                return item
+        queue.append(action)
+        pending = prioritize_queue([item for item in queue if item.status == "pending"])
+        non_pending = [item for item in queue if item.status != "pending"]
+        queue = pending[:MAX_PENDING_ACTIONS] + non_pending
+        path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
     return action

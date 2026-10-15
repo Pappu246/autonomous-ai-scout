@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from enum import Enum
 from typing import Iterable
+
+from .task_intent import positive_task_text
 
 
 class SpecialistRole(str, Enum):
@@ -31,7 +34,7 @@ _RULES: tuple[tuple[SpecialistRole, tuple[str, ...], str], ...] = (
     ),
     (
         SpecialistRole.RESEARCH,
-        ("research", "find", "compare", "source", "sources", "investigate", "latest", "report", "audit", "benchmark"),
+        ("research", "find", "compare", "source", "sources", "investigate", "latest", "audit", "benchmark"),
         "research or evidence language",
     ),
     (
@@ -58,10 +61,17 @@ _RULES: tuple[tuple[SpecialistRole, tuple[str, ...], str], ...] = (
 
 
 def choose_specialist(task: str) -> RoleDecision:
-    normalized = " ".join(str(task).lower().split())
+    normalized = positive_task_text(task)
+    normalized_terms = " ".join(re.findall(r"[a-z0-9]+", normalized))
     scores: list[tuple[int, SpecialistRole, tuple[str, ...], str]] = []
     for role, keywords, reason in _RULES:
-        hits = tuple(keyword for keyword in keywords if keyword in normalized)
+        # Compare complete normalized words/phrases. Short signals such as
+        # "repo" must not match unrelated words such as "report".
+        hits = tuple(
+            keyword for keyword in keywords
+            if " " + " ".join(re.findall(r"[a-z0-9]+", keyword.lower())) + " "
+            in " " + normalized_terms + " "
+        )
         if hits:
             scores.append((len(hits), role, hits, reason))
 

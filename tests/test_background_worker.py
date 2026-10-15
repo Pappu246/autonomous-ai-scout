@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from threading import Event, Thread
 from time import sleep
 from pathlib import Path
@@ -114,3 +115,83 @@ def test_queue_cannot_cancel_running_task(tmp_path: Path):
     assert claimed is not None
     with pytest.raises(ValueError, match="only pending"):
         queue.cancel("task-1")
+
+
+def test_shared_queue_preserves_recent_running_task(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-active", execution_id="exec-active")
+    queue.claim_next()
+
+    assert queue.recover_stale_running(stale_after_seconds=600) == ()
+    assert queue.list()[0].state is QueueState.RUNNING
+
+
+def test_shared_queue_recovers_only_stale_running_task(tmp_path: Path):
+    path = tmp_path / "queue.json"
+    queue = TaskQueueStore(path)
+    queue.enqueue("inspect repository", task_id="task-stale", execution_id="exec-stale")
+    queue.claim_next()
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["items"][0]["updated_at"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    recovered = queue.recover_stale_running(stale_after_seconds=600)
+
+    assert len(recovered) == 1
+    assert recovered[0].state is QueueState.RECOVERY_REQUIRED
+    assert queue.list()[0].state is QueueState.RECOVERY_REQUIRED
+
+
+def test_worker_can_start_without_recovering_another_instance_running_task(tmp_path: Path):
+    queue = TaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-live", execution_id="exec-live")
+    queue.claim_next()
+    worker = BackgroundTaskWorker(
+        queue,
+        lambda _item: True,
+        poll_interval=0.01,
+        recover_on_start=False,
+    )
+    stop = Event()
+    thread = Thread(target=worker.run_forever, args=(stop,), daemon=True)
+    thread.start()
+    sleep(0.05)
+    stop.set()
+    thread.join(timeout=1)
+
+    assert queue.list()[0].state is QueueState.RUNNING
+
+def test_worker_retries_transient_queue_storage_errors(tmp_path: Path):
+    class FlakyTaskQueueStore(TaskQueueStore):
+        def __init__(self, path):
+            super().__init__(path)
+            self.claim_calls = 0
+
+        def claim_next(self):
+            self.claim_calls += 1
+            if self.claim_calls == 1:
+                raise RuntimeError("transient storage race")
+            return super().claim_next()
+
+    queue = FlakyTaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-retry", execution_id="exec-retry")
+    worker = BackgroundTaskWorker(
+        queue,
+        lambda _item: True,
+        poll_interval=0.01,
+        recover_on_start=False,
+    )
+    stop = Event()
+    thread = Thread(target=worker.run_forever, args=(stop,), daemon=True)
+    thread.start()
+    for _ in range(150):
+        if queue.list() and queue.list()[0].state is QueueState.SUCCEEDED:
+            break
+        sleep(0.01)
+    stop.set()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    assert queue.claim_calls >= 2
+    assert queue.list()[0].state is QueueState.SUCCEEDED

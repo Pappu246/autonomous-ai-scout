@@ -107,7 +107,9 @@ class PersistentMemory:
             return ()
         requested = self.max_recall if limit is None else max(1, min(int(limit), self.max_recall))
         entries = self.store.learn(project, kind=kind)
-        matches: list[MemoryMatch] = []
+        # Older versions could append the same fingerprint multiple times.
+        # Return only its newest relevant record to keep memory recall stable.
+        matches_by_fingerprint: dict[tuple[str, str], MemoryMatch] = {}
         for entry in entries:
             data = entry.get("data", {}) if isinstance(entry, Mapping) else {}
             searchable = " ".join(
@@ -115,16 +117,18 @@ class PersistentMemory:
             )
             score = _similarity(tokens, _tokens(searchable))
             if score >= max(0.0, float(min_score)):
-                matches.append(
-                    MemoryMatch(
-                        round(score, 6),
-                        str(entry.get("project", project)),
-                        str(entry.get("kind", "")),
-                        str(entry.get("outcome", "")),
-                        str(entry.get("fingerprint", "")),
-                        data,
-                    )
+                match = MemoryMatch(
+                    round(score, 6),
+                    str(entry.get("project", project)),
+                    str(entry.get("kind", "")),
+                    str(entry.get("outcome", "")),
+                    str(entry.get("fingerprint", "")),
+                    data,
                 )
+                key = (match.kind, match.fingerprint)
+                matches_by_fingerprint[key] = match
+
+        matches = list(matches_by_fingerprint.values())
         matches.sort(key=lambda item: (-item.score, item.kind, item.fingerprint))
         return tuple(matches[:requested])
 
