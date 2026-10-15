@@ -3,7 +3,7 @@
   "services": {
     "gateway-v2": {
       "root": ".",
-      "runtime-v2": "container",
+      "runtime": "container",
       "entrypoint": "Dockerfile.vercel",
       "bindings": [
         {
@@ -16,7 +16,7 @@
     },
     "runtime-v2": {
       "root": ".",
-      "runtime-v2": "container",
+      "runtime": "container",
       "entrypoint": "Dockerfile"
     }
   },
