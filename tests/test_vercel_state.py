@@ -144,13 +144,10 @@ def test_non_not_found_blob_read_errors_fail_closed(tmp_path: Path, monkeypatch)
     def unauthorized_get(*_args, **_kwargs):
         raise PermissionError("private blob authorization failed")
 
-    _FakeBlobClient.get = unauthorized_get
-    try:
-        with pytest.raises(PermissionError, match="authorization failed"):
-            with InterProcessFileLock(controller.store.path.with_name(controller.store.path.name + ".lock")):
-                pass
-    finally:
-        del _FakeBlobClient.get
+    monkeypatch.setattr(_FakeBlobClient, "get", unauthorized_get)
+    with pytest.raises(PermissionError, match="authorization failed"):
+        with InterProcessFileLock(controller.store.path.with_name(controller.store.path.name + ".lock")):
+            pass
 
 def test_remote_lock_retries_when_conflicting_lease_disappears(tmp_path: Path, monkeypatch) -> None:
     from autonomous_agent.vercel_state import VercelBlobStateSync
