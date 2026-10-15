@@ -111,9 +111,11 @@ function esc(value) {
   return node.innerHTML;
 }
 
+const API_TIMEOUT_MS = 25000;
+
 async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 25000);
+  const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   let response;
   let body;
   try {
@@ -127,7 +129,7 @@ async function api(path, options = {}) {
     body = await response.json().catch(() => ({}));
   } catch (error) {
     const reason = error && error.name === 'AbortError'
-      ? 'timed out after 8 seconds'
+      ? 'timed out after ' + Math.round(API_TIMEOUT_MS / 1000) + ' seconds'
       : 'network request failed';
     throw new Error(path + ' ' + reason);
   } finally {

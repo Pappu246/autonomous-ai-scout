@@ -161,3 +161,37 @@ def test_worker_can_start_without_recovering_another_instance_running_task(tmp_p
     thread.join(timeout=1)
 
     assert queue.list()[0].state is QueueState.RUNNING
+
+def test_worker_retries_transient_queue_storage_errors(tmp_path: Path):
+    class FlakyTaskQueueStore(TaskQueueStore):
+        def __init__(self, path):
+            super().__init__(path)
+            self.claim_calls = 0
+
+        def claim_next(self):
+            self.claim_calls += 1
+            if self.claim_calls == 1:
+                raise RuntimeError("transient storage race")
+            return super().claim_next()
+
+    queue = FlakyTaskQueueStore(tmp_path / "queue.json")
+    queue.enqueue("inspect repository", task_id="task-retry", execution_id="exec-retry")
+    worker = BackgroundTaskWorker(
+        queue,
+        lambda _item: True,
+        poll_interval=0.01,
+        recover_on_start=False,
+    )
+    stop = Event()
+    thread = Thread(target=worker.run_forever, args=(stop,), daemon=True)
+    thread.start()
+    for _ in range(150):
+        if queue.list() and queue.list()[0].state is QueueState.SUCCEEDED:
+            break
+        sleep(0.01)
+    stop.set()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    assert queue.claim_calls >= 2
+    assert queue.list()[0].state is QueueState.SUCCEEDED

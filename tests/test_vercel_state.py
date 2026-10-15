@@ -151,3 +151,29 @@ def test_non_not_found_blob_read_errors_fail_closed(tmp_path: Path, monkeypatch)
                 pass
     finally:
         del _FakeBlobClient.get
+
+def test_remote_lock_retries_when_conflicting_lease_disappears(tmp_path: Path, monkeypatch) -> None:
+    from autonomous_agent.vercel_state import VercelBlobStateSync
+
+    _install_fake_blob(monkeypatch)
+    target = tmp_path / "state" / "missions.json"
+    sync = VercelBlobStateSync(target, timeout_seconds=1.0, poll_interval_seconds=0.01)
+    assert sync.enabled
+
+    original_put = _FakeBlobClient.put
+    conflicts = {"remaining": 2}
+
+    def conflicting_put(self, path, body, **kwargs):
+        if path.startswith("scout-state/locks/") and conflicts["remaining"]:
+            conflicts["remaining"] -= 1
+            raise RuntimeError("Vercel Blob: This blob already exists")
+        return original_put(self, path, body, **kwargs)
+
+    monkeypatch.setattr(_FakeBlobClient, "put", conflicting_put)
+    sync._acquire_remote_lock()
+
+    assert conflicts["remaining"] == 0
+    assert sync._lock_acquired is True
+    assert sync._get_bytes(sync.lock_key) is not None
+    sync._release_remote_lock()
+    assert sync._get_bytes(sync.lock_key) is None

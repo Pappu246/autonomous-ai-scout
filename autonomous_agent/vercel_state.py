@@ -115,7 +115,6 @@ class VercelBlobStateSync:
             separators=(",", ":"),
         ).encode("utf-8")
         client = self._blob_client()
-        empty_verifications = 0
         while True:
             try:
                 client.put(
@@ -130,11 +129,12 @@ class VercelBlobStateSync:
                 self._lock_acquired = True
                 return
             except Exception as acquire_error:
-                # A conflicting lease is expected under contention. Verify that
-                # the lease exists before retrying; propagate unrelated failures.
+                # Only the explicit create-if-absent conflict means another
+                # runtime may hold the lease. Authentication, configuration,
+                # and network failures must surface immediately.
+                if "already exists" not in str(acquire_error).lower():
+                    raise RuntimeError("private shared-state lease could not be created") from acquire_error
                 try:
-                    # A real storage/auth/network error must surface immediately;
-                    # do not convert it into a 20-second lock-contention spin.
                     current = self._get_bytes(self.lock_key)
                 except Exception as verification_error:
                     raise RuntimeError("private shared-state lease could not be verified") from verification_error
@@ -152,14 +152,10 @@ class VercelBlobStateSync:
                         except Exception:
                             pass
                         continue
-                else:
-                    # A short race can occur if another holder deletes its lease
-                    # between our failed PUT and verification GET. Retry that
-                    # race once; repeated missing leases indicate a real write
-                    # failure and should not masquerade as normal contention.
-                    empty_verifications += 1
-                    if empty_verifications >= 2:
-                        raise RuntimeError("private shared-state lease creation failed") from acquire_error
+                # A race can delete the competing lease between the failed PUT
+                # and this GET (or Blob reads can briefly lag writes). Either
+                # way, retry creation; two empty reads are not proof that the
+                # storage write is broken. The deadline remains the hard bound.
                 if time.monotonic() >= deadline:
                     raise TimeoutError("shared state lock timed out; another runtime may still be updating state") from acquire_error
                 time.sleep(self.poll_interval_seconds)

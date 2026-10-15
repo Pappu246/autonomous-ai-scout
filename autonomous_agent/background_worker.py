@@ -79,11 +79,32 @@ class BackgroundTaskWorker:
         return WorkerResult(processed, succeeded, failed)
 
     def run_forever(self, stop_event: Event) -> None:
+        retry_delay = max(0.1, min(self.poll_interval if self.poll_interval > 0 else 0.5, 2.0))
         if self.recover_on_start:
-            self.recover()
+            while not stop_event.is_set():
+                try:
+                    self.recover()
+                    break
+                except Exception as exc:
+                    # Never let one transient shared-storage failure permanently
+                    # kill the queue consumer. Log only the exception type.
+                    print(
+                        f"Background task worker startup recovery will retry: {type(exc).__name__}",
+                        flush=True,
+                    )
+                    stop_event.wait(retry_delay)
         while not stop_event.is_set():
-            if self.run_once() is None:
-                stop_event.wait(self.poll_interval)
+            try:
+                if self.run_once() is None:
+                    stop_event.wait(self.poll_interval)
+            except Exception as exc:
+                # Remote queue locks and storage can race across runtime
+                # instances. Keep the worker alive and retry with bounded backoff.
+                print(
+                    f"Background task worker poll will retry: {type(exc).__name__}",
+                    flush=True,
+                )
+                stop_event.wait(retry_delay)
 
 
 __all__ = ["BackgroundTaskWorker", "TaskHandler", "WorkerResult"]
