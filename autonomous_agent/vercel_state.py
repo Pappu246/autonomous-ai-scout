@@ -115,6 +115,7 @@ class VercelBlobStateSync:
             separators=(",", ":"),
         ).encode("utf-8")
         client = self._blob_client()
+        empty_verifications = 0
         while True:
             try:
                 client.put(
@@ -132,9 +133,11 @@ class VercelBlobStateSync:
                 # A conflicting lease is expected under contention. Verify that
                 # the lease exists before retrying; propagate unrelated failures.
                 try:
+                    # A real storage/auth/network error must surface immediately;
+                    # do not convert it into a 20-second lock-contention spin.
                     current = self._get_bytes(self.lock_key)
-                except Exception:
-                    current = None
+                except Exception as verification_error:
+                    raise RuntimeError("private shared-state lease could not be verified") from verification_error
                 if current is not None:
                     stale = False
                     try:
@@ -149,8 +152,14 @@ class VercelBlobStateSync:
                         except Exception:
                             pass
                         continue
-                elif time.monotonic() >= deadline:
-                    raise TimeoutError("shared state lock could not be acquired") from acquire_error
+                else:
+                    # A short race can occur if another holder deletes its lease
+                    # between our failed PUT and verification GET. Retry that
+                    # race once; repeated missing leases indicate a real write
+                    # failure and should not masquerade as normal contention.
+                    empty_verifications += 1
+                    if empty_verifications >= 2:
+                        raise RuntimeError("private shared-state lease creation failed") from acquire_error
                 if time.monotonic() >= deadline:
                     raise TimeoutError("shared state lock timed out; another runtime may still be updating state") from acquire_error
                 time.sleep(self.poll_interval_seconds)
