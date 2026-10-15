@@ -158,3 +158,15 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     assert "refreshResult.missionListLoaded" in page
     assert "Shared state is inconsistent" in page
     assert r".join('\n') || 'No matching mission memory.'" in page
+
+
+
+def test_workspace_login_page_is_transparent_and_same_origin_only() -> None:
+    from autonomous_agent.vercel_proxy import _LOGIN_PAGE
+
+    assert "Autonomous AI Scout workspace" in _LOGIN_PAGE
+    assert "not a Google, GitHub, Microsoft, or other account sign-in" in _LOGIN_PAGE
+    assert "only to this site's own <code>/login</code> endpoint" in _LOGIN_PAGE
+    assert 'href="https://github.com/Pappu246/autonomous-ai-scout"' in _LOGIN_PAGE
+    assert "form-action 'self'" in _LOGIN_PAGE
+    assert "connect-src 'self'" in _LOGIN_PAGE

@@ -105,7 +105,9 @@ button{margin-top:14px;width:100%;padding:12px;border:0;border-radius:8px;backgr
 </head>
 <body><main>
 <h1>Autonomous AI Scout</h1>
-<p>Mission Control is protected. Sign in with the workspace access password to continue.</p>
+<p>This page is only for the Autonomous AI Scout workspace. Enter the project-specific workspace token only; this is not a Google, GitHub, Microsoft, or other account sign-in.</p>
+<p>The token is sent only to this site's own <code>/login</code> endpoint. Do not enter a password used on any other service.</p>
+<p><a href="https://github.com/Pappu246/autonomous-ai-scout" rel="noopener noreferrer">View the source repository</a></p>
 <form id="login">
 <label for="token">Workspace access password</label>
 <input id="token" name="token" type="password" required autocomplete="current-password" minlength="32">
