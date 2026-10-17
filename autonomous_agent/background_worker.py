@@ -22,7 +22,8 @@ TaskHandler = Callable[[QueueItem], bool]
 class BackgroundTaskWorker:
     """Durable queue consumer with bounded polling and per-attempt completion checks.
 
-    A file/Blob lease is not a transactional side-effect fence across instances.
+    Local file locks do not fence side effects across hosts. Hosted work is
+    paused until a transactional coordinator replaces the old Blob lease.
     """
 
     def __init__(

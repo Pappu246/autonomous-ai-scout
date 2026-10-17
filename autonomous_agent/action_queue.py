@@ -120,9 +120,9 @@ def _load_queue_unlocked(path: Path) -> list[PendingAction]:
 
 
 def load_queue(path: Path) -> list[PendingAction]:
-    # A read lock also refreshes the file from private shared state when running
-    # in Vercel's multi-instance runtime. Call _load_queue_unlocked only while
-    # the same path lock is already held.
+    # This lock protects one local host. Hosted/Blob-configured calls fail
+    # closed before reading per-container state until fencing is available.
+    # Call _load_queue_unlocked only while the same path lock is held.
     with InterProcessFileLock(path.with_name(path.name + ".lock")):
         return _load_queue_unlocked(path)
 

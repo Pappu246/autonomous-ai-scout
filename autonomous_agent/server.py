@@ -15,6 +15,7 @@ from .approval_store import create_approval, reject_action
 from .execution_engine import ExecutionState
 from .mission_control import MissionController
 from .runtime import run_task
+from .vercel_state import SharedStateCoordinationUnavailable, shared_state_coordination_required
 
 
 AUTH_HEADER = "X-Autonomous-Scout-Token"
@@ -412,6 +413,13 @@ class RuntimeHandler(BaseHTTPRequestHandler):
     def _controller(self) -> MissionController | None:
         return getattr(self.server, "mission_controller", None)
 
+    def _state_paused(self, controller: MissionController | None) -> bool:
+        # A missing/stale controller cannot turn hosted state back on. Checking
+        # the environment here also covers requests that race startup.
+        return shared_state_coordination_required() or (
+            controller is not None and not getattr(controller, "state_backend_ready", True)
+        )
+
     def _mission_payload(self, record) -> dict:
         return {
             "mission_id": record.mission_id,
@@ -466,10 +474,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         return payload
 
     def _unexpected_request_failure(self, exc: Exception) -> None:
-        # Storage exceptions can occur after a token is configured (Blob outages,
-        # malformed remote state, lock timeouts). Return a bounded HTTP error
-        # instead of dropping the connection or echoing exception diagnostics.
+        # Failures of local state or a future coordinated backend return a
+        # bounded error, never a dropped connection or leaked diagnostic.
         print(f"Mission Control request failed ({type(exc).__name__})", flush=True)
+        if isinstance(exc, SharedStateCoordinationUnavailable):
+            self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
+            return
         path = urlparse(self.path).path
         if path == "/api/missions" or path.startswith("/api/missions/") or path == "/api/approvals" or path.startswith("/api/approvals/"):
             self._json(503, {"error": "mission state temporarily unavailable; retry"})
@@ -486,15 +496,19 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             workspace_root = Path(getattr(self.server, "workspace_root", DEFAULT_WORKSPACE_ROOT)).resolve()
+            controller = self._controller()
+            paused = self._state_paused(controller)
             payload = {
-                "status": "ok",
+                "status": "unavailable" if paused else "ok",
                 "service": "autonomous-ai-scout",
             }
+            if paused:
+                payload["mission_control"] = "paused: atomic shared-state coordination required"
             # On a public bind, the health endpoint is deliberately path-free.
             # Local loopback development retains the helpful workspace diagnostic.
             if not getattr(self.server, "require_auth", False):
                 payload["workspace_root"] = str(workspace_root)
-            self._json(200, payload)
+            self._json(503 if paused else 200, payload)
             return
         if not self._authorized():
             self._json(401, {"error": "authentication required"})
@@ -511,7 +525,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             if mission_api and controller is None:
                 self._json(503, {"error": "mission control is not running"})
                 return
-            if controller is not None and not getattr(controller, "state_backend_ready", True):
+            if self._state_paused(controller):
                 self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
                 return
         if parsed.path == "/":
@@ -519,7 +533,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/run":
             controller = self._controller()
-            if controller is not None and not getattr(controller, "state_backend_ready", True):
+            if self._state_paused(controller):
                 self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
                 return
             query = parse_qs(parsed.query)
@@ -638,7 +652,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         if mission_api and controller is None:
             self._json(503, {"error": "mission control is not running"})
             return
-        if stateful_api and controller is not None and not getattr(controller, "state_backend_ready", True):
+        if stateful_api and self._state_paused(controller):
             self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
             return
         if controller is None and not parsed.path.startswith("/api/approvals/"):

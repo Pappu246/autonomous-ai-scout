@@ -62,11 +62,9 @@ def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
     if not approval.approval_token.strip():
         return ExecutionDecision(False, "approval token is missing")
     try:
-        store.mkdir(parents=True, exist_ok=True)
         marker = store / f"{approval_claim_id(approval)}.claimed"
-        # The local exclusive create protects only one container. Synchronize
-        # this marker under the same private Blob-backed distributed lock used
-        # by other state files before granting one-time execution authority.
+        # The lock refuses hosted/Blob-configured state *before* creating a
+        # marker directory; local exclusive create is single-host only.
         with InterProcessFileLock(marker.with_name(marker.name + ".lock")):
             try:
                 with marker.open("x", encoding="utf-8") as handle:
@@ -78,9 +76,9 @@ def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
                 return ExecutionDecision(False, "approval has already been consumed")
     except (OSError, RuntimeError, TimeoutError):
         return ExecutionDecision(False, "approval consumption store is unavailable")
-    # A persisted marker prevents ordinary local/sequential reuse. Vercel Blob
-    # does not expose a fenced conditional delete/replace for the surrounding
-    # lease, so this cannot prove global exactly-once across stalled instances.
+    # A persisted marker prevents ordinary reuse on the same host. Hosted
+    # execution is paused until a fenced coordinator replaces Blob leases;
+    # this local marker alone is not a global exactly-once guarantee.
     return ExecutionDecision(True, "approval claim recorded; no automatic replay is authorized")
 
 

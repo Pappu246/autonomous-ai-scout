@@ -12,6 +12,7 @@ from .run_journal import append_run_record, make_run_record, read_run_records, s
 from .task_core import AutonomousTaskCore
 from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY, ToolRegistry
+from .vercel_state import require_atomic_state_coordinator
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
@@ -50,6 +51,9 @@ def run_task(
     granted: Iterable[Capability | str] | None = None,
     explicitly_approved: bool = False,
 ) -> ExecutionResult:
+    # A direct CLI/function caller must not bypass the HTTP/worker readiness
+    # gate and perform tools before discovering that Blob state is unfenced.
+    require_atomic_state_coordinator()
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)

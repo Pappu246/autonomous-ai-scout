@@ -1,6 +1,6 @@
 # Vercel + Azure deployment architecture (historical alternative)
 
-> **Not the current Vercel Services Preview architecture.** PR #280's active candidate uses two Vercel container services and private Vercel Blob state; see [Vercel Services deployment](DEPLOYMENT_VERCEL_SERVICES.md). Do not treat the Azure steps below as evidence of current resources or apply them to Production without explicit authorization.
+> **Not the current Vercel Services Preview architecture.** PR #280's earlier candidate used two Vercel container services and private Blob state; PR #282 now pauses hosted state until fenced coordination exists. See [Vercel Services deployment](DEPLOYMENT_VERCEL_SERVICES.md). Do not treat the Azure steps below as evidence of current resources or apply them to Production without explicit authorization.
 
 Autonomous AI Scout is a persistent Python service, not a static-only website. Mission Control owns a durable queue, worker thread, approval records, memory, and JSON audit files. Run that service in Azure Container Apps; use Vercel as the public, password-protected HTTPS gateway.
 

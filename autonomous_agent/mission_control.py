@@ -36,6 +36,7 @@ from .task_intent import positive_task_text
 from .cross_project_memory import _safe_text as _safe_memory_text
 from .task_queue import QueueItem, QueueState, TaskQueueStore, _safe_task
 from .runtime import run_task
+from .vercel_state import SHARED_STATE_PAUSED_REASON, hosted_runtime, shared_state_coordination_required
 
 
 # Bound timeline scans so a growing audit log cannot block the Mission Control UI.
@@ -224,23 +225,13 @@ class MissionController:
         self.core = AutonomousTaskCore()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.shared_state_required = bool(
-            os.getenv("VERCEL", "").strip()
-            or os.getenv("VERCEL_ENV", "").strip()
-            or os.getenv("VERCEL_URL", "").strip()
-        )
+        self.shared_state_required = hosted_runtime()
+        # A configured Blob token is not proof of an atomic lock. Keep the
+        # legacy flag only for local call sites; it must never make us READY.
         self.shared_state_enabled = bool(os.getenv("BLOB_READ_WRITE_TOKEN", "").strip())
-        preview_ref_ready = (
-            os.getenv("VERCEL_ENV", "").strip().lower() != "preview"
-            or bool(os.getenv("VERCEL_GIT_COMMIT_REF", "").strip())
-        )
-        self.state_backend_ready = not self.shared_state_required or (self.shared_state_enabled and preview_ref_ready)
-        if self.shared_state_required:
-            mode = (
-                "private Vercel Blob configured"
-                if self.state_backend_ready else "ERROR: private shared state or Preview branch ref is not configured"
-            )
-            print(f"Mission Control state backend: {mode}", flush=True)
+        self.state_backend_ready = not shared_state_coordination_required()
+        if not self.state_backend_ready:
+            print(f"Mission Control state backend: ERROR: {SHARED_STATE_PAUSED_REASON}", flush=True)
         self.worker = BackgroundTaskWorker(
             self.queue,
             self._handle_queue_item,
@@ -540,9 +531,8 @@ class MissionController:
         )
         mission_id, execution_id = self._new_ids()
         now = _now()
-        # In hosted mode, distributed memory recall would add three serial Blob
-        # round-trips to the submission request. The worker records the real
-        # outcome after execution, so keep acceptance fast and defer history recall.
+        # This remains a bounded local planning hint. A Blob-configured/hosted
+        # submission cannot persist or run until an atomic coordinator exists.
         history = (
             "shared-state history recall deferred until execution"
             if self.shared_state_enabled
@@ -718,9 +708,8 @@ class MissionController:
 
         events: list[dict[str, object]] = []
         raw = b""
-        # The audit may have been written by a different Vercel runtime. The
-        # same lock used by append_execution_record pulls the private Blob
-        # snapshot before checking for a local file or reading it.
+        # Use the same local audit lock as writes. Hosted reads are refused
+        # before any per-container snapshot can masquerade as shared history.
         try:
             with InterProcessFileLock(self.audit_path.with_name(self.audit_path.name + ".lock")):
                 if self.audit_path.exists():
@@ -891,9 +880,8 @@ class MissionController:
                 self.recover_stale_running()
                 break
             except Exception as exc:
-                # A busy or temporarily unavailable Blob lease must not terminate
-                # the HTTP service. Log the exception type only; never log state
-                # payloads, tokens, or task text.
+                # Retained for a future fenced backend; startup currently
+                # refuses hosted workers. Never log state payloads or tokens.
                 print(
                     f"Mission Control startup recovery will retry: {type(exc).__name__}",
                     flush=True,
@@ -911,8 +899,8 @@ class MissionController:
             return
         self._stop.clear()
         if self.shared_state_enabled:
-            # Vercel Blob access can briefly contend across runtime instances.
-            # Do not perform network-backed recovery before HTTP starts serving.
+            # Unreachable until a fenced shared-state backend is implemented:
+            # state_backend_ready is false whenever Blob is configured.
             target = self._run_shared_worker
         else:
             self.recover()

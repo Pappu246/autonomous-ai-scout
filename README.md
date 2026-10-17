@@ -972,8 +972,8 @@ The operational-readiness notes below include a historical 2026-09-30 snapshot. 
 - PR [#280 — Mission Control and Vercel deployment](https://github.com/Pappu246/autonomous-ai-scout/pull/280) was OPEN at head `ddacb45a0bba386ed0d6b0a9887f1600be608e32` when audited. The last READY Vercel Preview's metadata names that commit; Production was not verified as deployed.
 - Exact-head historical checks: [CI](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205590), [Windows Computer Smoke](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205794), and [Container Build](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205652) passed for that PR head. These do **not** validate the additional changes on this Arena review branch.
 - The [flagged branch hostname](https://autonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app/) redirected unauthenticated GETs to Vercel SSO rather than showing the former workspace password form. No authenticated live mission/browser session was available to this audit.
-- [Google's official Safe Browsing status for the exact host](https://transparencyreport.google.com/safe-browsing/search?url=autonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app) still said **unsafe** (site info updated Oct 16, 2026). An app-side change or green build cannot clear Google's classification by itself.
-- Preview uses private Vercel Blob state if configured, but cross-branch namespace isolation, fully fenced leases, authenticated end-to-end execution and container-replacement durability are **not verified**. PR #280 remains unmerged; Production must not be promoted without explicit approval.
+- [Google's official Safe Browsing status for the exact fully qualified URL](https://transparencyreport.google.com/safe-browsing/search?url=https%3A%2F%2Fautonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app%2F) still said **unsafe** (site info updated Oct 16, 2026). An app-side change or green build cannot clear Google's classification by itself.
+- [Review PR #282](https://github.com/Pappu246/autonomous-ai-scout/pull/282) adds validated two-fact output and a **fail-closed hosted state gate**. `BLOB_READ_WRITE_TOKEN` does not provide fenced leases: the pinned SDK's unconditional delete can remove a replacement owner's lease. Hosted/Blob-configured mission APIs now pause instead of silently using per-container state; local loopback mode without Blob remains single-host only. An authorized Preview mission cannot be certified until a transactional/fenced coordinator or an enforced durable single-writer deployment is in place and tested. PR #280/#282 remain unmerged; Production must not be promoted without explicit approval.
 
 ### Historical operational readiness
 
@@ -1049,7 +1049,7 @@ The local runtime now exposes a Mission Control surface at:
 
 http://127.0.0.1:8000/
 
-It accepts a natural-language mission, persists it in the durable queue, executes it through the canonical runtime worker, and exposes mission status through /api/missions. It does not introduce a second authorization system.
+In local single-host mode without Blob/Vercel markers, it accepts a natural-language mission, persists it in the file-backed queue, executes it through the canonical runtime worker, and exposes status through `/api/missions`. Hosted/Blob-configured execution is paused pending atomic coordination; it does not introduce a second authorization system.
 
 
 ### Specialist provider routing
