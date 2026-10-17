@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from threading import Lock
@@ -207,6 +207,49 @@ class TaskQueueStore:
                     return updated
         raise KeyError(task_id)
 
+    def recover_stale_running(self, *, stale_after_seconds: float = 600.0) -> tuple[QueueItem, ...]:
+        """Recover only old RUNNING tasks; safe when multiple runtime instances share a queue."""
+        stale_after = float(stale_after_seconds)
+        if stale_after < 1 or stale_after > 86_400:
+            raise ValueError("stale recovery threshold is out of bounds")
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_after)
+        with self._lock, self._process_lock:
+            items = self._load_unlocked()
+            recovered: list[QueueItem] = []
+            updated_items: list[QueueItem] = []
+            changed = False
+            for item in items:
+                stale = False
+                if item.state is QueueState.RUNNING:
+                    try:
+                        updated_at = datetime.fromisoformat(item.updated_at.replace("Z", "+00:00"))
+                        if updated_at.tzinfo is None:
+                            updated_at = updated_at.replace(tzinfo=timezone.utc)
+                        stale = updated_at <= cutoff
+                    except ValueError:
+                        # An invalid timestamp cannot prove that a worker is active.
+                        stale = True
+                if stale:
+                    replacement = QueueItem(
+                        item.task_id,
+                        item.task,
+                        item.execution_id,
+                        QueueState.RECOVERY_REQUIRED,
+                        item.created_at,
+                        _now(),
+                        item.available_at,
+                        item.attempts,
+                        "worker lease expired; explicit recovery confirmation required",
+                    )
+                    recovered.append(replacement)
+                    updated_items.append(replacement)
+                    changed = True
+                else:
+                    updated_items.append(item)
+            if changed:
+                self._save_unlocked(updated_items)
+            return tuple(recovered)
+
     def claim_next(self) -> QueueItem | None:
         with self._lock, self._process_lock:
             items = self._load_unlocked()
@@ -218,13 +261,19 @@ class TaskQueueStore:
                     return claimed
             return None
 
-    def complete(self, task_id: str, *, success: bool, error: str = "") -> QueueItem:
+    def complete(self, task_id: str, *, success: bool, error: str = "",
+                 expected_execution_id: str | None = None,
+                 expected_attempt: int | None = None) -> QueueItem:
+        """Complete only the claim that actually ran, not a later retry's claim."""
         with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
                     if item.state is not QueueState.RUNNING:
                         raise ValueError("only a running task can be completed")
+                    if (expected_execution_id != item.execution_id
+                            or expected_attempt != item.attempts):
+                        raise ValueError("running task claim is no longer current")
                     state = QueueState.SUCCEEDED if success else QueueState.FAILED
                     updated = QueueItem(item.task_id, item.task, item.execution_id, state, item.created_at, _now(), item.available_at, item.attempts, error[:500])
                     items[index] = updated

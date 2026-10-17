@@ -10,6 +10,7 @@ from .action_queue import PendingAction
 from .approval_audit import load_audit_log, verify_audit_chain
 from .capability_policy import Capability, check_capability
 from .lifecycle_integration import record_transition, require_state
+from .file_lock import InterProcessFileLock
 from .action_lifecycle import LifecycleState
 from .sandbox import ExecutionRecord, run_safe_operation, to_execution_record
 
@@ -63,13 +64,24 @@ def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
     try:
         store.mkdir(parents=True, exist_ok=True)
         marker = store / f"{approval_claim_id(approval)}.claimed"
-        with marker.open("x", encoding="utf-8") as handle:
-            handle.write(json.dumps({"action_id": approval.action_id, "claimed_at": datetime.now(timezone.utc).isoformat()}, sort_keys=True) + "\n")
-    except FileExistsError:
-        return ExecutionDecision(False, "approval has already been consumed")
-    except OSError as exc:
-        return ExecutionDecision(False, f"approval consumption store is unavailable: {exc}")
-    return ExecutionDecision(True, "approval consumed exactly once")
+        # The local exclusive create protects only one container. Synchronize
+        # this marker under the same private Blob-backed distributed lock used
+        # by other state files before granting one-time execution authority.
+        with InterProcessFileLock(marker.with_name(marker.name + ".lock")):
+            try:
+                with marker.open("x", encoding="utf-8") as handle:
+                    handle.write(json.dumps({
+                        "action_id": approval.action_id,
+                        "claimed_at": datetime.now(timezone.utc).isoformat(),
+                    }, sort_keys=True) + "\n")
+            except FileExistsError:
+                return ExecutionDecision(False, "approval has already been consumed")
+    except (OSError, RuntimeError, TimeoutError):
+        return ExecutionDecision(False, "approval consumption store is unavailable")
+    # A persisted marker prevents ordinary local/sequential reuse. Vercel Blob
+    # does not expose a fenced conditional delete/replace for the surrounding
+    # lease, so this cannot prove global exactly-once across stalled instances.
+    return ExecutionDecision(True, "approval claim recorded; no automatic replay is authorized")
 
 
 def _blocked(text: str) -> bool:
@@ -151,7 +163,8 @@ def authorize_execution(action: PendingAction, approval: ApprovalRecord, now: da
     granted = [Capability.INSPECT, Capability.TEST, Capability.LINT, Capability.METRICS, Capability.READ_FILE, Capability.BENCHMARK]
     for step in action.steps:
         operation = _step_operation(step)
-        assert operation is not None
+        if operation is None:
+            return ExecutionDecision(False, "one or more steps cannot be mapped to a fixed sandbox operation")
         try:
             capability = Capability(operation[0])
         except ValueError:

@@ -4,15 +4,15 @@ import json
 import os
 import tempfile
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .action_queue import PendingAction, load_queue
+from .action_queue import PendingAction, _is_stale, _load_queue_unlocked, load_queue
 from .approval_audit import append_decision
 from .file_lock import InterProcessFileLock
 
 
 VALID_DECISIONS = {"approved", "rejected"}
-TERMINAL_STATUSES = {"approved", "rejected"}
 
 
 def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | None = None) -> PendingAction:
@@ -23,12 +23,14 @@ def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | N
 
     process_lock = InterProcessFileLock(path.with_name(path.name + ".lock"))
     with process_lock:
-        queue = load_queue(path)
+        queue = _load_queue_unlocked(path)
         for index, action in enumerate(queue):
             if action.id != action_id:
                 continue
-            if action.status in TERMINAL_STATUSES:
+            if action.status != "pending":
                 raise ValueError(f"approval action is already {action.status}")
+            if _is_stale(action, datetime.now(timezone.utc)):
+                raise ValueError("approval action has expired")
             updated = PendingAction(
                 action.id,
                 action.task,
@@ -66,4 +68,5 @@ def set_decision(path: Path, action_id: str, decision: str, audit_path: Path | N
 
 
 def pending_actions(path: Path) -> list[PendingAction]:
-    return [item for item in load_queue(path) if item.status == "pending"]
+    now = datetime.now(timezone.utc)
+    return [item for item in load_queue(path) if item.status == "pending" and not _is_stale(item, now)]
