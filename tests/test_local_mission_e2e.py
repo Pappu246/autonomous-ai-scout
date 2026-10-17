@@ -90,12 +90,55 @@ def test_authenticated_http_mission_executes_read_only_task_with_evidence(tmp_pa
         assert status == 200 and len([m for m in memory["memory"] if m["outcome"] == "verified"]) == 1
         assert (tmp_path / "docs" / "README.md").read_text().startswith("# Isolated fixture")
 
+        # A completed read is not a completed requested summary. The same
+        # authenticated API must report the missing deliverable as PARTIAL.
+        status, insufficient = request("/api/missions", method="POST", body={
+            "task": "Read file docs/README.md and summarize two facts."
+        })
+        assert status == 202 and insufficient["mission"]["state"] == "pending"
+        controller.run_once()
+        status, incomplete = request("/api/missions/" + insufficient["mission"]["mission_id"])
+        assert status == 200 and incomplete["mission"]["state"] == "partial"
+        assert incomplete["mission"]["output"] == ""
+
+        # This separate synthetic README contains two complete source facts.
+        # Extractive (not AI-generated) output is checked across API, mission
+        # store, timeline and memory; no file write/network/account tool runs.
+        facts = (
+            "The temporary workspace contains a synthetic README file.",
+            "The README describes a bounded local acceptance canary.",
+        )
+        (tmp_path / "README.md").write_text("# Canary\n" + "\n".join(facts) + "\n", encoding="utf-8")
+        status, requested = request("/api/missions", method="POST", body={
+            "task": "Read the temporary README and summarize two facts."
+        })
+        assert status == 202 and requested["mission"]["state"] == "pending"
+        produced = controller.run_once()
+        assert produced is not None and produced.state == "verified", produced.reason
+        assert all(fact in produced.output for fact in facts)
+        status, detail = request("/api/missions/" + requested["mission"]["mission_id"])
+        assert status == 200 and detail["mission"]["output"] == produced.output
+        status, listed = request("/api/missions")
+        assert status == 200 and any(row["mission_id"] == produced.mission_id and row["output"] == produced.output
+                                     for row in listed["missions"])
+        status, timeline = request("/api/missions/" + produced.mission_id + "/timeline")
+        assert status == 200
+        assert any(row.get("event") == "output_validated" for row in timeline["timeline"])
+        assert any(row.get("event") == "mission_state" and row["state"] == "verified"
+                   and row["output"] == produced.output for row in timeline["timeline"])
+        status, memory = request("/api/missions/" + produced.mission_id + "/memory")
+        assert status == 200
+        assert any(row["outcome"] == "verified" and row["data"]["summary"] == produced.output
+                   for row in memory["memory"])
+        assert (tmp_path / "README.md").read_text(encoding="utf-8") == "# Canary\n" + "\n".join(facts) + "\n"
+
         # Side effects are not made executable merely by queuing an approval.
+        queue_before_approval = controller.queue.list()
         status, gated = request("/api/missions", method="POST",
                                 body={"task": "use the computer to complete this task"})
         assert status == 202 and gated["mission"]["state"] == "requires_approval"
         assert gated["mission"]["approval_action_id"]
-        assert len(controller.queue.list()) == 1
+        assert controller.queue.list() == queue_before_approval
         status, inbox = request("/api/approvals")
         assert status == 200
         assert any(row["id"] == gated["mission"]["approval_action_id"]

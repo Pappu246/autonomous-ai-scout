@@ -54,6 +54,7 @@ class PersistentMemory:
         kind: str = "episode",
         metadata: Mapping[str, Any] | None = None,
         require_persistence: bool = False,
+        episode_id: str | None = None,
     ) -> bool:
         safe_task = _safe_text(task)
         safe_summary = _safe_text(summary or task)
@@ -65,7 +66,10 @@ class PersistentMemory:
         }
         if metadata:
             payload["metadata"] = dict(metadata)
-        fingerprint = f"episode:{task}"
+        # Generic callers keep task-level deduplication. Mission Control passes
+        # its stable mission ID so two independent requests with identical text
+        # cannot overwrite each other's verified/partial outcomes.
+        fingerprint = f"episode:{task}" if episode_id is None else f"mission-episode:{episode_id}"
         return self.store.record(
             MemoryEvent(project, kind, fingerprint, outcome, payload),
             strict=require_persistence,
@@ -135,8 +139,9 @@ class PersistentMemory:
         matches.sort(key=lambda item: (-item.score, item.kind, item.fingerprint))
         return tuple(matches[:requested])
 
-    def history(self, project: str, *, kind: str | None = None) -> tuple[Mapping[str, Any], ...]:
-        return self.store.learn(project, kind=kind)
+    def history(self, project: str, *, kind: str | None = None,
+                require_available: bool = False) -> tuple[Mapping[str, Any], ...]:
+        return self.store.learn(project, kind=kind, strict=require_available)
 
 
 __all__ = ["MAX_RECALL", "MemoryMatch", "PersistentMemory"]

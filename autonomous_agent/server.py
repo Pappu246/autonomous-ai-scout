@@ -156,7 +156,7 @@ function renderTimeline(items) {
     <div class="mission">
       <div><strong>${esc(item.event || 'event')}</strong><span class="pill">${esc(item.state || item.approval_status || '')}</span></div>
       <div class="muted">${esc(item.timestamp || '')} · ${esc(item.execution_id || item.approval_action_id || '')}</div>
-      <pre>${esc(item.reason || item.verification || item.result || '')}</pre>
+      <pre>${esc(item.output || item.reason || item.verification || item.result || '')}</pre>
     </div>`
   ).join('');
 }
@@ -207,6 +207,7 @@ function render(items) {
       <div><strong>${esc(item.task)}</strong><span class="pill">${esc(item.state)}</span><span class="role">${esc(item.specialist_role)}</span></div>
       <div class="muted">ID: ${esc(item.mission_id)}</div>
       <pre>${esc(item.reason)}</pre>
+      ${item.output ? '<div class="muted">Validated result</div><pre>' + esc(item.output) + '</pre>' : ''}
       <div class="muted">Updated: ${esc(item.updated_at)} · attempts: ${esc(item.attempts)}</div>
       ${item.approval_action_id ? '<div class="muted">Approval: ' + esc(item.approval_action_id) + '</div>' : ''}
       <button class="secondary" data-memory="${esc(item.mission_id)}">Memory</button>
@@ -419,6 +420,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             "task": record.task,
             "state": record.state,
             "reason": record.reason,
+            "output": getattr(record, "output", ""),
             "created_at": record.created_at,
             "updated_at": record.updated_at,
             "attempts": record.attempts,
@@ -573,18 +575,25 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "mission not found"})
                 return
             if is_memory:
-                matches = controller.memory.recall(
-                    controller.MEMORY_PROJECT, record.task, limit=5, require_available=True
+                # Recall by task alone can confuse two independent missions
+                # with identical wording (one VERIFIED, another PARTIAL).
+                # Expose only this mission's durable episode, never a similar
+                # task's outcome as though it belonged to this execution.
+                history = controller.memory.history(
+                    controller.MEMORY_PROJECT, kind="episode", require_available=True
                 )
                 self._json(200, {"memory": [
                     {
-                        "score": item.score,
-                        "kind": item.kind,
-                        "outcome": item.outcome,
-                        "data": dict(item.data),
+                        "score": 1.0,
+                        "kind": item.get("kind", "episode"),
+                        "outcome": item.get("outcome", ""),
+                        "data": dict(item.get("data", {})),
                     }
-                    for item in matches
-                ]})
+                    for item in history
+                    if isinstance(item.get("data", {}).get("metadata"), dict)
+                    and item["data"]["metadata"].get("mission_id") == record.mission_id
+                    and item["data"]["metadata"].get("execution_id") == record.execution_id
+                ][-5:]})
                 return
             if is_timeline:
                 try:

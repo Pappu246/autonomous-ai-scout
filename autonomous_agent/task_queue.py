@@ -261,13 +261,19 @@ class TaskQueueStore:
                     return claimed
             return None
 
-    def complete(self, task_id: str, *, success: bool, error: str = "") -> QueueItem:
+    def complete(self, task_id: str, *, success: bool, error: str = "",
+                 expected_execution_id: str | None = None,
+                 expected_attempt: int | None = None) -> QueueItem:
+        """Complete only the claim that actually ran, not a later retry's claim."""
         with self._lock, self._process_lock:
             items = self._load_unlocked()
             for index, item in enumerate(items):
                 if item.task_id == task_id:
                     if item.state is not QueueState.RUNNING:
                         raise ValueError("only a running task can be completed")
+                    if (expected_execution_id != item.execution_id
+                            or expected_attempt != item.attempts):
+                        raise ValueError("running task claim is no longer current")
                     state = QueueState.SUCCEEDED if success else QueueState.FAILED
                     updated = QueueItem(item.task_id, item.task, item.execution_id, state, item.created_at, _now(), item.available_at, item.attempts, error[:500])
                     items[index] = updated

@@ -19,7 +19,7 @@ from .background_worker import BackgroundTaskWorker
 from .computer.connector import BoundedComputerConnector
 from .execution_audit import append_execution_record
 from .filesystem_workspace import WorkspaceConnector
-from .execution_engine import ExecutionState
+from .execution_engine import ExecutionResult, ExecutionState, validated_output_from_audit
 from .file_lock import InterProcessFileLock
 from .persistent_memory import PersistentMemory
 from .specialist_policy import specialist_grants
@@ -31,6 +31,9 @@ from .mission_orchestrator import MissionOrchestrator
 from .tool_registry import ApprovalRequirement
 from .task_dag import DAGTaskSpec
 from .task_planner import candidate_tool_names, default_grants_for_task
+from .task_completion import criteria_for, requested_read_path
+from .task_intent import positive_task_text
+from .cross_project_memory import _safe_text as _safe_memory_text
 from .task_queue import QueueItem, QueueState, TaskQueueStore, _safe_task
 from .runtime import run_task
 
@@ -92,6 +95,7 @@ class MissionRecord:
     steps: tuple[dict[str, object], ...] = ()
     completed_steps: tuple[str, ...] = ()
     approval_action_id: str = ""
+    output: str = ""  # validated deliverable, separate from status/tool summaries
 
     @property
     def terminal(self) -> bool:
@@ -139,6 +143,7 @@ class MissionStore:
                     steps=_safe_steps(item.get("steps", ())),
                     completed_steps=tuple(_bounded_text(value, 80) for value in item.get("completed_steps", ()) if str(value).strip()),
                     approval_action_id=str(item.get("approval_action_id", "")),
+                    output=_safe_memory_text(item.get("output", "")),
                 )
             )
         return records
@@ -176,6 +181,7 @@ class MissionStore:
         return next((item for item in self.list() if item.approval_action_id == wanted), None)
 
     def put(self, record: MissionRecord) -> MissionRecord:
+        record = replace(record, output=_safe_memory_text(record.output))
         with self._lock, self._process_lock:
             records = self._load_unlocked()
             updated = [record if item.mission_id == record.mission_id else item for item in records]
@@ -323,19 +329,10 @@ class MissionController:
         """Build a minimal, read-only request for explicit local workspace reads/lists."""
         tool_names = candidate_tool_names(task, self.core._registry)
         if "filesystem.read" in tool_names:
-            match = re.search(
-                r"\b(?:read|open|inspect|summari[sz]e|show)\s+(?:the\s+)?file\s+(?:at\s+)?[\"'`]?([A-Za-z0-9_.-]+(?:[/\\][A-Za-z0-9_.-]+)*\.[A-Za-z0-9]{1,12})",
-                task,
-                re.IGNORECASE,
-            )
-            if match is None:
+            path = requested_read_path(task, self.root)
+            if not path:
                 return {}
-            return {
-                "filesystem.read": {
-                    "operation": "read",
-                    "path": match.group(1).replace("\\", "/"),
-                }
-            }
+            return {"filesystem.read": {"operation": "read", "path": path}}
         if "filesystem.list" in tool_names:
             match = re.search(
                 r"\b(?:directory|folder)\s+(?:at\s+)?[\"'`]?([A-Za-z0-9_.-]+(?:[/\\][A-Za-z0-9_.-]+)*)",
@@ -382,7 +379,7 @@ class MissionController:
     @staticmethod
     def _needs_project_status_report(task: str) -> bool:
         """Detect requests for synthesis that bounded inspection alone cannot deliver."""
-        text = " ".join(str(task).lower().split())
+        text = positive_task_text(task)
         has_scope = bool(re.search(r"\b(?:project|repository|repo|codebase|workspace)\b", text))
         asks_for_analysis = bool(re.search(
             r"\b(?:summary|summari[sz]e|review|explain|analy[sz]e|assess|audit|report)\b",
@@ -393,7 +390,7 @@ class MissionController:
     @staticmethod
     def _has_explicit_tool_execution(task: str) -> bool:
         """Do not skip an explicitly requested read/test/lint while reporting partial synthesis."""
-        text = " ".join(str(task).lower().split())
+        text = positive_task_text(task)
         return bool(re.search(
             r"\b(?:read|open|inspect)\s+(?:the\s+)?file\b|"
             r"\b(?:run|execute)\s+(?:the\s+)?(?:tests?|pytest|lint|type\s+checks?)\b",
@@ -606,7 +603,8 @@ class MissionController:
                 self.MEMORY_PROJECT,
                 prepared.task,
                 outcome="queued",
-                metadata={"specialist_role": role.value, "provider_hint": provider_hint},
+                metadata={"specialist_role": role.value, "provider_hint": provider_hint, "mission_id": record.mission_id, "execution_id": record.execution_id},
+                episode_id=f"{record.mission_id}:{record.execution_id}",
             )
         return record
 
@@ -704,7 +702,8 @@ class MissionController:
                 self.MEMORY_PROJECT,
                 normalized_objective,
                 outcome="queued",
-                metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag"},
+                metadata={"specialist_role": role.role.value, "provider_hint": provider_hint, "kind": "dag", "mission_id": record.mission_id, "execution_id": record.execution_id},
+                episode_id=f"{record.mission_id}:{record.execution_id}",
             )
         return record
 
@@ -803,6 +802,7 @@ class MissionController:
                 "mission_id": record.mission_id,
                 "state": record.state,
                 "reason": record.reason,
+                "output": record.output,
                 "specialist_role": record.specialist_role,
                 "completed_steps": list(record.completed_steps),
             }
@@ -828,7 +828,8 @@ class MissionController:
                 self.MEMORY_PROJECT,
                 record.task,
                 outcome="cancelled",
-                metadata={"specialist_role": record.specialist_role},
+                metadata={"specialist_role": record.specialist_role, "mission_id": record.mission_id, "execution_id": record.execution_id},
+                episode_id=f"{record.mission_id}:{record.execution_id}",
             )
             return self.store.put(MissionRecord(
                 record.mission_id,
@@ -846,7 +847,9 @@ class MissionController:
                 record.approval_action_id,
             ))
         item = self.queue.cancel(record.task_id)
-        self.memory.record_episode(self.MEMORY_PROJECT, record.task, outcome="cancelled", metadata={"specialist_role": record.specialist_role})
+        self.memory.record_episode(self.MEMORY_PROJECT, record.task, outcome="cancelled",
+                                   metadata={"specialist_role": record.specialist_role, "mission_id": record.mission_id, "execution_id": record.execution_id},
+                                   episode_id=f"{record.mission_id}:{record.execution_id}")
         return self.store.put(MissionRecord(
             record.mission_id, record.task_id, record.execution_id, record.task, item.state.value,
             "mission cancelled before execution", record.created_at, item.updated_at, item.attempts,
@@ -970,7 +973,8 @@ class MissionController:
                 self.MEMORY_PROJECT,
                 record.task,
                 outcome="approval_accepted",
-                metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id},
+                metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id, "mission_id": record.mission_id, "execution_id": pending.execution_id},
+                episode_id=f"{record.mission_id}:{pending.execution_id}",
             )
         return pending
 
@@ -984,7 +988,8 @@ class MissionController:
             self.MEMORY_PROJECT,
             record.task,
             outcome="approval_rejected",
-            metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id},
+            metadata={"specialist_role": record.specialist_role, "approval_action_id": action_id, "mission_id": record.mission_id, "execution_id": record.execution_id},
+            episode_id=f"{record.mission_id}:{record.execution_id}",
         )
         return self.store.put(MissionRecord(
             record.mission_id,
@@ -1063,7 +1068,8 @@ class MissionController:
                 self.MEMORY_PROJECT,
                 record.task,
                 outcome="resume_queued",
-                metadata={"specialist_role": record.specialist_role, "completed_steps": len(record.completed_steps)},
+                metadata={"specialist_role": record.specialist_role, "completed_steps": len(record.completed_steps), "mission_id": record.mission_id, "execution_id": pending.execution_id},
+                episode_id=f"{record.mission_id}:{pending.execution_id}",
             )
         return pending
 
@@ -1097,6 +1103,11 @@ class MissionController:
         orchestrator = MissionOrchestrator()
 
         def runner(node):
+            if not self._owns_active_attempt(item, existing.mission_id):
+                return ExecutionResult(
+                    ExecutionState.RECOVERY_REQUIRED, "mission claim was superseded before the DAG step",
+                    0, (), str(self.audit_path),
+                )
             step_execution_id = f"{item.execution_id}:{node.node_id}"
             result = run_task(
                 node.task,
@@ -1118,8 +1129,20 @@ class MissionController:
                 workspace_request=self._workspace_request(node.task),
             )
             self._record_computer_evidence(step_execution_id, result)
+            if not self._owns_active_attempt(item, existing.mission_id):
+                return ExecutionResult(
+                    ExecutionState.RECOVERY_REQUIRED, "mission claim was superseded during the DAG step",
+                    0, (), str(self.audit_path),
+                )
             if result.state is ExecutionState.VERIFIED:
-                latest = self.store.get(existing.mission_id) or existing
+                latest = self.store.get(existing.mission_id)
+                if (latest is None or latest.task_id != item.task_id
+                        or latest.execution_id != item.execution_id
+                        or latest.attempts != item.attempts):
+                    return ExecutionResult(
+                        ExecutionState.RECOVERY_REQUIRED, "mission progress belongs to a newer claim",
+                        0, (), str(self.audit_path),
+                    )
                 completed = tuple(sorted(set(latest.completed_steps) | {node.node_id}))
                 self.store.put(MissionRecord(
                     latest.mission_id, latest.task_id, latest.execution_id, latest.task,
@@ -1140,12 +1163,38 @@ class MissionController:
         )
         return outcome.success, _bounded_text(outcome.reason, 1000)
 
+    def _owns_active_attempt(self, item: QueueItem, mission_id: str) -> bool:
+        """Reject stale worker writes after a durable recovery or newer claim.
+
+        The mission and queue live in separate stores, so this is a best-effort
+        fence, not a cross-store transaction or an exactly-once guarantee.
+        """
+        current = self.store.get(mission_id)
+        queued = next((row for row in self.queue.list() if row.task_id == item.task_id), None)
+        return bool(
+            current and queued
+            and current.task_id == item.task_id and current.execution_id == item.execution_id
+            and current.state == QueueState.RUNNING.value and current.attempts == item.attempts
+            and queued.state is QueueState.RUNNING and queued.execution_id == item.execution_id
+            and queued.attempts == item.attempts
+        )
+
     def _handle_queue_item(self, item: QueueItem) -> bool:
         existing = self.store.get_by_task_id(item.task_id)
         # An orphaned/stale queue item has no trustworthy approval, plan or
         # timeline. Never reconstruct permissions from its task text or execute it.
-        if existing is None or existing.state != QueueState.PENDING.value or existing.execution_id != item.execution_id:
+        if (existing is None or existing.execution_id != item.execution_id
+                or item.attempts <= existing.attempts
+                or existing.state not in {QueueState.PENDING.value, QueueState.RUNNING.value,
+                                          QueueState.RECOVERY_REQUIRED.value}):
             return False
+        queued = next((row for row in self.queue.list() if row.task_id == item.task_id), None)
+        if (queued is None or queued.state is not QueueState.RUNNING
+                or queued.execution_id != item.execution_id or queued.attempts != item.attempts):
+            return False
+        # Only a queue claim advanced by explicit recovery may supersede an
+        # old RUNNING/recovery-required mission record. Approval is still checked
+        # independently below; text alone cannot create a permission.
         role = existing.specialist_role
         self._record_provider_route(item.execution_id, role)
         self.store.put(MissionRecord(
@@ -1157,6 +1206,8 @@ class MissionController:
         ))
         runtime_state = QueueState.FAILED.value
         approval_validated = False
+        output = ""
+        criteria = criteria_for(item.task, root=self.root)
 
         # A successful directory listing is not a completed natural-language report.
         # If no generative provider is configured for a high-level project summary,
@@ -1164,8 +1215,11 @@ class MissionController:
         route = self.provider_router.route(role)
         if (existing and self._needs_project_status_report(item.task)
                 and (not route.eligible or route.provider is None)
-                and not self._has_explicit_tool_execution(item.task)):
+                and not (self._has_explicit_tool_execution(item.task)
+                         or requested_read_path(item.task, self.root))):
             report = self._read_only_project_status_report(role)
+            if not self._owns_active_attempt(item, existing.mission_id):
+                return False
             append_execution_record(
                 self.audit_path,
                 {
@@ -1179,9 +1233,11 @@ class MissionController:
                     "result": report,
                 },
             )
-            latest = self.store.get_by_task_id(item.task_id) or existing
-            if latest:
-                self.store.put(MissionRecord(
+            latest = self.store.get(existing.mission_id)
+            if (latest is None or latest.task_id != item.task_id
+                    or latest.execution_id != item.execution_id or latest.attempts != item.attempts):
+                return False
+            self.store.put(MissionRecord(
                     latest.mission_id, latest.task_id, latest.execution_id, latest.task,
                     "partial", report, latest.created_at, _now(), item.attempts, role,
                     latest.steps, latest.completed_steps, latest.approval_action_id,
@@ -1192,7 +1248,8 @@ class MissionController:
                     item.task,
                     outcome="partial",
                     summary=report,
-                    metadata={"specialist_role": role, "provider_status": route.reason},
+                    metadata={"specialist_role": role, "provider_status": route.reason, "mission_id": existing.mission_id, "execution_id": existing.execution_id},
+                    episode_id=f"{existing.mission_id}:{existing.execution_id}",
                     require_persistence=True,
                 )
             except Exception as exc:
@@ -1243,49 +1300,92 @@ class MissionController:
                     result.reason if not summary else f"{result.reason}; {summary}",
                     1000,
                 )
-            if success and self._needs_project_status_report(item.task):
-                # SpecialistProviderRouter.route() selects a candidate only;
-                # this execution path does not invoke a model to write/review
-                # the requested analysis. Tool success cannot verify prose.
-                success = False
-                runtime_state = "partial"
-                reason = _bounded_text(
-                    "PARTIAL RESULT — bounded tools ran, but no model-written project analysis "
-                    "was produced; provider route selection is not execution; " + reason,
-                    1000,
-                )
-                append_execution_record(self.audit_path, {
-                    "execution_id": item.execution_id,
-                    "timestamp": _now(),
-                    "state": "partial",
-                    "event": "analysis_not_produced",
-                    "reason": "bounded tools completed; no model-written analysis was produced",
-                })
+            if success and criteria.requires_output:
+                # The engine validates the requested artifact independently of
+                # tool success. Check its terminal hash-chained evidence again at
+                # the mission boundary; a mocked/legacy VERIFIED step is not an
+                # accepted natural-language deliverable. A DAG may reuse only a
+                # step's already validated artifact for the same criteria, never
+                # infer an objective summary from successful step counters.
+                candidate = str(getattr(result, "output", "") or "") if not existing.steps else ""
+                trusted = (validated_output_from_audit(self.audit_path, item.execution_id, criteria)
+                           if not existing.steps else None)
+                if existing.steps:
+                    for step in existing.steps:
+                        if criteria_for(str(step["task"]), root=self.root).digest != criteria.digest:
+                            continue
+                        step_id = f"{item.execution_id}:{step['node_id']}"
+                        candidate = validated_output_from_audit(self.audit_path, step_id, criteria) or ""
+                        if candidate:
+                            trusted = candidate
+                            break
+                if not candidate or candidate != trusted or _safe_memory_text(candidate) != candidate:
+                    success = False
+                    runtime_state = "partial"
+                    reason = _bounded_text(
+                        "PARTIAL RESULT — requested output was not validated; "
+                        "tool success or provider selection is not synthesis; " + reason,
+                        1000,
+                    )
+                    append_execution_record(self.audit_path, {
+                        "execution_id": item.execution_id,
+                        "timestamp": _now(),
+                        "state": "partial",
+                        "event": "mission_output_unverified",
+                        "criteria_digest": criteria.digest,
+                        "reason": "requested artifact lacks matching terminal execution evidence",
+                    })
+                else:
+                    output = candidate
         except Exception as exc:
             success = False
             runtime_state = QueueState.FAILED.value
             reason = f"runtime raised {type(exc).__name__}"
+        if not self._owns_active_attempt(item, existing.mission_id):
+            append_execution_record(self.audit_path, {
+                "execution_id": item.execution_id,
+                "timestamp": _now(),
+                "state": QueueState.RECOVERY_REQUIRED.value,
+                "event": "attempt_superseded",
+                "reason": "stale worker result refused; mission or queue claim changed",
+            })
+            return False
         outcome = runtime_state
         try:
             # Unlike a no-op deduplication, a failed/corrupt memory write must
             # not leave the mission stuck in RUNNING or silently claim VERIFIED.
             self.memory.record_episode(
                 self.MEMORY_PROJECT, item.task, outcome=outcome,
-                metadata={"specialist_role": role}, require_persistence=True,
+                summary=output,
+                metadata={"specialist_role": role, "output_validated": bool(output), "mission_id": existing.mission_id, "execution_id": existing.execution_id},
+                episode_id=f"{existing.mission_id}:{existing.execution_id}",
+                require_persistence=True,
             )
         except Exception as exc:
             if success:
                 outcome = "partial"
                 success = False
+            output = ""
             reason = _bounded_text(f"mission memory unavailable ({type(exc).__name__}); {reason}", 1000)
-        latest = self.store.get_by_task_id(item.task_id) or existing
-        if latest:
-            self.store.put(MissionRecord(
-                latest.mission_id, latest.task_id, latest.execution_id, latest.task,
-                outcome, _bounded_text(reason, 1000),
-                latest.created_at, _now(), item.attempts, role, latest.steps, latest.completed_steps,
-                latest.approval_action_id,
-            ))
+        if not self._owns_active_attempt(item, existing.mission_id):
+            append_execution_record(self.audit_path, {
+                "execution_id": item.execution_id,
+                "timestamp": _now(),
+                "state": QueueState.RECOVERY_REQUIRED.value,
+                "event": "attempt_superseded",
+                "reason": "mission claim changed during memory persistence",
+            })
+            return False
+        latest = self.store.get(existing.mission_id)
+        if (latest is None or latest.task_id != item.task_id
+                or latest.execution_id != item.execution_id or latest.attempts != item.attempts):
+            return False
+        self.store.put(MissionRecord(
+            latest.mission_id, latest.task_id, latest.execution_id, latest.task,
+            outcome, _bounded_text(reason, 1000),
+            latest.created_at, _now(), item.attempts, role, latest.steps, latest.completed_steps,
+            latest.approval_action_id, output,
+        ))
         return success
 
 

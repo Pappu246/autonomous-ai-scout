@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from .task_plan_models import TaskIntent
 from .task_intent import positive_task_text
@@ -50,7 +51,9 @@ class DynamicToolRouter:
             return ("filesystem.transform",)
         if any(x in text for x in ("write file", "create file", "save file")):
             return ("filesystem.write",)
-        if any(x in text for x in ("read file", "read the file", "open file")):
+        if any(x in text for x in ("read file", "read the file", "open file")) or re.search(
+            r"\b(?:read|open)\s+(?:the\s+)?(?:temporary\s+)?readme(?:\.md)?\b", text
+        ):
             return ("filesystem.read",)
         if any(x in text for x in ("list files", "list directory", "list folder", "directory", "folder")):
             return ("filesystem.list",)
@@ -146,7 +149,9 @@ class DynamicToolRouter:
         elif resolved is TaskIntent.AUTOMATE:
             names = self._browser_tools(routing_text) if any(x in routing_text.lower() for x in ("browser", "web", "click", "navigate")) else ()
         elif resolved is TaskIntent.TEST:
-            names = ("github.inspect", "lint.run") if "lint" in raw.lower() else ("github.inspect", "tests.run")
+            # Route on positive instructions only; the original request is still
+            # retained for authorization, audit, and negative constraints.
+            names = ("github.inspect", "lint.run") if "lint" in lowered else ("github.inspect", "tests.run")
         elif resolved in {TaskIntent.CHANGE, TaskIntent.IMPROVE}:
             names = ("github.inspect", "tests.run", "github.change")
         elif resolved is TaskIntent.INSPECT:

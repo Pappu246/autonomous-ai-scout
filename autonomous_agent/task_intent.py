@@ -10,7 +10,11 @@ _NEGATED_DIRECTIVE = re.compile(
     r"(?:use|using|access|accessing|open|opening|execute|executing|run|running|"
     r"invoke|invoking|call|calling|touch|touching|edit|editing|delete|deleting|remove|removing|erase|erasing|modify|modifying|change|changing|"
     r"write|writing|send|sending|browse|browsing|search|searching|visit|visiting|"
-    r"navigate|navigating|connect|connecting|interact|interacting)"
+    r"navigate|navigating|connect|connecting|interact|interacting|"
+    r"summari[sz]e|summari[sz]ing|report|reporting|explain|explaining|"
+    r"describe|describing|review|reviewing|analy[sz]e|analy[sz]ing|"
+    r"assess|assessing|answer|answering|tell|telling|provide|providing|"
+    r"give|giving|list|listing|show|showing|extract|extracting)"
     r"(?:\s+(?:with|to))?\b"
     r"[^.!?;]*(?:[.!?;]|$)",
     re.IGNORECASE,
@@ -19,7 +23,9 @@ _NEGATED_DIRECTIVE = re.compile(
 _NEGATED_WITHOUT_DIRECTIVE = re.compile(
     r"\bwithout\s+(?:using|accessing|opening|executing|running|invoking|calling|"
     r"touching|modifying|changing|writing|sending|browsing|searching|visiting|"
-    r"navigating|connecting|interacting)\b"
+    r"navigating|connecting|interacting|summarizing|summarising|reporting|"
+    r"explaining|describing|reviewing|analyzing|analysing|assessing|"
+    r"answering|telling|providing|giving|listing|showing|extracting)\b"
     r"[^.!?;]*(?:[.!?;]|$)",
     re.IGNORECASE,
 )
@@ -56,11 +62,11 @@ def classify_intent(task: str) -> TaskIntent:
         return TaskIntent.AUTOMATE
     if any(term in text for term in ("research", "search web", "look up", "find information", "investigate", "browse", "browser", "web page", "read this page", "open this page")) or "http://" in text or "https://" in text:
         return TaskIntent.RESEARCH
-    if any(term in text for term in ("file", "files", "workspace", "directory", "folder", "read file", "write file", "transform file", "run command", "shell command", "py_compile", "compile python")):
+    if any(term in text for term in ("file", "files", "workspace", "directory", "folder", "read file", "write file", "transform file", "run command", "shell command", "py_compile", "compile python")) or re.search(r"\b(?:read|open)\s+(?:the\s+)?(?:temporary\s+)?readme(?:\.md)?\b", text):
         return TaskIntent.WORKSPACE
     if any(term in text for term in ("fix", "change", "edit", "modify", "update code", "repair")):
         return TaskIntent.CHANGE
-    if any(term in text for term in ("test", "pytest", "run tests", "validate")):
+    if any(term in text for term in ("test", "pytest", "run tests", "validate", "lint", "static checks")):
         return TaskIntent.TEST
     if any(term in text for term in ("improve", "implement", "add feature", "build", "refactor")):
         return TaskIntent.IMPROVE

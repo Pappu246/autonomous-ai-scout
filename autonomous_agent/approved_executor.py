@@ -78,7 +78,10 @@ def claim_approval(approval: ApprovalRecord, store: Path) -> ExecutionDecision:
                 return ExecutionDecision(False, "approval has already been consumed")
     except (OSError, RuntimeError, TimeoutError):
         return ExecutionDecision(False, "approval consumption store is unavailable")
-    return ExecutionDecision(True, "approval consumed exactly once")
+    # A persisted marker prevents ordinary local/sequential reuse. Vercel Blob
+    # does not expose a fenced conditional delete/replace for the surrounding
+    # lease, so this cannot prove global exactly-once across stalled instances.
+    return ExecutionDecision(True, "approval claim recorded; no automatic replay is authorized")
 
 
 def _blocked(text: str) -> bool:
@@ -160,7 +163,8 @@ def authorize_execution(action: PendingAction, approval: ApprovalRecord, now: da
     granted = [Capability.INSPECT, Capability.TEST, Capability.LINT, Capability.METRICS, Capability.READ_FILE, Capability.BENCHMARK]
     for step in action.steps:
         operation = _step_operation(step)
-        assert operation is not None
+        if operation is None:
+            return ExecutionDecision(False, "one or more steps cannot be mapped to a fixed sandbox operation")
         try:
             capability = Capability(operation[0])
         except ValueError:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -167,11 +168,23 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     with InterProcessFileLock(path.with_name(path.name + ".lock")):
         queue = expire_stale_actions(_load_queue_unlocked(path))
         for item in queue:
-            if item.id == action.id and item.status == "pending":
+            if (item.status == "pending" and (item.task, item.steps, item.risk, item.reason)
+                    == (action.task, action.steps, action.risk, action.reason)):
                 return item
+        if sum(item.status == "pending" for item in queue) >= MAX_PENDING_ACTIONS:
+            raise RuntimeError("approval queue is full; no new action was persisted")
+        # A decided action's ID and private approval record must never be
+        # recycled for a later request with identical text. Pending requests
+        # remain idempotent by definition, not by reusing an old decision.
+        used_ids = {item.id for item in queue}
+        if action.id in used_ids:
+            base = action.id
+            while action.id in used_ids:
+                action = PendingAction(f"{base}-{secrets.token_hex(8)}", action.task,
+                                       action.steps, action.risk, action.reason,
+                                       action.status, action.created_at)
         queue.append(action)
         pending = prioritize_queue([item for item in queue if item.status == "pending"])
         non_pending = [item for item in queue if item.status != "pending"]
-        queue = pending[:MAX_PENDING_ACTIONS] + non_pending
-        path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
+        path.write_text(json.dumps([asdict(item) for item in pending + non_pending], indent=2) + "\n", encoding="utf-8")
     return action

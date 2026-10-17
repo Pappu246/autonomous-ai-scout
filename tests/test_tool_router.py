@@ -67,3 +67,34 @@ def test_read_only_project_status_does_not_select_mutating_workspace_tools():
     assert selection.tool_names == ("github.inspect",)
     assert "filesystem.transform" not in selection.tool_names
     assert "filesystem.write" not in selection.tool_names
+
+
+def test_negative_lint_instruction_does_not_change_test_routing_or_grants():
+    from autonomous_agent.task_planner import candidate_tool_names, default_grants_for_task, plan_task
+
+    task = "Run tests. Do not run lint."
+    assert candidate_tool_names(task) == ("github.inspect", "tests.run")
+    assert default_grants_for_task(task) == (Capability.INSPECT, Capability.TEST)
+    plan = plan_task(task, granted=default_grants_for_task(task))
+    assert plan.executable
+    assert tuple(step.tool_name for step in plan.steps) == ("github.inspect", "tests.run")
+    assert "lint.run" not in tuple(step.tool_name for step in plan.steps)
+
+
+def test_negative_test_instruction_does_not_change_lint_routing_or_grants():
+    from autonomous_agent.task_planner import candidate_tool_names, default_grants_for_task
+
+    task = "Run lint. Do not run tests."
+    assert candidate_tool_names(task) == ("github.inspect", "lint.run")
+    assert default_grants_for_task(task) == (Capability.INSPECT, Capability.LINT)
+
+
+def test_compound_negative_instruction_does_not_select_forbidden_capability():
+    from autonomous_agent.task_planner import candidate_tool_names
+
+    assert candidate_tool_names("Inspect repository and run tests. Do not run lint.") == (
+        "github.inspect", "tests.run",
+    )
+    assert candidate_tool_names("Inspect repository and run lint. Do not run tests.") == (
+        "github.inspect", "lint.run",
+    )

@@ -375,3 +375,23 @@ def test_remote_lease_release_is_idempotent_after_concurrent_delete(tmp_path: Pa
     sync._release_remote_lock()
 
     assert sync._lock_acquired is False
+
+
+def test_exception_inside_state_transaction_does_not_publish_partial_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """Fake Blob tests local rollback only; they are not cross-instance CAS proof."""
+    _install_fake_blob(monkeypatch)
+    target = tmp_path / "state" / "missions.json"
+    lock = target.with_name(target.name + ".lock")
+    with InterProcessFileLock(lock):
+        target.write_text('{"missions":["committed"]}', encoding="utf-8")
+    key = state_blob_key(target)
+    assert key is not None and b"committed" in _FakeBlobClient.objects[key]
+
+    with pytest.raises(ValueError, match="synthetic interrupted update"):
+        with InterProcessFileLock(lock):
+            target.write_text('{"missions":["partial"]}', encoding="utf-8")
+            raise ValueError("synthetic interrupted update")
+    assert b"committed" in _FakeBlobClient.objects[key]
+    assert b"partial" not in _FakeBlobClient.objects[key]
+    with InterProcessFileLock(lock):
+        assert "committed" in target.read_text(encoding="utf-8")

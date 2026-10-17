@@ -55,4 +55,3 @@ def test_intent_classification_ignores_negative_tool_constraints():
         "Do not use network, browser, GitHub, email, calendar, applications, or computer control."
     )
     assert classify_intent(task) is TaskIntent.WORKSPACE
-

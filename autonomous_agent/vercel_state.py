@@ -60,9 +60,12 @@ def state_blob_key(path: str | Path) -> str | None:
 class VercelBlobStateSync:
     """Cross-instance file synchronization for state files protected by InterProcessFileLock.
 
-    Each state file is one private blob. A small create-if-absent lease blob provides
-    a distributed read/modify/write lock across Vercel runtime instances. Local mode
-    never imports or requires the Vercel SDK.
+    Each state file is one private blob. A create-if-absent lease coordinates
+    ordinary read/modify/write operations across Vercel runtime instances.
+    Blob's unconditional delete/overwrite lacks a fencing token: after lease
+    expiry, owner-check and delete/put can race a new owner. This is not a
+    transactional store or an exactly-once guarantee. Local mode never imports
+    or requires the Vercel SDK.
     """
 
     def __init__(
@@ -134,7 +137,8 @@ class VercelBlobStateSync:
         )
 
     def _acquire_remote_lock(self) -> None:
-        assert self.lock_key is not None
+        if not self.enabled or self.lock_key is None:
+            raise RuntimeError("private shared-state lock is not configured")
         deadline = time.monotonic() + self.timeout_seconds
         payload = json.dumps(
             {"created_at": time.time(), "target": self.key, "owner": secrets.token_hex(16)},
@@ -270,15 +274,24 @@ class VercelBlobStateSync:
         persistence_error: Exception | None = None
         if self.enabled:
             try:
-                if not self._owns_remote_lock():
-                    raise RuntimeError("shared state lease ownership lost; refusing to publish")
-                current = self.target.read_bytes() if self.target.exists() else None
-                changed = current != self._baseline
-                if current is None:
-                    if not self._remote_missing:
-                        self._blob_client().delete(self.key, token=self.token)  # type: ignore[arg-type]
-                elif changed or self._remote_missing:
-                    self._put_bytes(self.key, current, overwrite=True)  # type: ignore[arg-type]
+                if exc_type is not None:
+                    # A failed state mutation must not publish an intermediate
+                    # local snapshot to every other instance. Roll back this
+                    # container's tentative copy while still holding its lock.
+                    if self._baseline is not None:
+                        self.target.write_bytes(self._baseline)
+                    elif self._remote_missing:
+                        self.target.unlink(missing_ok=True)
+                else:
+                    if not self._owns_remote_lock():
+                        raise RuntimeError("shared state lease ownership lost; refusing to publish")
+                    current = self.target.read_bytes() if self.target.exists() else None
+                    changed = current != self._baseline
+                    if current is None:
+                        if not self._remote_missing:
+                            self._blob_client().delete(self.key, token=self.token)  # type: ignore[arg-type]
+                    elif changed or self._remote_missing:
+                        self._put_bytes(self.key, current, overwrite=True)  # type: ignore[arg-type]
             except Exception as error:
                 persistence_error = error
             finally:
