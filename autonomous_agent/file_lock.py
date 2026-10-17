@@ -29,6 +29,7 @@ class InterProcessFileLock:
         self.timeout_seconds = timeout
         self.poll_interval_seconds = poll
         self._handle = None
+        self._remote_sync = None
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,9 +39,38 @@ class InterProcessFileLock:
                 self._acquire_windows()
             else:
                 self._acquire_posix()
+
+            # Vercel may start separate containers for separate HTTP requests.
+            # Synchronize state files through private shared Blob storage while
+            # holding both the local advisory lock and a distributed lease.
+            if self.path.name.endswith(".lock"):
+                target = self.path.with_name(self.path.name[:-5])
+                from .vercel_state import VercelBlobStateSync
+
+                remote_sync = VercelBlobStateSync(
+                    target,
+                    timeout_seconds=max(self.timeout_seconds, 10.0),
+                    poll_interval_seconds=self.poll_interval_seconds,
+                )
+                if remote_sync.enabled:
+                    remote_sync.__enter__()
+                    self._remote_sync = remote_sync
         except Exception:
-            self._handle.close()
-            self._handle = None
+            if self._handle is not None:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        self._handle.seek(0)
+                        try:
+                            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        except OSError:
+                            pass
+                    else:
+                        import fcntl
+                        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+                finally:
+                    self._handle.close()
+                    self._handle = None
             raise
         return self
 
@@ -79,24 +109,35 @@ class InterProcessFileLock:
                 time.sleep(self.poll_interval_seconds)
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if self._handle is None:
-            return
+        remote_error = None
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                self._handle.seek(0)
+            if self._remote_sync is not None:
                 try:
-                    msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-                except OSError:
-                    pass
-            else:
-                import fcntl
-
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+                    self._remote_sync.__exit__(exc_type, exc_value, traceback)
+                except Exception as error:
+                    remote_error = error
+                finally:
+                    self._remote_sync = None
         finally:
-            self._handle.close()
-            self._handle = None
+            if self._handle is not None:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        self._handle.seek(0)
+                        try:
+                            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        except OSError:
+                            pass
+                    else:
+                        import fcntl
+
+                        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+                finally:
+                    self._handle.close()
+                    self._handle = None
+        if remote_error is not None and exc_type is None:
+            raise remote_error
 
 
 __all__ = ["FileLockTimeout", "InterProcessFileLock"]

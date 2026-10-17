@@ -60,3 +60,28 @@ def test_memory_respects_bounded_recall(tmp_path: Path):
     for index in range(5):
         memory.record_episode("project-a", f"parser verification task {index}", outcome="verified")
     assert len(memory.recall("project-a", "parser verification task")) == 2
+
+
+def test_repeated_episode_fingerprint_updates_instead_of_duplicating(tmp_path: Path):
+    memory = PersistentMemory(tmp_path / "memory.json")
+    task = "inspect the current project status"
+    assert memory.record_episode(
+        "project-a",
+        task,
+        outcome="pending",
+        summary="mission queued for inspection",
+    )
+    assert memory.record_episode(
+        "project-a",
+        task,
+        outcome="verified",
+        summary="inspection completed successfully",
+    )
+
+    history = memory.history("project-a", kind="episode")
+    matches = memory.recall("project-a", task, kind="episode")
+
+    assert len(history) == 1
+    assert len(matches) == 1
+    assert matches[0].outcome == "verified"
+    assert matches[0].data["summary"] == "inspection completed successfully"

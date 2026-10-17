@@ -96,6 +96,69 @@ def test_interrupted_execution_requires_fresh_authorization(tmp_path: Path):
     assert "fresh authorization" in result.reason
 
 
+def test_provider_route_telemetry_does_not_trigger_recovery_before_checkpoint(tmp_path: Path):
+    audit = tmp_path / "audit.jsonl"
+    append_execution_record(
+        audit,
+        {
+            "execution_id": "route-before-start",
+            "state": "running",
+            "event": "specialist_provider_route",
+            "timestamp": "now",
+            "specialist_role": "general",
+            "provider": "",
+            "eligible": "False",
+            "selection_only": "True",
+        },
+    )
+
+    result = execute_plan(
+        _inspect_plan(),
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        execution_id="route-before-start",
+    )
+
+    assert result.state is ExecutionState.VERIFIED, result.reason
+    assert verify_execution_audit(audit)
+
+
+def test_provider_route_telemetry_does_not_mask_real_interruption(tmp_path: Path):
+    audit = tmp_path / "audit.jsonl"
+    append_execution_record(
+        audit,
+        {
+            "execution_id": "interrupted-route",
+            "state": "running",
+            "event": "execution_started",
+            "timestamp": "now",
+        },
+    )
+    append_execution_record(
+        audit,
+        {
+            "execution_id": "interrupted-route",
+            "state": "running",
+            "event": "specialist_provider_route",
+            "timestamp": "later",
+            "selection_only": "True",
+        },
+    )
+
+    result = execute_plan(
+        _inspect_plan(),
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit,
+        execution_id="interrupted-route",
+    )
+
+    assert result.state is ExecutionState.RECOVERY_REQUIRED
+    assert "checkpoint is unavailable" in result.reason
+    assert verify_execution_audit(audit)
+
+
 def _verified_result(operation: str) -> SandboxResult:
     return SandboxResult(
         operation,

@@ -56,10 +56,10 @@ def test_windows_integration_screen_capture(win_backend):
 
 
 def test_windows_integration_clipboard_roundtrip(win_backend):
-    if os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("RUN_WINDOWS_CLIPBOARD_SMOKE") != "1":
+    if os.getenv("RUN_WINDOWS_CLIPBOARD_SMOKE") != "1":
         pytest.skip(
-            "hosted GitHub Windows runners do not guarantee an interactive clipboard; "
-            "set RUN_WINDOWS_CLIPBOARD_SMOKE=1 on an interactive Windows runner to enable it"
+            "clipboard roundtrip changes the live desktop clipboard; "
+            "set RUN_WINDOWS_CLIPBOARD_SMOKE=1 in an interactive Windows session to enable it"
         )
     sample = "autonomous_test_token_456"
     success = win_backend.clipboard_write(sample)

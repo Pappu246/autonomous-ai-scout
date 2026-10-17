@@ -53,6 +53,7 @@ class PersistentMemory:
         summary: str = "",
         kind: str = "episode",
         metadata: Mapping[str, Any] | None = None,
+        require_persistence: bool = False,
     ) -> bool:
         safe_task = _safe_text(task)
         safe_summary = _safe_text(summary or task)
@@ -66,7 +67,8 @@ class PersistentMemory:
             payload["metadata"] = dict(metadata)
         fingerprint = f"episode:{task}"
         return self.store.record(
-            MemoryEvent(project, kind, fingerprint, outcome, payload)
+            MemoryEvent(project, kind, fingerprint, outcome, payload),
+            strict=require_persistence,
         )
 
     def record_fact(
@@ -101,13 +103,16 @@ class PersistentMemory:
         kind: str | None = None,
         limit: int | None = None,
         min_score: float = MIN_SCORE,
+        require_available: bool = False,
     ) -> tuple[MemoryMatch, ...]:
         tokens = _tokens(query)
         if not tokens:
             return ()
         requested = self.max_recall if limit is None else max(1, min(int(limit), self.max_recall))
-        entries = self.store.learn(project, kind=kind)
-        matches: list[MemoryMatch] = []
+        entries = self.store.learn(project, kind=kind, strict=require_available)
+        # Older versions could append the same fingerprint multiple times.
+        # Return only its newest relevant record to keep memory recall stable.
+        matches_by_fingerprint: dict[tuple[str, str], MemoryMatch] = {}
         for entry in entries:
             data = entry.get("data", {}) if isinstance(entry, Mapping) else {}
             searchable = " ".join(
@@ -115,16 +120,18 @@ class PersistentMemory:
             )
             score = _similarity(tokens, _tokens(searchable))
             if score >= max(0.0, float(min_score)):
-                matches.append(
-                    MemoryMatch(
-                        round(score, 6),
-                        str(entry.get("project", project)),
-                        str(entry.get("kind", "")),
-                        str(entry.get("outcome", "")),
-                        str(entry.get("fingerprint", "")),
-                        data,
-                    )
+                match = MemoryMatch(
+                    round(score, 6),
+                    str(entry.get("project", project)),
+                    str(entry.get("kind", "")),
+                    str(entry.get("outcome", "")),
+                    str(entry.get("fingerprint", "")),
+                    data,
                 )
+                key = (match.kind, match.fingerprint)
+                matches_by_fingerprint[key] = match
+
+        matches = list(matches_by_fingerprint.values())
         matches.sort(key=lambda item: (-item.score, item.kind, item.fingerprint))
         return tuple(matches[:requested])
 
