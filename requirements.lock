@@ -1,6 +1,6 @@
-# Reproducibility snapshot validated with the Vercel Blob SDK on 2026-10-14.
-# Keep this file synchronized with pyproject.toml; all state persistence is opt-in
-# unless BLOB_READ_WRITE_TOKEN is present in the deployment environment.
+# Reproducibility snapshot; PostgreSQL adapter is NOT wired to hosted missions.
+# Keep this file synchronized with pyproject.toml. Hosted state stays paused
+# until an approved transactional service, migration and live tests exist.
 annotated-types==0.8.0
 anyio==4.15.1
 certifi==2026.7.22
@@ -19,6 +19,8 @@ idna==3.20
 iniconfig==2.3.0
 packaging==26.0
 pluggy==1.6.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
 pydantic==2.14.1
 pydantic-core==2.50.1
 pycparser==3.11
