@@ -1,0 +1,3 @@
+# Test-only real PostgreSQL binary. Never installed into runtime containers.
+# Starts an isolated Unix-socket-only server on the CI runner (no cloud account).
+embedded-postgres==18.6.3

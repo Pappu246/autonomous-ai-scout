@@ -10,8 +10,12 @@ on:
   pull_request:
     paths:
       - "autonomous_agent/computer/**"
-      - "tests/test_computer_windows_integration.py"
+      - "autonomous_agent/postgres_coordinator.py"
+      - "tests/test_postgres_coordinator.py"
+      - "requirements.lock"
+      - "pyproject.toml"
       - ".github/workflows/windows-computer-smoke.yml"
+      - "tests/test_computer_windows_integration.py"
 
 jobs:
   windows-computer:
