@@ -35,6 +35,8 @@ Before the changes, `tests/test_security_remediation.py` produced **10 failures*
 
 **Stage 3 local review tree (2026-10-17, before final publication):** 58 focused tests passed; full Linux suite **2,595 passed, 6 skipped**; `git diff --check` and compileall passed. Pinned Vercel SDK signature and deterministic lost-lease counterexamples are covered. Pip-audit reported no known vulnerabilities (unhashed lock warning). Bandit remains **0 high / 2 medium / 21 low**, not clean; Ruff `0.15.4` reports **1,222 repo-wide findings** (different version from the historical count), while targeted state module and test lint passed. Container build and Windows smoke need **final exact-head** remote results; local Docker is unavailable. These successes demonstrate the deliberate pause, not functioning hosted exactly-once execution.
 
+**Publication follow-up:** At safety-code SHA `70bea7b55ea2572c7ca0252f4cd7d1a4b6664bbf`, push/PR CI, both container builds and Windows Smoke succeeded (exact run links in `E2E_VALIDATION.md`). Vercel's GitHub status **FAILED**: “Deployment rate limited — retry in 24 hours.” No READY Preview maps to that SHA, so authenticated E2E and the hosted containment behavior remain **BLOCKED live** despite local evidence. Old PR #280 and Stage 2 Preview URLs may still serve older code. This report-only update will produce another SHA, whose [PR #282 checks](https://github.com/Pappu246/autonomous-ai-scout/pull/282/checks) must be evaluated separately; do not carry over the earlier runs as exact-head evidence.
+
 ## Files changed and why
 
 - `autonomous_agent/vercel_proxy.py`: opaque expiring fallback sessions; immutable no-store/security headers; canonical resource IDs.
