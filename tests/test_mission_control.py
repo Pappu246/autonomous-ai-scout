@@ -5,8 +5,11 @@ from autonomous_agent.action_queue import load_queue
 import json
 from pathlib import Path
 
+import pytest
+
 from autonomous_agent.execution_engine import ExecutionState
 from autonomous_agent.mission_control import MissionController
+from autonomous_agent.vercel_state import SharedStateCoordinationUnavailable
 
 
 def test_submit_persists_safe_mission_and_queue(tmp_path: Path) -> None:
@@ -482,3 +485,43 @@ def test_shared_worker_startup_retries_recovery_without_failing_service(
     controller.stop()
 
     assert recovery_attempts["count"] >= 2
+
+
+
+def test_hosted_controller_entry_points_fail_closed_before_local_state_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Isolate the Vercel marker so this remains deterministic on developer machines.
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+
+    controller = MissionController(root=tmp_path)
+    assert controller.state_backend_ready is False
+
+    operations = (
+        lambda: controller.submit("inspect repository"),
+        lambda: controller.submit_plan("inspect repository", []),
+        lambda: controller.run_once(),
+        lambda: controller.recover(),
+        lambda: controller.recover_stale_running(),
+        lambda: controller.timeline("missing-mission"),
+        lambda: controller.cancel("missing-mission"),
+        lambda: controller.resume("missing-mission"),
+        lambda: controller.activate_approved_action("missing-action"),
+        lambda: controller.reject_approved_action("missing-action"),
+    )
+    for operation in operations:
+        with pytest.raises(SharedStateCoordinationUnavailable):
+            operation()
+
+    # Fail-closed means no synthetic per-container mission/queue/memory record.
+    for filename in (
+        "missions.json",
+        "mission_queue.json",
+        "mission_memory.json",
+        "approval_queue.json",
+        "runtime_execution.jsonl",
+    ):
+        assert not (tmp_path / "state" / filename).exists()
