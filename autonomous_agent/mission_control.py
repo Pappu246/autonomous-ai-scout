@@ -36,7 +36,12 @@ from .task_intent import positive_task_text
 from .cross_project_memory import _safe_text as _safe_memory_text
 from .task_queue import QueueItem, QueueState, TaskQueueStore, _safe_task
 from .runtime import run_task
-from .vercel_state import SHARED_STATE_PAUSED_REASON, hosted_runtime, shared_state_coordination_required
+from .vercel_state import (
+    SHARED_STATE_PAUSED_REASON,
+    SharedStateCoordinationUnavailable,
+    hosted_runtime,
+    shared_state_coordination_required,
+)
 
 
 # Bound timeline scans so a growing audit log cannot block the Mission Control UI.
@@ -246,6 +251,17 @@ class MissionController:
     def _new_ids(self) -> tuple[str, str]:
         return f"mission-{uuid.uuid4().hex}", f"exec-{uuid.uuid4().hex}"
 
+
+    def _require_state_backend(self) -> None:
+        """Reject file-backed mission operations when hosted state is uncoordinated.
+
+        This check is repeated at the controller boundary as well as the HTTP
+        boundary so direct Python callers and workers cannot bypass the hosted
+        fail-closed policy. PostgreSQL being configured alone is not sufficient:
+        the controller remains unavailable until every state call site is migrated.
+        """
+        if shared_state_coordination_required() or not self.state_backend_ready:
+            raise SharedStateCoordinationUnavailable(SHARED_STATE_PAUSED_REASON)
 
     def _provider_route_hint(self, role: SpecialistRole | str) -> str:
         resolved = role.value if isinstance(role, SpecialistRole) else str(role)
@@ -513,6 +529,7 @@ class MissionController:
         return record
 
     def submit(self, task: str) -> MissionRecord:
+        self._require_state_backend()
         if not str(task).strip():
             raise ValueError("mission task is required")
         # The queue already redacts credential-like assignments. Apply the
@@ -599,6 +616,7 @@ class MissionController:
         return record
 
     def submit_plan(self, objective: str, steps: Sequence[Mapping[str, object]]) -> MissionRecord:
+        self._require_state_backend()
         normalized_objective = _bounded_text(objective, 4000)
         if not normalized_objective:
             raise ValueError("mission objective is required")
@@ -698,6 +716,7 @@ class MissionController:
         return record
 
     def timeline(self, mission_id: str) -> tuple[dict[str, object], ...]:
+        self._require_state_backend()
         record = self.store.get(mission_id)
         if record is None:
             raise KeyError(mission_id)
@@ -800,6 +819,7 @@ class MissionController:
         return tuple(events)
 
     def cancel(self, mission_id: str) -> MissionRecord:
+        self._require_state_backend()
         record = self.store.get(mission_id)
         if record is None:
             raise KeyError(mission_id)
@@ -846,6 +866,7 @@ class MissionController:
         ))
 
     def run_once(self) -> MissionRecord | None:
+        self._require_state_backend()
         item = self.worker.run_once()
         return None if item is None else self.store.get_by_task_id(item.task_id)
 
@@ -865,10 +886,12 @@ class MissionController:
 
     def recover(self) -> tuple[MissionRecord, ...]:
         """Explicitly recover every interrupted task; suitable for single-worker local mode."""
+        self._require_state_backend()
         return self._persist_recovered_items(self.worker.recover())
 
     def recover_stale_running(self, *, stale_after_seconds: float = 600.0) -> tuple[MissionRecord, ...]:
         """Shared deployments recover only old RUNNING tasks, never active work in another instance."""
+        self._require_state_backend()
         items = self.queue.recover_stale_running(stale_after_seconds=stale_after_seconds)
         return self._persist_recovered_items(items)
 
@@ -933,6 +956,7 @@ class MissionController:
         return action, approval
 
     def activate_approved_action(self, action_id: str) -> MissionRecord | None:
+        self._require_state_backend()
         action, _approval = self._validate_pending_approval(action_id)
         record = self.store.get_by_approval_action_id(action_id)
         if record is None:
@@ -967,6 +991,7 @@ class MissionController:
         return pending
 
     def reject_approved_action(self, action_id: str) -> MissionRecord | None:
+        self._require_state_backend()
         record = self.store.get_by_approval_action_id(action_id)
         if record is None:
             return None
@@ -996,6 +1021,7 @@ class MissionController:
         ))
 
     def resume(self, mission_id: str) -> MissionRecord:
+        self._require_state_backend()
         record = self.store.get(mission_id)
         if record is None:
             raise KeyError(mission_id)
@@ -1168,6 +1194,7 @@ class MissionController:
         )
 
     def _handle_queue_item(self, item: QueueItem) -> bool:
+        self._require_state_backend()
         existing = self.store.get_by_task_id(item.task_id)
         # An orphaned/stale queue item has no trustworthy approval, plan or
         # timeline. Never reconstruct permissions from its task text or execute it.
