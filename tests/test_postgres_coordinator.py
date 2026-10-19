@@ -401,6 +401,41 @@ def test_postgres_execution_audit_store_is_hash_chained_and_claim_fenced(coordin
     assert len(audit.events(claim.execution_id)) == 2
 
 
+def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    # Make the safety boundary deterministic even on non-CI developer hosts.
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    runner = PostgresMissionRunner(
+        coordinator,
+        root=tmp_path,
+        worker_id="postgres-e2e-worker",
+    )
+    submitted = runner.submit("inspect repository", idempotency_key="read-only-e2e-1")
+    duplicate = runner.submit("inspect repository", idempotency_key="read-only-e2e-1")
+    assert duplicate.duplicated is True
+    assert duplicate.mission_id == submitted.mission_id
+
+    result = runner.run_once()
+    assert result is not None
+    assert result.state.value == "verified", result.reason
+    mission = coordinator.mission(submitted.mission_id)
+    assert mission is not None
+    assert mission["state"] == "verified"
+    assert len(coordinator.memory(submitted.mission_id)) == 1
+    events = coordinator.timeline(submitted.mission_id, limit=100)
+    kinds = [event.kind for event in events]
+    assert "execution_started" in kinds
+    assert "tool_result" in kinds
+    assert "checkpoint_verified" in kinds
+    assert "execution_result" in kinds
+    assert kinds[-1] == "mission_state"
+    # The E2E run used DB-backed checkpoints/audit, not synthetic local state.
+    assert not (tmp_path / "state" / "runtime_execution.jsonl").exists()
+    assert not list((tmp_path / "state").glob("runtime_checkpoints/*")) if (tmp_path / "state").exists() else True
+    assert runner.run_once() is None
+
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
     work = submit(coordinator, output=True)
     claim = coordinator.claim_next("reader")
