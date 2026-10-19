@@ -164,15 +164,60 @@ class PostgresMissionCoordinator:
                 pass
 
     def check_ready(self) -> None:
-        """Read-only schema check. Does not create a table or enable hosted work."""
+        """Read-only schema and minimum runtime-grant check; never provisions state."""
         with self._transaction() as conn:
+            if not conn.execute(
+                "SELECT has_schema_privilege(current_user, 'scout_state', 'USAGE')"
+            ).fetchone()[0]:
+                raise CoordinatorUnavailable("coordinator runtime role lacks schema USAGE")
+
             row = conn.execute("SELECT version FROM scout_state.schema_version WHERE singleton = 1").fetchone()
             if row is None or row[0] != SCHEMA_VERSION:
                 raise CoordinatorUnavailable("unsupported coordinator schema version")
-            for name in ("submissions", "missions", "work_items", "approvals", "audit_heads",
-                         "audit_events", "memories", "execution_checkpoints", "run_journal"):
+
+            tables = (
+                "submissions", "missions", "work_items", "approvals", "audit_heads",
+                "audit_events", "memories", "execution_checkpoints", "run_journal",
+            )
+            for name in tables:
                 if conn.execute("SELECT to_regclass(%s)", ("scout_state." + name,)).fetchone()[0] is None:
                     raise CoordinatorUnavailable("coordinator schema is incomplete")
+
+            # Validate the least-privilege contract before accepting work. A
+            # successful schema-version read alone does not prove the runtime
+            # role can safely claim, heartbeat, checkpoint, audit and finish.
+            required = {
+                "schema_version": ("SELECT",),
+                "submissions": ("SELECT", "INSERT"),
+                "missions": ("SELECT", "INSERT", "UPDATE"),
+                "work_items": ("SELECT", "INSERT", "UPDATE"),
+                "approvals": ("SELECT", "INSERT", "UPDATE"),
+                "audit_heads": ("SELECT", "INSERT", "UPDATE"),
+                "audit_events": ("SELECT", "INSERT"),
+                "memories": ("SELECT", "INSERT"),
+                "execution_checkpoints": ("SELECT", "INSERT", "UPDATE"),
+                "run_journal": ("SELECT", "INSERT"),
+            }
+            required_pairs = [
+                (table, privilege)
+                for table, privileges in required.items()
+                for privilege in privileges
+            ]
+            grants = conn.execute(
+                """SELECT required.table_name, required.privilege,
+                          has_table_privilege(
+                              current_user, 'scout_state.' || required.table_name,
+                              required.privilege
+                          )
+                   FROM unnest(%s::text[], %s::text[])
+                        AS required(table_name, privilege)""",
+                (
+                    [table for table, _ in required_pairs],
+                    [privilege for _, privilege in required_pairs],
+                ),
+            ).fetchall()
+            if any(not allowed for _, _, allowed in grants):
+                raise CoordinatorUnavailable("coordinator runtime role lacks required table privileges")
 
     def submit(
         self, idempotency_key: str, request: Mapping[str, object],
