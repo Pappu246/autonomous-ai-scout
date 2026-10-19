@@ -452,6 +452,68 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     assert (tmp_path / "README.md").read_text(encoding="utf-8").startswith("# Fixture")
     assert runner.run_once() is None
 
+def test_postgres_mission_runner_rejects_network_and_write_plans_before_submission(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="reject-unsafe-worker")
+
+    with pytest.raises(ValueError, match="autonomous local read-only"):
+        runner.submit("search the public web for current release notes", idempotency_key="deny-network")
+    with pytest.raises(ValueError, match="not executable|autonomous local read-only"):
+        runner.submit("write file report.txt", idempotency_key="deny-write")
+
+    assert runner.run_once() is None
+
+
+def test_postgres_mission_runner_idempotency_key_cannot_change_task(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+    from autonomous_agent.postgres_coordinator import IdentityConflict
+
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="idempotency-worker")
+    (tmp_path / "a.txt").write_text("A harmless fixture.\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("Another harmless fixture.\n", encoding="utf-8")
+    task_a = "Read file a.txt in the isolated workspace. Do not change any file. Do not execute shell commands. Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    task_b = "Read file b.txt in the isolated workspace. Do not change any file. Do not execute shell commands. Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    first = runner.submit(task_a, idempotency_key="same-key-different-task")
+    with pytest.raises(IdentityConflict):
+        runner.submit(task_b, idempotency_key="same-key-different-task")
+    assert runner.coordinator.mission(first.mission_id)["state"] == "pending"
+
+
+def test_failed_local_read_never_creates_verified_memory(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="failed-read-worker")
+    task = "Read file missing.txt in the isolated workspace. Do not change any file. Do not execute shell commands. Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    submitted = runner.submit(task, idempotency_key="missing-file-read")
+
+    result = runner.run_once()
+    assert result is not None
+    assert result.state.value == "failed", result.reason
+    mission = coordinator.mission(submitted.mission_id)
+    assert mission is not None and mission["state"] == "failed"
+    assert coordinator.memory(submitted.mission_id) == ()
+    assert any(
+        event.kind == "tool_result" and event.payload.get("result") == "failure"
+        for event in coordinator.timeline(submitted.mission_id, limit=100)
+    )
+
+
+def test_postgres_mission_runner_refuses_hosted_runtime_without_mutating_state(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    with pytest.raises(SharedStateCoordinationUnavailable):
+        PostgresMissionRunner(coordinator, root=tmp_path, worker_id="hosted-gate-worker")
+    assert coordinator.claim_next("hosted-gate-worker") is None
+
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
     work = submit(coordinator, output=True)
     claim = coordinator.claim_next("reader")
