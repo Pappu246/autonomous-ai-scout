@@ -11,7 +11,8 @@ import uuid
 from pathlib import Path
 
 from .execution_engine import ExecutionResult, ExecutionState, _authorization_digest
-from .task_completion import criteria_for
+from .filesystem_workspace import WorkspaceConnector
+from .task_completion import criteria_for, requested_read_path
 from .postgres_coordinator import CoordinatorUnavailable, PostgresMissionCoordinator, Submission, _id
 from .postgres_execution_audit import PostgresExecutionAuditStore
 from .postgres_execution_checkpoint import PostgresExecutionCheckpointStore
@@ -37,11 +38,13 @@ class PostgresMissionRunner:
         root: str | Path,
         worker_id: str | None = None,
         core: AutonomousTaskCore | None = None,
+        workspace_connector: WorkspaceConnector | None = None,
     ) -> None:
         self.coordinator = coordinator
         self.root = Path(root).resolve()
         self.worker_id = _id(worker_id or "worker-" + uuid.uuid4().hex, "worker ID")
         self.core = core or AutonomousTaskCore()
+        self.workspace_connector = workspace_connector or WorkspaceConnector(self.root)
         self.audit_path = self.root / "state" / "runtime_execution.jsonl"
         self._require_available()
 
@@ -80,6 +83,19 @@ class PostgresMissionRunner:
         )
         criteria = criteria_for(prepared.plan.task, root=self.root)
         return prepared, task_digest, authorization_digest, criteria.digest, criteria.requires_output
+
+    def _workspace_request(self, task: str) -> dict[str, object]:
+        """Derive only explicit local read/list parameters; never accept a write."""
+        prepared = self.core.prepare(task, explicitly_approved=False)
+        names = tuple(step.tool_name for step in prepared.plan.steps)
+        if names == ("filesystem.read",):
+            path = requested_read_path(task, self.root)
+            if not path:
+                raise ValueError("local file reads require an explicit bounded path")
+            return {"filesystem.read": {"operation": "read", "path": path}}
+        if names == ("filesystem.list",):
+            return {"filesystem.list": {"operation": "list", "path": "."}}
+        return {}
 
     def submit(self, task: str, *, idempotency_key: str) -> Submission:
         """Submit one explicitly identified read-only request; never key by task text."""
@@ -148,6 +164,8 @@ class PostgresMissionRunner:
             execution_id=claim.execution_id,
             checkpoint_store=checkpoint_store,
             audit_store=audit_store,
+            workspace_connector=self.workspace_connector,
+            workspace_request=self._workspace_request(task),
             explicitly_approved=False,
         )
         criteria = criteria_for(task, root=self.root)
