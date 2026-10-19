@@ -148,6 +148,12 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     assert "window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)" in page
     assert "'timed out after ' + Math.round(API_TIMEOUT_MS / 1000) + ' seconds'" in page
     assert "body = await response.json().catch(() => ({}));" in page
+    assert "body.mission_control" in page
+    assert 'id="state-gate"' in page
+    assert 'id="start-mission" disabled' in page
+    assert "updateMissionSubmissionAvailability" in page
+    assert "missionSubmissionAvailable" in page
+    assert "Mission submission is paused" in page
     assert "Promise.allSettled" in page
     assert "Unable to load missions:" in page
     assert "Unable to load approvals:" in page

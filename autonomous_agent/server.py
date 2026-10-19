@@ -78,6 +78,8 @@ def _mission_ui() -> str:
     textarea { width: 100%; min-height: 110px; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 10px; padding: 12px; resize: vertical; }
     button { margin-top: 12px; border: 0; border-radius: 9px; padding: 10px 16px; cursor: pointer; background: #2563eb; color: white; font-weight: 700; }
     button.secondary { background: #334155; }
+    button:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
+    .status-banner { margin-top: 12px; padding: 12px; border: 1px solid #475569; border-radius: 8px; color: #cbd5e1; background: #0f172a; }
     .mission { border-top: 1px solid #243044; padding: 14px 0; }
     .mission:first-child { border-top: 0; }
     .pill { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; background: #243044; margin-left: 6px; }
@@ -90,12 +92,13 @@ def _mission_ui() -> str:
   <h1>Autonomous AI Scout</h1>
   <div class="muted">Mission Control · durable missions · specialist routing · persistent memory · verified results</div>
   <div class="muted" id="workspace-root">Workspace root: loading…</div>
+  <div class="status-banner" id="state-gate" role="status" aria-live="polite" hidden></div>
   <section class="panel">
     <form id="mission-form">
       <label for="task">Give Scout a digital goal</label>
-      <textarea id="task" maxlength="4000" placeholder="Example: inspect the repository and summarize current test failures"></textarea>
+      <textarea id="task" maxlength="4000" placeholder="Example: inspect the repository and summarize current test failures" disabled></textarea>
       <br>
-      <button type="submit">Start Mission</button>
+      <button type="submit" id="start-mission" disabled>Start Mission</button>
       <button type="button" class="secondary" id="refresh">Refresh</button>
     </form>
     <div id="notice" class="muted"></div>
@@ -114,6 +117,29 @@ def _mission_ui() -> str:
 const notice = document.getElementById('notice');
 const missions = document.getElementById('missions');
 const approvals = document.getElementById('approvals');
+const startMissionButton = document.getElementById('start-mission');
+const taskInput = document.getElementById('task');
+const stateGate = document.getElementById('state-gate');
+let missionSubmissionAvailable = false;
+let submissionInProgress = false;
+
+function updateMissionSubmissionAvailability(ready, detail = '') {
+  missionSubmissionAvailable = ready;
+  taskInput.disabled = !ready;
+  startMissionButton.disabled = !ready || submissionInProgress;
+  stateGate.hidden = ready;
+  if (ready) {
+    stateGate.textContent = '';
+    return;
+  }
+  stateGate.textContent = detail === 'checking'
+    ? 'Checking runtime health and shared-state readiness. Mission submission stays disabled until both checks pass.'
+    : 'Mission submission is paused. This hosted runtime has not confirmed durable shared-state coordination, so this page will not submit new missions. '
+      + (detail || 'Refresh after the approved coordinator is provisioned and verified.')
+      + ' Do not retry until readiness returns.';
+}
+
+updateMissionSubmissionAvailability(false, 'checking');
 
 function esc(value) {
   const node = document.createElement('div');
@@ -147,7 +173,7 @@ async function api(path, options = {}) {
   } finally {
     window.clearTimeout(timeout);
   }
-  if (!response.ok) { const detail = body.error || body.mission?.reason || ('HTTP ' + response.status); throw new Error(path + ': ' + detail); }
+  if (!response.ok) { const detail = body.error || body.mission?.reason || body.mission_control || ('HTTP ' + response.status); throw new Error(path + ': ' + detail); }
   return body;
 }
 
@@ -262,6 +288,7 @@ let lastRefreshMissionIds = new Set();
 
 async function refresh() {
   if (refreshInProgress) return {missionListLoaded: false, failures: ['refresh already in progress']};
+  updateMissionSubmissionAvailability(false, 'checking');
   refreshInProgress = true;
   const failures = [];
   let missionListLoaded = false;
@@ -308,6 +335,22 @@ async function refresh() {
       failures.push(message);
     }
 
+    const missionListReady = missionResult.status === 'fulfilled'
+      && Array.isArray(missionResult.value.missions);
+    const healthReady = healthResult.status === 'fulfilled'
+      && healthResult.value.status === 'ok';
+    const readinessDetails = [];
+    if (!healthReady) {
+      readinessDetails.push(healthResult.status === 'rejected'
+        ? (healthResult.reason instanceof Error ? healthResult.reason.message : String(healthResult.reason))
+        : (healthResult.value.mission_control || 'health check did not report status ok'));
+    }
+    if (!missionListReady) {
+      readinessDetails.push(missionResult.status === 'rejected'
+        ? (missionResult.reason instanceof Error ? missionResult.reason.message : String(missionResult.reason))
+        : '/api/missions returned an invalid response');
+    }
+    updateMissionSubmissionAvailability(healthReady && missionListReady, readinessDetails.join(' · '));
     notice.textContent = failures.length
       ? 'Dashboard warning: ' + failures.join(' · ')
       : lastActionNotice;
@@ -315,6 +358,7 @@ async function refresh() {
     // Never leave the initial placeholders spinning if rendering or an
     // unexpected response shape fails outside an individual API request.
     const message = error instanceof Error ? error.message : String(error);
+    updateMissionSubmissionAvailability(false, message);
     if (missions.textContent.trim() === 'Loading…') {
       missions.innerHTML = '<div class="muted">Unable to load missions: ' + esc(message) + '</div>';
     }
@@ -331,8 +375,14 @@ async function refresh() {
 
 document.getElementById('mission-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const task = document.getElementById('task').value.trim();
+  const task = taskInput.value.trim();
+  if (!missionSubmissionAvailable || submissionInProgress) {
+    notice.textContent = 'Mission submission is paused until runtime health and shared-state readiness both pass. No mission was submitted from this action.';
+    return;
+  }
   if (!task) return;
+  submissionInProgress = true;
+  startMissionButton.disabled = true;
   try {
     const response = await api('/api/missions', {
       method: 'POST',
@@ -340,7 +390,7 @@ document.getElementById('mission-form').addEventListener('submit', async event =
       body: JSON.stringify({task})
     });
     const mission = response.mission || {};
-    document.getElementById('task').value = '';
+    taskInput.value = '';
     if (mission.state === 'requires_approval') {
       lastActionNotice = 'Mission recorded, but it needs approval. Review the exact proposed steps before approving anything.';
     } else if (mission.state === 'pending') {
@@ -359,6 +409,10 @@ document.getElementById('mission-form').addEventListener('submit', async event =
   } catch (error) {
     lastActionNotice = '';
     notice.textContent = error.message;
+    await refresh();
+  } finally {
+    submissionInProgress = false;
+    startMissionButton.disabled = !missionSubmissionAvailable;
   }
 });
 
