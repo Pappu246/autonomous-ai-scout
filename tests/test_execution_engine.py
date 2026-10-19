@@ -4,6 +4,7 @@ from pathlib import Path
 
 from autonomous_agent.capability_policy import Capability
 from autonomous_agent.execution_audit import append_execution_record, verify_execution_audit
+from autonomous_agent.execution_checkpoint import ExecutionCheckpointStore
 from autonomous_agent.execution_engine import ExecutionState, execute_plan, _authorization_digest, recover_execution
 from autonomous_agent.sandbox import SandboxResult
 from autonomous_agent.task_plan_models import TaskPlan
@@ -32,6 +33,26 @@ def test_safe_plan_executes_only_through_registered_sandbox(tmp_path: Path):
     assert all(item.network_disabled for item in result.results)
     assert verify_execution_audit(tmp_path / "execution.jsonl")
 
+
+def test_injected_checkpoint_store_is_used_instead_of_default_path(tmp_path: Path):
+    plan = _inspect_plan()
+    injected_path = tmp_path / "injected-checkpoint.json"
+    ignored_path = tmp_path / "ignored-checkpoint.json"
+    store = ExecutionCheckpointStore(injected_path)
+
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=tmp_path / "execution.jsonl",
+        execution_id="injected-store",
+        checkpoint_path=ignored_path,
+        checkpoint_store=store,
+    )
+
+    assert result.state is ExecutionState.VERIFIED
+    assert injected_path.exists()
+    assert not ignored_path.exists()
 
 def test_unknown_tool_fails_closed_before_execution(tmp_path: Path):
     plan = _inspect_plan()
