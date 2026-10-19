@@ -16,6 +16,8 @@ from pathlib import Path
 import psycopg
 import pytest
 
+from autonomous_agent.execution_checkpoint import ExecutionCheckpoint
+from autonomous_agent.postgres_execution_checkpoint import PostgresExecutionCheckpointStore
 from autonomous_agent.postgres_coordinator import (
     CommitOutcomeUnknown,
     CoordinatorUnavailable,
@@ -320,6 +322,38 @@ def test_checkpoints_are_claim_fenced_attempt_scoped_and_monotonic(coordinator):
         )
     assert coordinator.load_checkpoint(claim) == saved
 
+
+def test_postgres_checkpoint_store_matches_execution_engine_contract(coordinator):
+    submit(coordinator, "checkpoint-adapter")
+    claim = coordinator.claim_next("checkpoint-adapter-worker")
+    assert claim is not None
+    store = PostgresExecutionCheckpointStore(coordinator, claim)
+    assert store.load() is None
+
+    saved = store.save(
+        execution_id=claim.execution_id,
+        task_digest="a" * 64,
+        plan_digest="b" * 64,
+        authorization_digest="c" * 64,
+        state="running",
+        completed_step_ids=("step-1",),
+        total_attempts=1,
+    )
+    assert isinstance(saved, ExecutionCheckpoint)
+    assert saved.execution_id == claim.execution_id
+    assert saved.completed_step_ids == ("step-1",)
+    assert store.load() == saved
+
+    with pytest.raises(ValueError, match="execution identity"):
+        store.save(
+            execution_id="exec-not-the-active-claim",
+            task_digest="a" * 64,
+            plan_digest="b" * 64,
+            authorization_digest="c" * 64,
+            state="running",
+            completed_step_ids=("step-1",),
+            total_attempts=1,
+        )
 
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
     work = submit(coordinator, output=True)
