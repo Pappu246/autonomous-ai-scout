@@ -10,7 +10,7 @@ from .capability_policy import Capability
 from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
 from .prompt_injection_guard import TrustLevel
 from .cross_project_memory import CrossProjectMemory
-from .execution_checkpoint import ExecutionCheckpointStore
+from .execution_checkpoint import CheckpointStore, ExecutionCheckpointStore
 from .execution_audit import append_execution_record,verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES,MAX_TIMEOUT_SECONDS,SandboxResult,run_safe_operation
 from .task_completion import MAX_ARTIFACT_LENGTH, CompletionCriteria, assess_completion, criteria_for
@@ -165,7 +165,7 @@ def _validate_application_tool(tool):
     return tool.capability==Capability.APPLICATION.value and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"application.list","application.inspect","application.observe","application.command.execute"}
 def _validate_computer_tool(tool):
     return tool.capability==Capability.COMPUTER.value and tool.network_requirement.value in {"none","required"} and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name.startswith("computer.")
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,checkpoint_store:CheckpointStore|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
     started_monotonic=monotonic()
     last_budget_monotonic=started_monotonic
     granted=tuple(granted)
@@ -173,7 +173,7 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
     if not sandbox_available:return ExecutionResult(ExecutionState.BLOCKED,"sandbox is unavailable",0,(),str(audit_path))
     if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
-    checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
+    if checkpoint_store is None:checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
     authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
