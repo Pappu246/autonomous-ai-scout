@@ -7,6 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .cross_project_memory import CrossProjectMemory
+from .execution_checkpoint import CheckpointStore
 from .execution_engine import ExecutionResult, ExecutionState
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
@@ -33,6 +34,7 @@ def run_task(
     journal_path: Path = JOURNAL_PATH,
     execution_id: str | None = None,
     checkpoint_path: Path | None = None,
+    checkpoint_store: CheckpointStore | None = None,
     registry: ToolRegistry = REGISTRY,
     browser_connector: Any = None,
     browser_request: Mapping[str, Any] | None = None,
@@ -85,6 +87,7 @@ def run_task(
         audit_path=audit_path,
         execution_id=execution_id,
         checkpoint_path=checkpoint_path,
+        checkpoint_store=checkpoint_store,
         memory=memory,
         project=project,
         browser_connector=browser_connector,
