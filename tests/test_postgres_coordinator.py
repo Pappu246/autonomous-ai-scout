@@ -534,7 +534,7 @@ def test_postgres_mission_runner_heartbeats_during_long_execution(coordinator, t
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(runner_module, "CLAIM_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="heartbeat-worker")
-    (tmp_path / "heartbeat.txt").write_text("A harmless heartbeat fixture.\\n", encoding="utf-8")
+    (tmp_path / "heartbeat.txt").write_text("A harmless heartbeat fixture.\n", encoding="utf-8")
     task = (
         "Read file heartbeat.txt in the isolated workspace. Do not change any file. "
         "Do not execute shell commands. Do not use network, browser, GitHub, email, "
@@ -574,7 +574,7 @@ def test_postgres_mission_runner_does_not_commit_after_heartbeat_loss(coordinato
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(runner_module, "CLAIM_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="lost-heartbeat-worker")
-    (tmp_path / "heartbeat-loss.txt").write_text("A harmless read-only fixture.\\n", encoding="utf-8")
+    (tmp_path / "heartbeat-loss.txt").write_text("A harmless read-only fixture.\n", encoding="utf-8")
     task = (
         "Read file heartbeat-loss.txt in the isolated workspace. Do not change any file. "
         "Do not execute shell commands. Do not use network, browser, GitHub, email, "
