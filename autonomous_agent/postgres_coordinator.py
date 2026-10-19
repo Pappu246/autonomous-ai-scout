@@ -498,7 +498,10 @@ class PostgresMissionCoordinator:
             raise IdentityConflict("run journal identity was reused with different content")
 
     def record_run(self, claim: Claim, record: Mapping[str, object]) -> None:
-        """Persist a non-terminal/recovery result while its worker claim remains current."""
+        """Persist a recovery result while its worker claim remains current."""
+        values = self._run_record_values(claim, record)
+        if values[5] != "recovery_required":
+            raise ValueError("only recovery-required results may be recorded outside terminal commit")
         with self._transaction() as conn:
             self._assert_live_claim(conn, claim, lock=True)
             self._insert_run_record(conn, claim, record)
@@ -544,7 +547,14 @@ class PostgresMissionCoordinator:
         if len(validated_output) > 8_192:
             raise ValueError("validated output exceeds the size limit")
         if run_record is not None:
-            self._run_record_values(claim, run_record)
+            values = self._run_record_values(claim, run_record)
+            allowed_journal_states = {
+                "verified": {"verified"},
+                "partial": {"partial"},
+                "failed": {"failed", "blocked"},
+            }
+            if values[5] not in allowed_journal_states[state]:
+                raise ValueError("run journal state does not match terminal result")
         with self._transaction() as conn:
             row = conn.execute(
                 """SELECT execution_id, claim_generation, worker_id, state
