@@ -412,8 +412,14 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
         root=tmp_path,
         worker_id="postgres-e2e-worker",
     )
-    submitted = runner.submit("inspect repository", idempotency_key="read-only-e2e-1")
-    duplicate = runner.submit("inspect repository", idempotency_key="read-only-e2e-1")
+    (tmp_path / "README.md").write_text("# Fixture\nThis is a harmless local file.\n", encoding="utf-8")
+    task = (
+        "Read file README.md in the isolated workspace. Do not change any file. "
+        "Do not execute shell commands. Do not use network, browser, GitHub, email, "
+        "calendar, applications, or computer control."
+    )
+    submitted = runner.submit(task, idempotency_key="read-only-e2e-1")
+    duplicate = runner.submit(task, idempotency_key="read-only-e2e-1")
     assert duplicate.duplicated is True
     assert duplicate.mission_id == submitted.mission_id
 
@@ -433,7 +439,8 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     assert kinds[-1] == "mission_state"
     # The E2E run used DB-backed checkpoints/audit, not synthetic local state.
     assert not (tmp_path / "state" / "runtime_execution.jsonl").exists()
-    assert not list((tmp_path / "state").glob("runtime_checkpoints/*")) if (tmp_path / "state").exists() else True
+    assert not (tmp_path / "state" / "runtime_checkpoints").exists()
+    assert (tmp_path / "README.md").read_text(encoding="utf-8").startswith("# Fixture")
     assert runner.run_once() is None
 
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
