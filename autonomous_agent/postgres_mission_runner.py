@@ -1,6 +1,6 @@
-"""Local/preview-only read-only E2E runner over a pre-provisioned PostgreSQL coordinator.
+"""Local-only read-only E2E runner over a pre-provisioned PostgreSQL coordinator.
 
-This is deliberately not wired into the hosted MissionController. It exercises
+This is deliberately not wired into the hosted MissionController and refuses Vercel/Blob runtime markers. It exercises
 an end-to-end slice against a caller-supplied coordinator while the existing
 hosted readiness gate remains closed until every state path is migrated.
 """
@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 
 from .execution_engine import ExecutionResult, ExecutionState, _authorization_digest
-from .mission_control import criteria_for
+from .task_completion import criteria_for
 from .postgres_coordinator import CoordinatorUnavailable, PostgresMissionCoordinator, Submission, _id
 from .postgres_execution_audit import PostgresExecutionAuditStore
 from .postgres_execution_checkpoint import PostgresExecutionCheckpointStore
