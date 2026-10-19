@@ -166,10 +166,20 @@ class PostgresMissionCoordinator:
     def check_ready(self) -> None:
         """Read-only schema and minimum runtime-grant check; never provisions state."""
         with self._transaction() as conn:
+            role_flags = conn.execute(
+                """SELECT rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+                   FROM pg_roles WHERE rolname = current_user"""
+            ).fetchone()
+            if role_flags is None or any(role_flags):
+                raise CoordinatorUnavailable("coordinator runtime role has unsafe elevated privileges")
             if not conn.execute(
                 "SELECT has_schema_privilege(current_user, 'scout_state', 'USAGE')"
             ).fetchone()[0]:
                 raise CoordinatorUnavailable("coordinator runtime role lacks schema USAGE")
+            if conn.execute(
+                "SELECT has_schema_privilege(current_user, 'scout_state', 'CREATE')"
+            ).fetchone()[0]:
+                raise CoordinatorUnavailable("coordinator runtime role has schema CREATE privilege")
 
             row = conn.execute("SELECT version FROM scout_state.schema_version WHERE singleton = 1").fetchone()
             if row is None or row[0] != SCHEMA_VERSION:
@@ -218,6 +228,35 @@ class PostgresMissionCoordinator:
             ).fetchall()
             if any(not allowed for _, _, allowed in grants):
                 raise CoordinatorUnavailable("coordinator runtime role lacks required table privileges")
+
+            # A role that can meet the minimum contract but can rewrite immutable
+            # audit, delete work, or create triggers is still not safe for runtime.
+            forbidden = [
+                (table, privilege)
+                for table in tables
+                for privilege in ("DELETE", "TRUNCATE", "TRIGGER", "REFERENCES")
+            ]
+            forbidden.extend(
+                (table, privilege)
+                for table in ("schema_version", "submissions", "audit_events", "memories", "run_journal")
+                for privilege in ("INSERT", "UPDATE", "DELETE", "TRUNCATE")
+                if not (table in {"submissions", "audit_events", "memories", "run_journal"} and privilege == "INSERT")
+            )
+            forbidden_checks = conn.execute(
+                """SELECT required.table_name, required.privilege,
+                          has_table_privilege(
+                              current_user, 'scout_state.' || required.table_name,
+                              required.privilege
+                          )
+                   FROM unnest(%s::text[], %s::text[])
+                        AS required(table_name, privilege)""",
+                (
+                    [table for table, _ in forbidden],
+                    [privilege for _, privilege in forbidden],
+                ),
+            ).fetchall()
+            if any(allowed for _, _, allowed in forbidden_checks):
+                raise CoordinatorUnavailable("coordinator runtime role has unsafe table privileges")
 
     def submit(
         self, idempotency_key: str, request: Mapping[str, object],
