@@ -1,6 +1,6 @@
 # Hosted Mission Control coordination candidate — 2026-10-18
 
-**Decision: one dedicated PostgreSQL 17+ service and one restricted runtime role. This is a design and testable adapter, NOT an enabled hosted backend.** `PostgresMissionCoordinator` and `migrations/001_postgres_coordinator.sql` and `migrations/002_execution_checkpoints.sql` are in PR #282. `MissionController`, `InterProcessFileLock`, direct `/run`, and `/health` still fail closed on Vercel or when Blob is configured. Neither setting `SCOUT_STATE_BACKEND=postgres` nor providing a database URL bypasses that gate. No project, account, schema, environment variable, integration, credential, Production deployment, or PR merge was changed.
+**Decision: one dedicated PostgreSQL 17+ service and one restricted runtime role. This is a design and testable adapter, NOT an enabled hosted backend.** `PostgresMissionCoordinator` plus migrations `001_postgres_coordinator.sql` and `002_execution_checkpoints.sql` are in PR #282. `MissionController`, `InterProcessFileLock`, direct `/run`, and `/health` still fail closed on Vercel or when Blob is configured. Neither setting `SCOUT_STATE_BACKEND=postgres` nor providing a database URL bypasses that gate. No project, account, schema, environment variable, integration, credential, Production deployment, or PR merge was changed.
 
 ## What exists and what does not
 
