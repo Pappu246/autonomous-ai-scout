@@ -93,8 +93,10 @@ def query(dsn, sql, parameters=()):
         return conn.execute(sql, parameters).fetchall()
 
 
-def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, monkeypatch):
-    store = PostgresMissionCoordinator(postgres_dsn, "preview/check")
+def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, runtime_dsn, monkeypatch):
+    # The application probe must run as the restricted runtime role, not the
+    # local migration/admin connection used to prepare the isolated server.
+    store = PostgresMissionCoordinator(runtime_dsn, "preview/check")
     store.check_ready()
     monkeypatch.setenv("VERCEL_ENV", "preview")
     monkeypatch.setenv("SCOUT_STATE_BACKEND", "postgres")
@@ -124,6 +126,11 @@ def test_schema_probe_rejects_runtime_role_missing_table_grants(postgres_dsn):
             admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
 
 
+def test_schema_probe_rejects_superuser_runtime_role(postgres_dsn):
+    with pytest.raises(CoordinatorUnavailable, match="unsafe elevated privileges"):
+        PostgresMissionCoordinator(postgres_dsn, "preview/admin-role").check_ready()
+
+
 def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
     with psycopg.connect(runtime_dsn) as conn:
         assert conn.execute(
@@ -146,7 +153,7 @@ def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
         ).fetchone() == (False,)
 
 
-def test_missing_schema_never_migrates_itself(postgres_dsn):
+def test_missing_schema_never_migrates_itself(postgres_dsn, runtime_dsn):
     # Create an empty database only inside the isolated local test server.
     from psycopg import sql
     from psycopg.conninfo import make_conninfo
@@ -154,7 +161,7 @@ def test_missing_schema_never_migrates_itself(postgres_dsn):
     name = "scout_empty_" + uuid.uuid4().hex[:10]
     with psycopg.connect(postgres_dsn, autocommit=True) as admin:
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    empty_dsn = make_conninfo(postgres_dsn, dbname=name)
+    empty_dsn = make_conninfo(runtime_dsn, dbname=name)
     try:
         with pytest.raises(CoordinatorUnavailable):
             PostgresMissionCoordinator(empty_dsn, "preview/empty").check_ready()
