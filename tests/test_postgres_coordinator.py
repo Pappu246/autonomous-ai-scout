@@ -545,6 +545,8 @@ def test_run_journal_is_claim_fenced_idempotent_and_readable(coordinator):
 
     with pytest.raises(IdentityConflict, match="run journal identity"):
         coordinator.record_run(claim, dict(record, reason="different content"))
+    with pytest.raises(ValueError, match="only recovery-required"):
+        coordinator.record_run(claim, dict(record, state="verified"))
 
     stale = replace(claim, generation=claim.generation + 1)
     with pytest.raises(StaleGeneration):
@@ -575,6 +577,14 @@ def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinato
     event = coordinator.append_event(work.mission_id, "validated-1", "output_validated",
                                      work.execution_id, {"output_sha256": digest})
     assert event.sequence == 1
+    with pytest.raises(ValueError, match="does not match terminal result"):
+        coordinator.finish(
+            claim, "verified", validated_output=output, validation_event_id="validated-1",
+            memory={"summary": output}, run_record=dict(run_record, state="failed"),
+        )
+    assert coordinator.mission(work.mission_id)["state"] == "running"
+    assert coordinator.memory(work.mission_id) == ()
+    assert coordinator.run_journal(work.mission_id) == ()
     with pytest.raises(ValueError, match="JSON serializable"):
         coordinator.finish(claim, "verified", validated_output=output,
                            validation_event_id="validated-1", memory={"bad": {1, 2}}, run_record=run_record)
