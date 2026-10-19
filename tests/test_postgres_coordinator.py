@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -524,6 +525,86 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     assert not (tmp_path / "state" / "runtime_checkpoints").exists()
     assert (tmp_path / "README.md").read_text(encoding="utf-8").startswith("# Fixture")
     assert runner.run_once() is None
+
+def test_postgres_mission_runner_heartbeats_during_long_execution(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent import postgres_mission_runner as runner_module
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(runner_module, "CLAIM_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="heartbeat-worker")
+    (tmp_path / "heartbeat.txt").write_text("A harmless heartbeat fixture.\\n", encoding="utf-8")
+    task = (
+        "Read file heartbeat.txt in the isolated workspace. Do not change any file. "
+        "Do not execute shell commands. Do not use network, browser, GitHub, email, "
+        "calendar, applications, or computer control."
+    )
+    submitted = runner.submit(task, idempotency_key="long-running-read-heartbeat")
+
+    heartbeats: list[int] = []
+    original_heartbeat = coordinator.heartbeat
+
+    def track_heartbeat(claim):
+        heartbeats.append(claim.generation)
+        return original_heartbeat(claim)
+
+    monkeypatch.setattr(coordinator, "heartbeat", track_heartbeat)
+    original_execute = runner.core.execute
+
+    def delayed_execute(*args, **kwargs):
+        time.sleep(0.08)
+        return original_execute(*args, **kwargs)
+
+    monkeypatch.setattr(runner.core, "execute", delayed_execute)
+    result = runner.run_once()
+
+    assert result is not None and result.state.value == "verified", result.reason if result else ""
+    assert heartbeats, "long-running execution did not refresh its worker claim"
+    assert set(heartbeats) == {1}
+    mission = coordinator.mission(submitted.mission_id)
+    assert mission is not None and mission["state"] == "verified"
+
+
+def test_postgres_mission_runner_does_not_commit_after_heartbeat_loss(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent import postgres_mission_runner as runner_module
+    from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
+
+    for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL", "BLOB_READ_WRITE_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(runner_module, "CLAIM_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    runner = PostgresMissionRunner(coordinator, root=tmp_path, worker_id="lost-heartbeat-worker")
+    (tmp_path / "heartbeat-loss.txt").write_text("A harmless read-only fixture.\\n", encoding="utf-8")
+    task = (
+        "Read file heartbeat-loss.txt in the isolated workspace. Do not change any file. "
+        "Do not execute shell commands. Do not use network, browser, GitHub, email, "
+        "calendar, applications, or computer control."
+    )
+    submitted = runner.submit(task, idempotency_key="lost-read-heartbeat")
+
+    def lose_heartbeat(_claim):
+        raise StaleGeneration("simulated stale claim")
+
+    monkeypatch.setattr(coordinator, "heartbeat", lose_heartbeat)
+    original_execute = runner.core.execute
+
+    def delayed_execute(*args, **kwargs):
+        time.sleep(0.08)
+        return original_execute(*args, **kwargs)
+
+    monkeypatch.setattr(runner.core, "execute", delayed_execute)
+    with pytest.raises(CoordinatorUnavailable, match="heartbeat failed"):
+        runner.run_once()
+
+    mission = coordinator.mission(submitted.mission_id)
+    assert mission is not None and mission["state"] == "running"
+    assert coordinator.memory(submitted.mission_id) == ()
+    assert coordinator.run_journal(submitted.mission_id) == ()
+    assert not any(
+        event.kind == "mission_state"
+        for event in coordinator.timeline(submitted.mission_id, limit=100)
+    )
+
 
 def test_postgres_mission_runner_rejects_network_and_write_plans_before_submission(coordinator, tmp_path, monkeypatch):
     from autonomous_agent.postgres_mission_runner import PostgresMissionRunner
