@@ -17,6 +17,7 @@ import psycopg
 import pytest
 
 from autonomous_agent.execution_checkpoint import ExecutionCheckpoint
+from autonomous_agent.postgres_execution_audit import PostgresExecutionAuditStore
 from autonomous_agent.postgres_execution_checkpoint import PostgresExecutionCheckpointStore
 from autonomous_agent.postgres_coordinator import (
     CommitOutcomeUnknown,
@@ -354,6 +355,51 @@ def test_postgres_checkpoint_store_matches_execution_engine_contract(coordinator
             completed_step_ids=("step-1",),
             total_attempts=1,
         )
+
+def test_postgres_execution_audit_store_is_hash_chained_and_claim_fenced(coordinator):
+    from dataclasses import replace
+
+    submit(coordinator, "audit-adapter")
+    claim = coordinator.claim_next("audit-adapter-worker")
+    assert claim is not None
+    audit = PostgresExecutionAuditStore(coordinator, claim)
+    assert audit.verify()
+
+    audit.append({
+        "execution_id": claim.execution_id,
+        "timestamp": "now",
+        "state": "running",
+        "event": "execution_started",
+        "task_digest": "a" * 64,
+    })
+    audit.append({
+        "execution_id": claim.execution_id,
+        "timestamp": "later",
+        "state": "running",
+        "event": "tool_result",
+        "tool": "filesystem.read",
+        "result": "success",
+        "verification": "verified",
+        "step_id": "step-1",
+    })
+    assert audit.verify()
+    records = audit.events(claim.execution_id)
+    assert [item["event"] for item in records] == ["execution_started", "tool_result"]
+    assert records[1]["verification"] == "verified"
+    assert records[1]["audit_sequence"] == "2"
+
+    stale_claim = replace(claim, generation=claim.generation + 1)
+    stale_audit = PostgresExecutionAuditStore(coordinator, stale_claim)
+    with pytest.raises(StaleGeneration):
+        stale_audit.append({
+            "execution_id": claim.execution_id,
+            "timestamp": "stale",
+            "state": "running",
+            "event": "tool_result",
+            "result": "success",
+        })
+    assert len(audit.events(claim.execution_id)) == 2
+
 
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
     work = submit(coordinator, output=True)
