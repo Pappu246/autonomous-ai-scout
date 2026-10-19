@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
+from threading import Event, Thread
+from typing import Iterator
 
 from .execution_engine import ExecutionResult, ExecutionState, _authorization_digest
 from .filesystem_workspace import WorkspaceConnector
@@ -21,6 +24,11 @@ from .run_journal import _safe_text, make_run_record
 from .task_core import AutonomousTaskCore, CanonicalTask
 from .task_queue import _safe_task
 from .vercel_state import require_atomic_state_coordinator
+
+
+# Keep a live, fenced worker claim fresh well before the coordinator's minimum
+# stale-recovery age. Tests may shorten this interval to exercise the loop.
+CLAIM_HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 
 class PostgresMissionRunner:
@@ -54,6 +62,48 @@ class PostgresMissionRunner:
         # bypass around the existing hosted/Blob fail-closed gate.
         require_atomic_state_coordinator()
         self.coordinator.check_ready()
+
+    @contextmanager
+    def _maintain_claim(self, claim) -> Iterator[None]:
+        """Heartbeat a running claim while the bounded read-only executor works.
+
+        A failed heartbeat is treated as loss of authority. The caller must not
+        proceed to terminal state, journal or memory writes after that failure.
+        This pilot permits only local reads, so it never tries to cancel or replay
+        an external side effect.
+        """
+        stop = Event()
+        heartbeat_failed: list[bool] = []
+
+        def heartbeat_loop() -> None:
+            while not stop.wait(CLAIM_HEARTBEAT_INTERVAL_SECONDS):
+                try:
+                    self.coordinator.heartbeat(claim)
+                except Exception:
+                    # Do not emit provider/connection diagnostics or credentials.
+                    heartbeat_failed.append(True)
+                    stop.set()
+                    return
+
+        thread = Thread(
+            target=heartbeat_loop,
+            name="scout-postgres-claim-heartbeat",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            yield
+        except BaseException:
+            stop.set()
+            thread.join()
+            raise
+        else:
+            stop.set()
+            thread.join()
+            if heartbeat_failed:
+                raise CoordinatorUnavailable(
+                    "worker claim heartbeat failed; manual reconciliation required"
+                ) from None
 
     def _prepare_read_only(self, task: str) -> tuple[CanonicalTask, str, str, str, bool]:
         cleaned = _safe_task(task)
@@ -158,17 +208,18 @@ class PostgresMissionRunner:
 
         audit_store = PostgresExecutionAuditStore(self.coordinator, claim)
         checkpoint_store = PostgresExecutionCheckpointStore(self.coordinator, claim)
-        result = self.core.execute(
-            prepared,
-            self.root,
-            audit_path=self.audit_path,
-            execution_id=claim.execution_id,
-            checkpoint_store=checkpoint_store,
-            audit_store=audit_store,
-            workspace_connector=self.workspace_connector,
-            workspace_request=self._workspace_request(task),
-            explicitly_approved=False,
-        )
+        with self._maintain_claim(claim):
+            result = self.core.execute(
+                prepared,
+                self.root,
+                audit_path=self.audit_path,
+                execution_id=claim.execution_id,
+                checkpoint_store=checkpoint_store,
+                audit_store=audit_store,
+                workspace_connector=self.workspace_connector,
+                workspace_request=self._workspace_request(task),
+                explicitly_approved=False,
+            )
         criteria = criteria_for(task, root=self.root)
         validation_event_id = None
         if result.state is ExecutionState.VERIFIED:
