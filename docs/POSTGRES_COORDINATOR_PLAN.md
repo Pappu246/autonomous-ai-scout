@@ -6,7 +6,7 @@
 
 - Read-only Supabase project listing exposed **two active projects**: `Pappu246's Project` (`ap-southeast-1`) and `freshtrack-inventory` (`ap-south-1`). Neither is identified as the Scout coordinator. We did **not** query, migrate, connect to, repurpose or modify either database. A connected Supabase app is not evidence that Scout has a database.
 - The checked-out source and this isolated workspace have **no configured Scout PostgreSQL/Redis state DSN or backend activation**. The previous metadata-only Vercel variable review concerned three named Config entries, not a verified inventory of every project/Team environment variable. We did **not** retrieve/decrypt Vercel or Supabase credential values and cannot assert that no other database exists anywhere in the owner's account.
-- The integration suite uses the **real PostgreSQL 18.6 server** from a test-only PyPI wheel, bound to a temporary Unix socket with no cloud credentials or exposed network listener. Twenty-six integration cases test PostgreSQL row locks, SQL transactions and a restricted local runtime role. They do **not** test the chosen managed service's grants, networking, pooling, region, backups or Vercel's runtime.
+- The integration suite uses the **real PostgreSQL 18.6 server** from a test-only PyPI wheel, bound to a temporary Unix socket with no cloud credentials or exposed network listener. Twenty-seven integration cases test PostgreSQL row locks, SQL transactions and a restricted local runtime role. They do **not** test the chosen managed service's grants, networking, pooling, region, backups or Vercel's runtime.
 
 ## Consistency and fencing contract
 
