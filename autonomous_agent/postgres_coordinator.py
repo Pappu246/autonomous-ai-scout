@@ -178,6 +178,9 @@ class PostgresMissionCoordinator:
         self, idempotency_key: str, request: Mapping[str, object],
         mission: Mapping[str, object], queue: Mapping[str, object],
         *, requires_output: bool = False, requires_approval: bool = False,
+        approval_action_id: str | None = None,
+        approval_expires_at: datetime | None = None,
+        approval_payload: Mapping[str, object] | None = None,
     ) -> Submission:
         """Atomically create mission + pending work, or return the prior ID.
 
@@ -192,13 +195,29 @@ class PostgresMissionCoordinator:
                 raise ValueError(f"immutable request needs a {name}")
         mission_data, mission_bytes = _json(mission, "mission")
         queue_data, queue_bytes = _json(queue, "queue item")
-        # Bind every persisted part of the submission to the caller-generated
-        # idempotency key. A same-request retry cannot swap mission or queue data.
+        proposal_supplied = any(value is not None for value in
+                                (approval_action_id, approval_expires_at, approval_payload))
+        if proposal_supplied and not requires_approval:
+            raise ValueError("approval proposal requires an approval-gated submission")
+        if proposal_supplied and not all(value is not None for value in
+                                         (approval_action_id, approval_expires_at, approval_payload)):
+            raise ValueError("atomic approval proposal needs an action ID, expiry and payload")
+        approval_data = None
+        approval_expiry = None
+        approval_descriptor = None
+        if proposal_supplied:
+            approval_action_id = _id(approval_action_id, "approval action")
+            approval_expiry = _aware(approval_expires_at, "expiry")
+            approval_data, approval_bytes = _json(approval_payload, "approval proposal")
+            approval_descriptor = [approval_action_id, approval_expiry.isoformat(),
+                                   hashlib.sha256(approval_bytes).hexdigest()]
+        # Bind the approval proposal as well as request, mission and queue data
+        # to the caller-generated idempotency key.
         digest = hashlib.sha256(json.dumps(
             [hashlib.sha256(request_bytes).hexdigest(),
              hashlib.sha256(mission_bytes).hexdigest(),
              hashlib.sha256(queue_bytes).hexdigest(),
-             bool(requires_output), bool(requires_approval)],
+             bool(requires_output), bool(requires_approval), approval_descriptor],
             separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
         mission_id = "mission-" + uuid.uuid4().hex
@@ -237,6 +256,13 @@ class PostgresMissionCoordinator:
                  "requires_approval" if requires_approval else "pending", bool(requires_output),
                  Jsonb(mission_data), Jsonb(queue_data) if requires_approval else None),
             )
+            if proposal_supplied:
+                conn.execute(
+                    """INSERT INTO scout_state.approvals
+                       (namespace, action_id, mission_id, state, expires_at, payload)
+                       VALUES (%s, %s, %s, 'pending', %s, %s)""",
+                    (self.namespace, approval_action_id, mission_id, approval_expiry, Jsonb(approval_data)),
+                )
             if not requires_approval:
                 conn.execute(
                     """INSERT INTO scout_state.work_items
