@@ -433,7 +433,9 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     assert all(fact in result.output for fact in facts)
     assert mission["payload"]["output"] == result.output
     memories = coordinator.memory(submitted.mission_id)
-    assert len(memories) == 1 and memories[0]["summary"] == result.output
+    assert len(memories) == 1
+    assert memories[0]["outcome"] == "verified"
+    assert memories[0]["payload"]["summary"] == result.output
     events = coordinator.timeline(submitted.mission_id, limit=100)
     kinds = [event.kind for event in events]
     assert "execution_started" in kinds
