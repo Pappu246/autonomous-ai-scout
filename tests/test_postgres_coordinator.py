@@ -100,7 +100,7 @@ def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, mo
     monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", postgres_dsn)
     with pytest.raises(SharedStateCoordinationUnavailable):
         require_atomic_state_coordinator()
-    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(3,)]
+    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(4,)]
 
 
 def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
@@ -164,6 +164,15 @@ def test_duplicate_submission_is_one_atomic_mission_and_queue_row(coordinator, p
     with pytest.raises(IdentityConflict):
         coordinator.submit("request-1", {"task": "different", "authorization_digest": "a" * 64,
                                          "criteria_digest": "b" * 64}, {}, {})
+    # Identical request metadata still cannot reuse the key with a different mission/queue payload.
+    with pytest.raises(IdentityConflict):
+        coordinator.submit(
+            "request-1",
+            {"task": "Read a harmless temporary README", "authorization_digest": "a" * 64,
+             "criteria_digest": "b" * 64},
+            {"task": "substituted mission payload"},
+            {"task": "substituted queue payload"},
+        )
     with pytest.raises(IdentityConflict):
         submit(coordinator, approval=True)  # same key must not change approval authority
     with pytest.raises(ValueError, match="authorization_digest"):
@@ -252,6 +261,7 @@ def test_approval_requires_pending_decision_token_and_atomic_one_time_activation
                  (coordinator.namespace,)) == [(1,)]
     claim = coordinator.claim_next("approved-worker")
     assert claim and claim.mission_id == work.mission_id
+    assert claim.payload == {"task": "read-only"}
     coordinator.finish(claim, "failed")
     assert [e.kind for e in coordinator.timeline(work.mission_id)] == [
         "approval_decision", "approval_consumed", "mission_state",
