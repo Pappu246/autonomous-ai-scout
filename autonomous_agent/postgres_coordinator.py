@@ -350,6 +350,18 @@ class PostgresMissionCoordinator:
         with self._transaction() as conn:
             return self._append_event(conn, stream_id, event_id, kind, execution_id, payload)
 
+    def append_claim_event(
+        self, claim: Claim, event_id: str, kind: str, execution_id: str,
+        payload: Mapping[str, object],
+    ) -> AuditEvent:
+        """Append execution evidence only while the associated worker claim is current."""
+        execution = _id(execution_id, "execution ID")
+        if execution != claim.execution_id and not execution.startswith(claim.execution_id + ":"):
+            raise ValueError("execution evidence does not belong to the active claim")
+        with self._transaction() as conn:
+            self._assert_live_claim(conn, claim, lock=True)
+            return self._append_event(conn, claim.mission_id, event_id, kind, execution, payload)
+
     def timeline(self, stream_id: str, *, limit: int = 500) -> tuple[AuditEvent, ...]:
         if not 1 <= limit <= _MAX_AUDIT_EVENTS:
             raise ValueError("timeline limit is out of bounds")
