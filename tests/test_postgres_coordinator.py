@@ -33,8 +33,9 @@ def postgres_dsn(tmp_path_factory) -> str:
     location.mkdir()
     server = server_package.PostgresServer(location, cleanup_mode="stop")
     with psycopg.connect(server.get_uri(), autocommit=True) as connection:
-        migration = Path(__file__).resolve().parents[1] / "migrations" / "001_postgres_coordinator.sql"
-        connection.execute(migration.read_text(encoding="utf-8"))
+        migration_dir = Path(__file__).resolve().parents[1] / "migrations"
+        for migration in sorted(migration_dir.glob("*.sql")):
+            connection.execute(migration.read_text(encoding="utf-8"))
     yield server.get_uri()
 
 
@@ -54,6 +55,7 @@ def runtime_dsn(postgres_dsn):
             "SELECT, INSERT, UPDATE ON scout_state.missions, scout_state.work_items, "
             "scout_state.approvals, scout_state.audit_heads",
             "SELECT, INSERT ON scout_state.audit_events, scout_state.memories",
+            "SELECT, INSERT, UPDATE ON scout_state.execution_checkpoints",
         )
         for permissions in grants:
             admin.execute(sql.SQL("GRANT " + permissions + " TO {}").format(sql.Identifier(role)))
@@ -94,7 +96,7 @@ def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, mo
     monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", postgres_dsn)
     with pytest.raises(SharedStateCoordinationUnavailable):
         require_atomic_state_coordinator()
-    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(1,)]
+    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(2,)]
 
 
 def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
@@ -259,6 +261,64 @@ def test_expired_or_rejected_approval_cannot_activate(coordinator):
     coordinator.decide_approval("rejected-action", "rejected")
     assert not coordinator.activate_approved("rejected-action", "t" * 40)
     assert coordinator.claim_next("unsanctioned-worker") is None
+
+
+def test_checkpoints_are_claim_fenced_attempt_scoped_and_monotonic(coordinator):
+    from dataclasses import replace
+
+    submit(coordinator)
+    claim = coordinator.claim_next("checkpoint-worker")
+    assert claim is not None
+    assert coordinator.load_checkpoint(claim) is None
+
+    saved = coordinator.save_checkpoint(
+        claim,
+        task_digest="a" * 64,
+        plan_digest="b" * 64,
+        authorization_digest="c" * 64,
+        state="running",
+        completed_step_ids=("step-1",),
+        total_attempts=1,
+    )
+    assert saved["state"] == "running"
+    assert saved["completed_step_ids"] == ("step-1",)
+    assert coordinator.load_checkpoint(claim) == saved
+
+    with pytest.raises(IdentityConflict, match="checkpoint identity or progress"):
+        coordinator.save_checkpoint(
+            claim,
+            task_digest="a" * 64,
+            plan_digest="b" * 64,
+            authorization_digest="c" * 64,
+            state="running",
+            completed_step_ids=(),
+            total_attempts=1,
+        )
+    with pytest.raises(IdentityConflict, match="checkpoint identity or progress"):
+        coordinator.save_checkpoint(
+            claim,
+            task_digest="a" * 64,
+            plan_digest="d" * 64,
+            authorization_digest="c" * 64,
+            state="running",
+            completed_step_ids=("step-1",),
+            total_attempts=1,
+        )
+
+    stale = replace(claim, generation=claim.generation + 1)
+    with pytest.raises(StaleGeneration):
+        coordinator.load_checkpoint(stale)
+    with pytest.raises(StaleGeneration):
+        coordinator.save_checkpoint(
+            stale,
+            task_digest="a" * 64,
+            plan_digest="b" * 64,
+            authorization_digest="c" * 64,
+            state="running",
+            completed_step_ids=("step-1", "step-2"),
+            total_attempts=2,
+        )
+    assert coordinator.load_checkpoint(claim) == saved
 
 
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
