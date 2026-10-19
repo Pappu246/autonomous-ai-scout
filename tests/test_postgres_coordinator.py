@@ -104,6 +104,26 @@ def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, mo
     assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(4,)]
 
 
+def test_schema_probe_rejects_runtime_role_missing_table_grants(postgres_dsn):
+    """A readable schema version is insufficient if required runtime writes cannot work."""
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    role = "scout_limited_" + uuid.uuid4().hex[:12]
+    with psycopg.connect(postgres_dsn) as admin:
+        admin.execute(sql.SQL("CREATE ROLE {} LOGIN").format(sql.Identifier(role)))
+        admin.execute(sql.SQL("GRANT USAGE ON SCHEMA scout_state TO {}").format(sql.Identifier(role)))
+        admin.execute(sql.SQL("GRANT SELECT ON scout_state.schema_version TO {}").format(sql.Identifier(role)))
+    try:
+        limited = PostgresMissionCoordinator(make_conninfo(postgres_dsn, user=role), "preview/limited")
+        with pytest.raises(CoordinatorUnavailable, match="lacks required table privileges"):
+            limited.check_ready()
+    finally:
+        with psycopg.connect(postgres_dsn) as admin:
+            admin.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role)))
+            admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
+
+
 def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
     with psycopg.connect(runtime_dsn) as conn:
         assert conn.execute(
