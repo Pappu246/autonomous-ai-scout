@@ -58,6 +58,7 @@ def runtime_dsn(postgres_dsn):
             "SELECT, INSERT, UPDATE ON scout_state.missions, scout_state.work_items, "
             "scout_state.approvals, scout_state.audit_heads",
             "SELECT, INSERT ON scout_state.audit_events, scout_state.memories",
+            "SELECT, INSERT ON scout_state.run_journal",
             "SELECT, INSERT, UPDATE ON scout_state.execution_checkpoints",
         )
         for permissions in grants:
@@ -99,7 +100,7 @@ def test_schema_probe_is_read_only_and_hosted_gate_stays_closed(postgres_dsn, mo
     monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", postgres_dsn)
     with pytest.raises(SharedStateCoordinationUnavailable):
         require_atomic_state_coordinator()
-    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(2,)]
+    assert query(postgres_dsn, "SELECT version FROM scout_state.schema_version") == [(3,)]
 
 
 def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
@@ -112,6 +113,12 @@ def test_runtime_role_has_no_ddl_delete_or_audit_rewrite_privilege(runtime_dsn):
         ).fetchone() == (False,)
         assert conn.execute(
             "SELECT has_table_privilege(current_user, 'scout_state.work_items', 'DELETE')"
+        ).fetchone() == (False,)
+        assert conn.execute(
+            "SELECT has_table_privilege(current_user, 'scout_state.run_journal', 'SELECT, INSERT')"
+        ).fetchone() == (True,)
+        assert conn.execute(
+            "SELECT has_table_privilege(current_user, 'scout_state.run_journal', 'UPDATE, DELETE')"
         ).fetchone() == (False,)
         assert conn.execute(
             "SELECT has_schema_privilege(current_user, 'scout_state', 'CREATE')"
@@ -436,6 +443,8 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     assert len(memories) == 1
     assert memories[0]["outcome"] == "verified"
     assert memories[0]["payload"]["summary"] == result.output
+    assert coordinator.run_journal(submitted.mission_id)[0]["state"] == "verified"
+    assert coordinator.run_journal(submitted.mission_id)[0]["task"] == task
     events = coordinator.timeline(submitted.mission_id, limit=100)
     kinds = [event.kind for event in events]
     assert "execution_started" in kinds
@@ -499,6 +508,7 @@ def test_failed_local_read_never_creates_verified_memory(coordinator, tmp_path, 
     mission = coordinator.mission(submitted.mission_id)
     assert mission is not None and mission["state"] == "failed"
     assert coordinator.memory(submitted.mission_id) == ()
+    assert coordinator.run_journal(submitted.mission_id)[0]["state"] == "failed"
     assert any(
         event.kind == "tool_result" and event.payload.get("result") == "failure"
         for event in coordinator.timeline(submitted.mission_id, limit=100)
@@ -514,6 +524,34 @@ def test_postgres_mission_runner_refuses_hosted_runtime_without_mutating_state(c
         PostgresMissionRunner(coordinator, root=tmp_path, worker_id="hosted-gate-worker")
     assert coordinator.claim_next("hosted-gate-worker") is None
 
+def test_run_journal_is_claim_fenced_idempotent_and_readable(coordinator):
+    from dataclasses import replace
+
+    work = submit(coordinator, "journal-record")
+    claim = coordinator.claim_next("journal-worker")
+    assert claim is not None
+    record = {
+        "execution_id": claim.execution_id,
+        "task": "Read a harmless temporary README",
+        "state": "recovery_required",
+        "reason": "worker stopped; explicit reconciliation needed",
+        "attempts": 2,
+        "result_count": 1,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    coordinator.record_run(claim, record)
+    coordinator.record_run(claim, record)
+    assert coordinator.run_journal(work.mission_id) == (record,)
+
+    with pytest.raises(IdentityConflict, match="run journal identity"):
+        coordinator.record_run(claim, dict(record, reason="different content"))
+
+    stale = replace(claim, generation=claim.generation + 1)
+    with pytest.raises(StaleGeneration):
+        coordinator.record_run(stale, dict(record, recorded_at=datetime.now(timezone.utc).isoformat()))
+    assert coordinator.run_journal(work.mission_id) == (record,)
+
+
 def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinator, postgres_dsn):
     work = submit(coordinator, output=True)
     claim = coordinator.claim_next("reader")
@@ -525,20 +563,31 @@ def test_output_memory_and_terminal_audit_are_atomic_on_real_postgres(coordinato
                            validation_event_id="missing")
     output = "fact one and fact two"
     digest = hashlib.sha256(output.encode()).hexdigest()
+    run_record = {
+        "execution_id": claim.execution_id,
+        "task": "Read a harmless temporary README",
+        "state": "verified",
+        "reason": "validated output was produced",
+        "attempts": 1,
+        "result_count": 1,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
     event = coordinator.append_event(work.mission_id, "validated-1", "output_validated",
                                      work.execution_id, {"output_sha256": digest})
     assert event.sequence == 1
     with pytest.raises(ValueError, match="JSON serializable"):
         coordinator.finish(claim, "verified", validated_output=output,
-                           validation_event_id="validated-1", memory={"bad": {1, 2}})
+                           validation_event_id="validated-1", memory={"bad": {1, 2}}, run_record=run_record)
     assert coordinator.mission(work.mission_id)["state"] == "running"
     assert coordinator.memory(work.mission_id) == ()
+    assert coordinator.run_journal(work.mission_id) == ()
     assert len(coordinator.timeline(work.mission_id)) == 1
     coordinator.finish(claim, "verified", validated_output=output,
-                       validation_event_id="validated-1", memory={"summary": output})
+                       validation_event_id="validated-1", memory={"summary": output}, run_record=run_record)
     assert coordinator.mission(work.mission_id)["payload"]["output"] == output
     memory = coordinator.memory(work.mission_id)
     assert len(memory) == 1 and memory[0]["outcome"] == "verified"
+    assert coordinator.run_journal(work.mission_id) == (run_record,)
     assert [e.kind for e in coordinator.timeline(work.mission_id)] == ["output_validated", "mission_state"]
     with pytest.raises(StaleGeneration):
         coordinator.finish(claim, "verified", validated_output=output, validation_event_id="validated-1")
