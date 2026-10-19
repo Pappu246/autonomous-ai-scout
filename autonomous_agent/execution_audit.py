@@ -4,8 +4,19 @@ import hashlib
 import hmac
 import json
 from pathlib import Path
+from typing import Mapping, Protocol
 
 from .file_lock import InterProcessFileLock
+
+
+class ExecutionAuditStore(Protocol):
+    """Append-only audit backend accepted by the execution engine."""
+
+    def verify(self) -> bool: ...
+
+    def append(self, record: Mapping[str, str]) -> object: ...
+
+    def events(self, execution_id: str) -> tuple[dict[str, str], ...]: ...
 
 
 def _canonical(record: dict[str, str]) -> str:
