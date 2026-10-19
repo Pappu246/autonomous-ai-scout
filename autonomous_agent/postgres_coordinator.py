@@ -526,7 +526,7 @@ class PostgresMissionCoordinator:
         } for row in rows)
 
 
-    def finish(self, claim: Claim, state: str, *, validated_output: str = "
+    def finish(self, claim: Claim, state: str, *, validated_output: str = "",
                validation_event_id: str | None = None,
                memory: Mapping[str, object] | None = None,
                run_record: Mapping[str, object] | None = None) -> None:
