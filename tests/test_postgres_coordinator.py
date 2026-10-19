@@ -412,12 +412,12 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
         root=tmp_path,
         worker_id="postgres-e2e-worker",
     )
-    (tmp_path / "README.md").write_text("# Fixture\nThis is a harmless local file.\n", encoding="utf-8")
-    task = (
-        "Read file README.md in the isolated workspace. Do not change any file. "
-        "Do not execute shell commands. Do not use network, browser, GitHub, email, "
-        "calendar, applications, or computer control."
+    facts = (
+        "The temporary workspace contains a synthetic README file.",
+        "The README describes a bounded local acceptance canary.",
     )
+    (tmp_path / "README.md").write_text("# Fixture\n" + "\n".join(facts) + "\n", encoding="utf-8")
+    task = "Read the temporary README and summarize two facts."
     submitted = runner.submit(task, idempotency_key="read-only-e2e-1")
     duplicate = runner.submit(task, idempotency_key="read-only-e2e-1")
     assert duplicate.duplicated is True
@@ -429,14 +429,21 @@ def test_postgres_mission_runner_executes_read_only_flow_end_to_end(coordinator,
     mission = coordinator.mission(submitted.mission_id)
     assert mission is not None
     assert mission["state"] == "verified"
-    assert len(coordinator.memory(submitted.mission_id)) == 1
+    assert result.output
+    assert all(fact in result.output for fact in facts)
+    assert mission["payload"]["output"] == result.output
+    memories = coordinator.memory(submitted.mission_id)
+    assert len(memories) == 1 and memories[0]["summary"] == result.output
     events = coordinator.timeline(submitted.mission_id, limit=100)
     kinds = [event.kind for event in events]
     assert "execution_started" in kinds
     assert "tool_result" in kinds
+    assert "output_validated" in kinds
     assert "checkpoint_verified" in kinds
     assert "execution_result" in kinds
     assert kinds[-1] == "mission_state"
+    validation = next(event for event in events if event.kind == "output_validated")
+    assert validation.payload["output_sha256"] == hashlib.sha256(result.output.encode()).hexdigest()
     # The E2E run used DB-backed checkpoints/audit, not synthetic local state.
     assert not (tmp_path / "state" / "runtime_execution.jsonl").exists()
     assert not (tmp_path / "state" / "runtime_checkpoints").exists()
