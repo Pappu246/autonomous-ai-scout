@@ -25,7 +25,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _MAX_DOCUMENT_BYTES = 1_048_576
 _MAX_AUDIT_EVENTS = 20_000
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
@@ -170,7 +170,7 @@ class PostgresMissionCoordinator:
             if row is None or row[0] != SCHEMA_VERSION:
                 raise CoordinatorUnavailable("unsupported coordinator schema version")
             for name in ("submissions", "missions", "work_items", "approvals", "audit_heads",
-                         "audit_events", "memories"):
+                         "audit_events", "memories", "execution_checkpoints"):
                 if conn.execute("SELECT to_regclass(%s)", ("scout_state." + name,)).fetchone()[0] is None:
                     raise CoordinatorUnavailable("coordinator schema is incomplete")
 
@@ -503,6 +503,115 @@ class PostgresMissionCoordinator:
                      validation_event_id, Jsonb(document)),
                 )
             # The terminal event is committed with the state transition.
+
+    @staticmethod
+    def _checkpoint_document(row) -> dict[str, object]:
+        return {
+            "schema_version": row[0],
+            "execution_id": row[1],
+            "task_digest": row[2],
+            "plan_digest": row[3],
+            "authorization_digest": row[4],
+            "state": row[5],
+            "completed_step_ids": tuple(row[6]),
+            "total_attempts": row[7],
+            "updated_at": row[8].isoformat(),
+        }
+
+    def _assert_live_claim(self, conn, claim: Claim, *, lock: bool) -> None:
+        suffix = " FOR UPDATE OF q, m" if lock else " FOR SHARE OF q, m"
+        row = conn.execute(
+            """SELECT q.execution_id, q.claim_generation, q.worker_id, q.state,
+                      m.state, m.claim_generation
+               FROM scout_state.work_items AS q
+               JOIN scout_state.missions AS m
+                 ON m.namespace = q.namespace AND m.mission_id = q.mission_id
+                AND m.task_id = q.task_id AND m.execution_id = q.execution_id
+               WHERE q.namespace = %s AND q.task_id = %s AND q.mission_id = %s""" + suffix,
+            (self.namespace, claim.task_id, claim.mission_id),
+        ).fetchone()
+        if row != (claim.execution_id, claim.generation, claim.worker_id, "running",
+                   "running", claim.generation):
+            raise StaleGeneration("worker claim is no longer current")
+
+    def save_checkpoint(
+        self,
+        claim: Claim,
+        *,
+        task_digest: str,
+        plan_digest: str,
+        authorization_digest: str,
+        state: str,
+        completed_step_ids: tuple[str, ...],
+        total_attempts: int,
+    ) -> dict[str, object]:
+        """Persist execution progress under the current worker generation.
+
+        Checkpoints are attempt-scoped. A stale worker cannot overwrite a newer
+        generation; task/plan/authorization identity and completed-step progress
+        cannot regress within one generation.
+        """
+        for name, value in (("task digest", task_digest), ("plan digest", plan_digest),
+                            ("authorization digest", authorization_digest)):
+            if not isinstance(value, str) or not _HEX_DIGEST.fullmatch(value):
+                raise ValueError(f"{name} must be a SHA-256 digest")
+        if state not in {"running", "verified", "partial", "failed", "blocked"}:
+            raise ValueError("invalid execution checkpoint state")
+        if isinstance(total_attempts, bool) or not isinstance(total_attempts, int) or total_attempts < 0:
+            raise ValueError("checkpoint attempts must be a non-negative integer")
+        if not isinstance(completed_step_ids, (tuple, list)) or len(completed_step_ids) > 256:
+            raise ValueError("checkpoint completed steps must be a bounded list")
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 128
+               for item in completed_step_ids):
+            raise ValueError("checkpoint step IDs must be non-empty bounded strings")
+        completed = tuple(dict.fromkeys(completed_step_ids))
+        steps_json = Jsonb(list(completed))
+        with self._transaction() as conn:
+            self._assert_live_claim(conn, claim, lock=True)
+            row = conn.execute(
+                """INSERT INTO scout_state.execution_checkpoints
+                   (namespace, task_id, mission_id, execution_id, claim_generation,
+                    schema_version, task_digest, plan_digest, authorization_digest,
+                    state, completed_step_ids, total_attempts)
+                   VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (namespace, task_id, execution_id, claim_generation)
+                   DO UPDATE SET state = EXCLUDED.state,
+                     completed_step_ids = EXCLUDED.completed_step_ids,
+                     total_attempts = EXCLUDED.total_attempts,
+                     updated_at = clock_timestamp()
+                   WHERE execution_checkpoints.mission_id = EXCLUDED.mission_id
+                     AND execution_checkpoints.task_digest = EXCLUDED.task_digest
+                     AND execution_checkpoints.plan_digest = EXCLUDED.plan_digest
+                     AND execution_checkpoints.authorization_digest = EXCLUDED.authorization_digest
+                     AND execution_checkpoints.completed_step_ids <@ EXCLUDED.completed_step_ids
+                     AND execution_checkpoints.total_attempts <= EXCLUDED.total_attempts
+                     AND (execution_checkpoints.state = 'running' OR
+                          (execution_checkpoints.state = EXCLUDED.state
+                           AND execution_checkpoints.completed_step_ids = EXCLUDED.completed_step_ids
+                           AND execution_checkpoints.total_attempts = EXCLUDED.total_attempts))
+                   RETURNING schema_version, execution_id, task_digest, plan_digest,
+                             authorization_digest, state, completed_step_ids, total_attempts, updated_at""",
+                (self.namespace, claim.task_id, claim.mission_id, claim.execution_id,
+                 claim.generation, task_digest, plan_digest, authorization_digest,
+                 state, steps_json, total_attempts),
+            ).fetchone()
+            if row is None:
+                raise IdentityConflict("checkpoint identity or progress conflicts with the existing attempt")
+            return self._checkpoint_document(row)
+
+    def load_checkpoint(self, claim: Claim) -> dict[str, object] | None:
+        """Load only a checkpoint belonging to the currently active claim."""
+        with self._transaction() as conn:
+            self._assert_live_claim(conn, claim, lock=False)
+            row = conn.execute(
+                """SELECT schema_version, execution_id, task_digest, plan_digest,
+                          authorization_digest, state, completed_step_ids, total_attempts, updated_at
+                   FROM scout_state.execution_checkpoints
+                   WHERE namespace = %s AND task_id = %s AND mission_id = %s
+                     AND execution_id = %s AND claim_generation = %s""",
+                (self.namespace, claim.task_id, claim.mission_id, claim.execution_id, claim.generation),
+            ).fetchone()
+            return None if row is None else self._checkpoint_document(row)
 
     def propose_approval(self, action_id: str, mission_id: str,
                          expires_at: datetime, payload: Mapping[str, object]) -> None:
