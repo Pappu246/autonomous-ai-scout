@@ -17,7 +17,7 @@ from typing import Iterator
 from .execution_engine import ExecutionResult, ExecutionState, _authorization_digest
 from .filesystem_workspace import WorkspaceConnector
 from .task_completion import criteria_for, requested_read_path
-from .postgres_coordinator import CoordinatorUnavailable, PostgresMissionCoordinator, Submission, _id
+from .postgres_coordinator import Claim, CoordinatorUnavailable, PostgresMissionCoordinator, Submission, _id
 from .postgres_execution_audit import PostgresExecutionAuditStore
 from .postgres_execution_checkpoint import PostgresExecutionCheckpointStore
 from .run_journal import _safe_text, make_run_record
@@ -64,7 +64,7 @@ class PostgresMissionRunner:
         self.coordinator.check_ready()
 
     @contextmanager
-    def _maintain_claim(self, claim) -> Iterator[None]:
+    def _maintain_claim(self, claim: Claim) -> Iterator[None]:
         """Heartbeat a running claim while the bounded read-only executor works.
 
         A failed heartbeat is treated as loss of authority. The caller must not
