@@ -180,6 +180,60 @@ def test_duplicate_submission_is_one_atomic_mission_and_queue_row(coordinator, p
     assert coordinator.mission(outcomes[0].mission_id)["state"] == "pending"
 
 
+def test_approval_proposal_can_be_created_atomically_with_submission(coordinator, postgres_dsn):
+    request = {
+        "task": "Read a harmless temporary README",
+        "authorization_digest": "a" * 64,
+        "criteria_digest": "b" * 64,
+    }
+    mission = {"task": "Read a harmless temporary README"}
+    queue = {"task": "read-only", "queue_digest": "c" * 64}
+    expires = datetime.now(timezone.utc) + timedelta(hours=1)
+    submitted = coordinator.submit(
+        "atomic-approval",
+        request,
+        mission,
+        queue,
+        requires_approval=True,
+        approval_action_id="atomic-approval-action",
+        approval_expires_at=expires,
+        approval_payload={"risk": "medium"},
+    )
+    assert coordinator.mission(submitted.mission_id)["state"] == "requires_approval"
+    assert coordinator.claim_next("before-atomic-approval") is None
+    assert query(
+        postgres_dsn,
+        "SELECT state, payload FROM scout_state.approvals WHERE namespace = %s AND action_id = %s",
+        (coordinator.namespace, "atomic-approval-action"),
+    ) == [("pending", {"risk": "medium"})]
+
+    duplicate = coordinator.submit(
+        "atomic-approval",
+        request,
+        mission,
+        queue,
+        requires_approval=True,
+        approval_action_id="atomic-approval-action",
+        approval_expires_at=expires,
+        approval_payload={"risk": "medium"},
+    )
+    assert duplicate.duplicated and duplicate.mission_id == submitted.mission_id
+    with pytest.raises(IdentityConflict):
+        coordinator.submit(
+            "atomic-approval", request, mission, queue, requires_approval=True,
+            approval_action_id="replacement-action",
+            approval_expires_at=expires, approval_payload={"risk": "medium"},
+        )
+
+    token = "h" * 40
+    coordinator.decide_approval("atomic-approval-action", "approved", approval_token=token)
+    assert coordinator.activate_approved("atomic-approval-action", token)
+    claim = coordinator.claim_next("after-atomic-approval")
+    assert claim is not None and claim.mission_id == submitted.mission_id
+    assert claim.payload == queue
+    coordinator.finish(claim, "failed")
+
+
 def test_competing_workers_claim_each_item_once_with_fenced_generation(coordinator, postgres_dsn):
     created = [submit(coordinator, f"request-{i}") for i in range(16)]
     barrier = threading.Barrier(16)
