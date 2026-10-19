@@ -25,7 +25,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _MAX_DOCUMENT_BYTES = 1_048_576
 _MAX_AUDIT_EVENTS = 20_000
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
@@ -190,12 +190,15 @@ class PostgresMissionCoordinator:
         for name in ("authorization_digest", "criteria_digest"):
             if not isinstance(request_data.get(name), str) or not _HEX_DIGEST.fullmatch(request_data[name]):
                 raise ValueError(f"immutable request needs a {name}")
-        mission_data, _ = _json(mission, "mission")
-        queue_data, _ = _json(queue, "queue item")
-        # An idempotent retry must not silently change the authorization or
-        # approval requirements while retaining the same task text and key.
+        mission_data, mission_bytes = _json(mission, "mission")
+        queue_data, queue_bytes = _json(queue, "queue item")
+        # Bind every persisted part of the submission to the caller-generated
+        # idempotency key. A same-request retry cannot swap mission or queue data.
         digest = hashlib.sha256(json.dumps(
-            [hashlib.sha256(request_bytes).hexdigest(), bool(requires_output), bool(requires_approval)],
+            [hashlib.sha256(request_bytes).hexdigest(),
+             hashlib.sha256(mission_bytes).hexdigest(),
+             hashlib.sha256(queue_bytes).hexdigest(),
+             bool(requires_output), bool(requires_approval)],
             separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
         mission_id = "mission-" + uuid.uuid4().hex
@@ -227,10 +230,12 @@ class PostgresMissionCoordinator:
                 return Submission(existing[1], existing[2], existing[3], True)
             conn.execute(
                 """INSERT INTO scout_state.missions
-                   (namespace, mission_id, task_id, execution_id, state, requires_output, payload)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                   (namespace, mission_id, task_id, execution_id, state, requires_output, payload,
+                    approval_queue_payload)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (self.namespace, mission_id, task_id, execution_id,
-                 "requires_approval" if requires_approval else "pending", bool(requires_output), Jsonb(mission_data)),
+                 "requires_approval" if requires_approval else "pending", bool(requires_output),
+                 Jsonb(mission_data), Jsonb(queue_data) if requires_approval else None),
             )
             if not requires_approval:
                 conn.execute(
@@ -798,16 +803,19 @@ class PostgresMissionCoordinator:
                 """UPDATE scout_state.missions SET state = 'pending', revision = revision + 1,
                    updated_at = clock_timestamp()
                    WHERE namespace = %s AND mission_id = %s AND state = 'requires_approval'
-                   RETURNING task_id, execution_id""",
+                   RETURNING task_id, execution_id, approval_queue_payload""",
                 (self.namespace, mission_id),
             ).fetchone()
             if mission is None:
                 raise StaleGeneration("approved mission is no longer actionable")
+            queue_payload = mission[2]
+            if not isinstance(queue_payload, dict):
+                raise CoordinatorUnavailable("approved mission lost its original queue payload; reconcile before activation")
             conn.execute(
                 """INSERT INTO scout_state.work_items
                    (namespace, task_id, mission_id, execution_id, state, payload)
-                   VALUES (%s, %s, %s, %s, 'pending', '{}'::jsonb)""",
-                (self.namespace, mission[0], mission_id, mission[1]),
+                   VALUES (%s, %s, %s, %s, 'pending', %s)""",
+                (self.namespace, mission[0], mission_id, mission[1], Jsonb(queue_payload)),
             )
             self._append_event(conn, mission_id, f"approval_consumed:{action}",
                                "approval_consumed", mission[1], {"action_id": action})
