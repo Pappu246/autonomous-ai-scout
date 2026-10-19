@@ -54,6 +54,38 @@ def test_injected_checkpoint_store_is_used_instead_of_default_path(tmp_path: Pat
     assert injected_path.exists()
     assert not ignored_path.exists()
 
+def test_injected_audit_store_is_used_without_writing_local_audit_file(tmp_path: Path):
+    class MemoryAuditStore:
+        def __init__(self):
+            self.records = []
+
+        def verify(self):
+            return True
+
+        def append(self, record):
+            self.records.append(dict(record))
+
+        def events(self, execution_id):
+            return tuple(item for item in self.records if item.get("execution_id") == execution_id)
+
+    plan = _inspect_plan()
+    audit_path = tmp_path / "local-audit-must-not-exist.jsonl"
+    store = MemoryAuditStore()
+    result = execute_plan(
+        plan,
+        tmp_path,
+        granted=[Capability.INSPECT],
+        audit_path=audit_path,
+        execution_id="injected-audit-store",
+        audit_store=store,
+    )
+
+    assert result.state is ExecutionState.VERIFIED, result.reason
+    assert not audit_path.exists()
+    assert any(item.get("event") == "tool_result" for item in store.records)
+    assert any(item.get("event") == "checkpoint_verified" for item in store.records)
+
+
 def test_unknown_tool_fails_closed_before_execution(tmp_path: Path):
     plan = _inspect_plan()
     altered = type(plan)(plan.task, plan.intent, (type(plan.steps[0])(
