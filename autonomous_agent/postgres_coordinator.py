@@ -25,7 +25,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _MAX_DOCUMENT_BYTES = 1_048_576
 _MAX_AUDIT_EVENTS = 20_000
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
@@ -170,7 +170,7 @@ class PostgresMissionCoordinator:
             if row is None or row[0] != SCHEMA_VERSION:
                 raise CoordinatorUnavailable("unsupported coordinator schema version")
             for name in ("submissions", "missions", "work_items", "approvals", "audit_heads",
-                         "audit_events", "memories", "execution_checkpoints"):
+                         "audit_events", "memories", "execution_checkpoints", "run_journal"):
                 if conn.execute("SELECT to_regclass(%s)", ("scout_state." + name,)).fetchone()[0] is None:
                     raise CoordinatorUnavailable("coordinator schema is incomplete")
 
@@ -437,9 +437,99 @@ class PostgresMissionCoordinator:
                 recovered.append(task_id)
         return tuple(recovered)
 
-    def finish(self, claim: Claim, state: str, *, validated_output: str = "",
+    @staticmethod
+    def _run_record_values(claim: Claim, record: Mapping[str, object]) -> tuple[object, ...]:
+        if not isinstance(record, Mapping):
+            raise ValueError("run journal record must be an object")
+        try:
+            execution_id = record["execution_id"]
+            task = record["task"]
+            state = record["state"]
+            reason = record["reason"]
+            attempts = record["attempts"]
+            result_count = record["result_count"]
+            recorded_at_text = record["recorded_at"]
+        except KeyError as exc:
+            raise ValueError("run journal record has missing fields") from exc
+        if execution_id != claim.execution_id:
+            raise ValueError("run journal execution ID does not match the active claim")
+        if not isinstance(task, str) or not task or len(task) > 4000:
+            raise ValueError("run journal task is empty or exceeds the size limit")
+        if not isinstance(state, str) or state not in {
+            "running", "verified", "partial", "failed", "blocked", "recovery_required"
+        }:
+            raise ValueError("run journal state is invalid")
+        if not isinstance(reason, str) or len(reason) > 4096:
+            raise ValueError("run journal reason exceeds the size limit")
+        for name, value in (("attempts", attempts), ("result_count", result_count)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"run journal {name} must be a non-negative integer")
+        if not isinstance(recorded_at_text, str) or len(recorded_at_text) > 64:
+            raise ValueError("run journal timestamp is invalid")
+        try:
+            recorded_at = datetime.fromisoformat(recorded_at_text)
+        except ValueError as exc:
+            raise ValueError("run journal timestamp is invalid") from exc
+        _aware(recorded_at, "run journal recorded_at")
+        return (claim.mission_id, claim.task_id, claim.execution_id, claim.generation,
+                task, state, reason, attempts, result_count, recorded_at)
+
+    def _insert_run_record(self, conn, claim: Claim, record: Mapping[str, object]) -> None:
+        values = self._run_record_values(claim, record)
+        inserted = conn.execute(
+            """INSERT INTO scout_state.run_journal
+               (namespace, mission_id, task_id, execution_id, claim_generation,
+                task, state, reason, attempts, result_count, recorded_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (namespace, task_id, claim_generation) DO NOTHING
+               RETURNING 1""",
+            (self.namespace, *values),
+        ).fetchone()
+        if inserted is not None:
+            return
+        prior = conn.execute(
+            """SELECT mission_id, task_id, execution_id, claim_generation,
+                      task, state, reason, attempts, result_count, recorded_at
+               FROM scout_state.run_journal
+               WHERE namespace = %s AND task_id = %s AND claim_generation = %s""",
+            (self.namespace, claim.task_id, claim.generation),
+        ).fetchone()
+        if prior != values:
+            raise IdentityConflict("run journal identity was reused with different content")
+
+    def record_run(self, claim: Claim, record: Mapping[str, object]) -> None:
+        """Persist a non-terminal/recovery result while its worker claim remains current."""
+        with self._transaction() as conn:
+            self._assert_live_claim(conn, claim, lock=True)
+            self._insert_run_record(conn, claim, record)
+
+    def run_journal(self, mission_id: str, *, limit: int = 100) -> tuple[dict[str, object], ...]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("run journal limit must be between 1 and 1000")
+        mission = _id(mission_id, "mission ID")
+        with self._transaction() as conn:
+            rows = conn.execute(
+                """SELECT execution_id, task, state, reason, attempts, result_count, recorded_at
+                   FROM scout_state.run_journal
+                   WHERE namespace = %s AND mission_id = %s
+                   ORDER BY recorded_at, claim_generation LIMIT %s""",
+                (self.namespace, mission, limit),
+            ).fetchall()
+        return tuple({
+            "execution_id": row[0],
+            "task": row[1],
+            "state": row[2],
+            "reason": row[3],
+            "attempts": row[4],
+            "result_count": row[5],
+            "recorded_at": row[6].isoformat(),
+        } for row in rows)
+
+
+    def finish(self, claim: Claim, state: str, *, validated_output: str = "
                validation_event_id: str | None = None,
-               memory: Mapping[str, object] | None = None) -> None:
+               memory: Mapping[str, object] | None = None,
+               run_record: Mapping[str, object] | None = None) -> None:
         """Atomically fence queue+mission+terminal audit+memory.
 
         For requests requiring an artifact, VERIFIED requires an independently
@@ -453,6 +543,8 @@ class PostgresMissionCoordinator:
             raise ValueError("unverified work cannot publish validated output or memory")
         if len(validated_output) > 8_192:
             raise ValueError("validated output exceeds the size limit")
+        if run_record is not None:
+            self._run_record_values(claim, run_record)
         with self._transaction() as conn:
             row = conn.execute(
                 """SELECT execution_id, claim_generation, worker_id, state
@@ -514,7 +606,9 @@ class PostgresMissionCoordinator:
                     (self.namespace, claim.mission_id, claim.execution_id,
                      validation_event_id, Jsonb(document)),
                 )
-            # The terminal event is committed with the state transition.
+            if run_record is not None:
+                self._insert_run_record(conn, claim, run_record)
+            # The terminal event, journal and memory commit with the state transition.
 
     @staticmethod
     def _checkpoint_document(row) -> dict[str, object]:
