@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from .execution_engine import ExecutionResult, ExecutionState, _authorization_digest
@@ -16,7 +17,7 @@ from .task_completion import criteria_for, requested_read_path
 from .postgres_coordinator import CoordinatorUnavailable, PostgresMissionCoordinator, Submission, _id
 from .postgres_execution_audit import PostgresExecutionAuditStore
 from .postgres_execution_checkpoint import PostgresExecutionCheckpointStore
-from .run_journal import _safe_text
+from .run_journal import _safe_text, make_run_record
 from .task_core import AutonomousTaskCore, CanonicalTask
 from .task_queue import _safe_task
 from .vercel_state import require_atomic_state_coordinator
@@ -205,10 +206,17 @@ class PostgresMissionRunner:
         )
         if result.state is ExecutionState.RECOVERY_REQUIRED:
             # Recovery stays a human/reconciliation action; this runner never auto-replays.
+            self.coordinator.record_run(
+                claim,
+                asdict(make_run_record(execution_id=claim.execution_id, task=task, result=result)),
+            )
             return result
 
         terminal_state = result.state.value if result.state.value in {"verified", "partial", "failed"} else "failed"
         finish_args: dict[str, object] = {}
+        finish_args["run_record"] = asdict(
+            make_run_record(execution_id=claim.execution_id, task=task, result=result)
+        )
         if result.state is ExecutionState.VERIFIED:
             finish_args["validation_event_id"] = validation_event_id
             if requires_output:
