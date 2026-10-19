@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .adaptive_execution import AdaptiveExecutionResult, Replanner, execute_adaptive_plan
+from .execution_audit import ExecutionAuditStore
 from .execution_checkpoint import CheckpointStore
 from .execution_engine import MAX_OUTPUT_BYTES, ExecutionResult, execute_plan
 from .task_dag import DAGTaskSpec, LongHorizonPlanner, TaskDAGPlan
@@ -270,6 +271,7 @@ class AutonomousTaskCore:
         execution_id: str,
         checkpoint_path: Path | None = None,
         checkpoint_store: CheckpointStore | None = None,
+        audit_store: ExecutionAuditStore | None = None,
         explicitly_approved: bool = False,
         sandbox_available: bool = True,
         max_retries: int = 0,
@@ -301,6 +303,7 @@ class AutonomousTaskCore:
             execution_id=execution_id,
             checkpoint_path=checkpoint_path,
             checkpoint_store=checkpoint_store,
+            audit_store=audit_store,
             registry=self._registry,
             max_retries=max_retries,
             timeout_seconds=timeout_seconds,
