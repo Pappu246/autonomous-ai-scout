@@ -416,13 +416,27 @@ def test_hosted_http_sso_backend_token_does_not_bypass_paused_state(tmp_path: Pa
         assert status == 503 and health["status"] == "unavailable"
         assert "atomic" in health["mission_control"]
         assert "workspace_root" not in health
-        for path in ("/api/missions", "/api/approvals", "/run?task=inspect"):
+        # Every stateful read path must fail closed before consulting this
+        # instance's local mission/memory files or approval queue.
+        for path in (
+            "/api/missions",
+            "/api/missions/mission-synthetic",
+            "/api/missions/mission-synthetic/timeline",
+            "/api/missions/mission-synthetic/memory",
+            "/api/approvals",
+            "/run?task=inspect",
+        ):
             assert request(path, authorized=False)[0] == 401
             status, payload = request(path, authorized=True)
             assert status == 503 and "unavailable" in payload["error"]
+        # Submitting, cancelling, resuming, approving, or rejecting may
+        # never fall through into local JSON/approval storage in hosted mode.
         for path, body in (
             ("/api/missions", b'{"task":"Read file README.md and summarize two facts."}'),
+            ("/api/missions/mission-synthetic/cancel", b"{}"),
+            ("/api/missions/mission-synthetic/resume", b"{}"),
             ("/api/approvals/synthetic/approve", b"{}"),
+            ("/api/approvals/synthetic/reject", b"{}"),
         ):
             assert request(path, authorized=False, body=body)[0] == 401
             status, payload = request(path, authorized=True, body=body)
