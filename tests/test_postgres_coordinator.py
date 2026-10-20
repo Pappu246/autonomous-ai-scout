@@ -1019,3 +1019,106 @@ def test_hosted_postgres_facade_rejects_non_read_only_plan(coordinator, tmp_path
         assert controller.store.list() == ()
     finally:
         controller.stop()
+
+
+
+def test_hosted_postgres_http_routes_use_only_coordinated_state(coordinator, tmp_path, monkeypatch):
+    """Exercise the actual HTTP handler through the hosted PostgreSQL facade."""
+    import json
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from autonomous_agent.postgres_hosted_controller import PostgresHostedMissionController
+    from autonomous_agent.server import RuntimeHandler
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("SCOUT_STATE_BACKEND", "postgres")
+    monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", coordinator._dsn)
+    monkeypatch.setenv("SCOUT_STATE_NAMESPACE", coordinator.namespace)
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "synthetic-test-only-token")
+    facts = (
+        "The hosted HTTP route uses a PostgreSQL namespace.",
+        "Only bounded local read-only plans are enabled in this pilot.",
+    )
+    (tmp_path / "README.md").write_text("# HTTP fixture\n" + "\n".join(facts) + "\n", encoding="utf-8")
+    controller = PostgresHostedMissionController(
+        dsn=coordinator._dsn, namespace=coordinator.namespace, root=tmp_path
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RuntimeHandler)
+    server.require_auth = False
+    server.server_token = ""
+    server.workspace_root = tmp_path
+    server.mission_controller = controller
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+    base = f"http://127.0.0.1:{server.server_port}"
+
+    def request(path: str, *, method: str = "GET", payload: dict | None = None, key: str | None = None):
+        headers = {}
+        body = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            body = json.dumps(payload).encode("utf-8")
+        if key:
+            headers["Idempotency-Key"] = key
+        req = urllib.request.Request(base + path, data=body, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    thread.start()
+    try:
+        status, health = request("/health")
+        assert status == 200 and health["status"] == "ok"
+
+        status, created = request(
+            "/api/missions", method="POST",
+            payload={"task": "Read the temporary README and summarize two facts."},
+            key="http-hosted-readonly-20261020",
+        )
+        assert status == 202
+        mission_id = created["mission"]["mission_id"]
+        assert created["mission"]["state"] == "pending"
+
+        status, listed = request("/api/missions")
+        assert status == 200
+        assert [item["mission_id"] for item in listed["missions"]] == [mission_id]
+
+        status, detail = request("/api/missions/" + mission_id)
+        assert status == 200 and detail["mission"]["state"] == "pending"
+
+        status, _ = request("/api/approvals")
+        assert status == 200
+
+        result = controller.runner.run_once()
+        assert result is not None and result.state.value == "verified", result.reason
+
+        status, verified = request("/api/missions/" + mission_id)
+        assert status == 200 and verified["mission"]["state"] == "verified"
+        assert all(fact in verified["mission"]["output"] for fact in facts)
+
+        status, timeline = request("/api/missions/" + mission_id + "/timeline")
+        assert status == 200 and timeline["timeline"]
+        status, memory = request("/api/missions/" + mission_id + "/memory")
+        assert status == 200 and memory["memory"]
+        
+        with pytest.raises(urllib.error.HTTPError) as direct_run:
+            urllib.request.urlopen(base + "/run?task=inspect", timeout=5)
+        assert direct_run.value.code == 404
+
+        status, pending = request(
+            "/api/missions", method="POST",
+            payload={"task": "Read the temporary README."},
+            key="http-hosted-cancel-20261020",
+        )
+        cancel_id = pending["mission"]["mission_id"]
+        status, cancelled = request(
+            "/api/missions/" + cancel_id + "/cancel", method="POST", payload={}
+        )
+        assert status == 200 and cancelled["mission"]["state"] == "cancelled"
+        assert controller.runner.run_once() is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+        controller.stop()
