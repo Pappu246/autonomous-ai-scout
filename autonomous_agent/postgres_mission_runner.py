@@ -1,8 +1,9 @@
-"""Local-only read-only E2E runner over a pre-provisioned PostgreSQL coordinator.
+"""Bounded read-only execution runner backed by a PostgreSQL coordinator.
 
-This is deliberately not wired into the hosted MissionController and refuses Vercel/Blob runtime markers. It exercises
-an end-to-end slice against a caller-supplied coordinator while the existing
-hosted readiness gate remains closed until every state path is migrated.
+The default mode remains local-only and refuses Vercel/Blob runtime markers.
+The Preview facade can opt into the hosted path only after exact DSN/backend/
+namespace checks and a successful restricted-role readiness probe. Network,
+mutation and approval-gated plans remain out of scope for this pilot.
 """
 from __future__ import annotations
 

@@ -964,3 +964,58 @@ def test_pending_approval_list_and_rejection_use_database_state(coordinator):
     detail = coordinator.mission(submitted.mission_id)
     assert detail is not None and detail["state"] == "rejected"
     assert coordinator.pending_approvals() == ()
+
+
+
+def test_hosted_postgres_facade_runs_read_only_mission_via_database(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_hosted_controller import PostgresHostedMissionController
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("SCOUT_STATE_BACKEND", "postgres")
+    monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", coordinator._dsn)
+    monkeypatch.setenv("SCOUT_STATE_NAMESPACE", coordinator.namespace)
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "synthetic-test-only-token")
+    facts = (
+        "Hosted Preview missions use a dedicated PostgreSQL namespace.",
+        "The pilot allows autonomous local read-only execution only.",
+    )
+    (tmp_path / "README.md").write_text("# Preview fixture\n" + "\n".join(facts) + "\n", encoding="utf-8")
+    controller = PostgresHostedMissionController(
+        dsn=coordinator._dsn, namespace=coordinator.namespace, root=tmp_path
+    )
+    try:
+        assert controller.state_backend_ready
+        record = controller.submit(
+            "Read the temporary README and summarize two facts.",
+            idempotency_key="hosted-read-only-20261020",
+        )
+        assert record.state == "pending"
+        assert [item.mission_id for item in controller.store.list()] == [record.mission_id]
+        result = controller.runner.run_once()
+        assert result is not None and result.state.value == "verified", result.reason
+        saved = controller.store.get(record.mission_id)
+        assert saved is not None and saved.state == "verified"
+        assert all(fact in saved.output for fact in facts)
+        assert controller.mission_memory(record.mission_id)
+        assert controller.timeline(record.mission_id)
+        assert controller.runner.run_once() is None
+    finally:
+        controller.stop()
+
+
+def test_hosted_postgres_facade_rejects_non_read_only_plan(coordinator, tmp_path, monkeypatch):
+    from autonomous_agent.postgres_hosted_controller import PostgresHostedMissionController
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("SCOUT_STATE_BACKEND", "postgres")
+    monkeypatch.setenv("SCOUT_STATE_DATABASE_URL", coordinator._dsn)
+    monkeypatch.setenv("SCOUT_STATE_NAMESPACE", coordinator.namespace)
+    controller = PostgresHostedMissionController(
+        dsn=coordinator._dsn, namespace=coordinator.namespace, root=tmp_path
+    )
+    try:
+        with pytest.raises(ValueError, match="local read-only"):
+            controller.submit("delete every file in this workspace", idempotency_key="hosted-unsafe-20261020")
+        assert controller.store.list() == ()
+    finally:
+        controller.stop()
