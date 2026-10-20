@@ -149,7 +149,8 @@ def test_mission_control_ui_has_bounded_api_body_reads_and_visible_failures() ->
     assert "'timed out after ' + Math.round(API_TIMEOUT_MS / 1000) + ' seconds'" in page
     assert "body = await response.json().catch(() => ({}));" in page
     assert "'Idempotency-Key': crypto.randomUUID()" in page
-    assert "direct /run is disabled for hosted PostgreSQL" in page
+    server_source = Path(__file__).resolve().parents[1] / "autonomous_agent" / "server.py"
+    assert "direct /run is disabled for hosted PostgreSQL" in server_source.read_text(encoding="utf-8")
     assert "body.mission_control" in page
     assert 'id="state-gate"' in page
     assert 'id="start-mission" disabled' in page
