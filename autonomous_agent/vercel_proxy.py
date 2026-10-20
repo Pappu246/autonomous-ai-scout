@@ -19,6 +19,7 @@ SESSION_COOKIE = "scout_session"
 SESSION_MAX_AGE_SECONDS = 43_200
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,}$")
 _RESOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 _SESSION_PATTERN = re.compile(r"^v1\.([0-9]{10,12})\.([A-Za-z0-9_-]{16,32})\.([a-f0-9]{64})$")
 _HTML_CSP = (
     "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
@@ -350,6 +351,9 @@ class ScoutVercelProxyHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         if body is not None and content_type:
             headers["Content-Type"] = content_type
+        idempotency_key = self.headers.get("Idempotency-Key", "")
+        if _IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+            headers["Idempotency-Key"] = idempotency_key
         try:
             request = Request(origin + path, data=body, headers=headers, method=method)
             opener = build_opener(_NoRedirect())

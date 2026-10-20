@@ -14,6 +14,7 @@ from .approval import pending_actions
 from .approval_store import create_approval, reject_action
 from .execution_engine import ExecutionState
 from .mission_control import MissionController
+from .postgres_hosted_controller import PostgresHostedMissionController
 from .runtime import run_task
 from .vercel_state import SharedStateCoordinationUnavailable, shared_state_coordination_required
 
@@ -386,7 +387,7 @@ document.getElementById('mission-form').addEventListener('submit', async event =
   try {
     const response = await api('/api/missions', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID()},
       body: JSON.stringify({task})
     });
     const mission = response.mission || {};
@@ -468,8 +469,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         return getattr(self.server, "mission_controller", None)
 
     def _state_paused(self, controller: MissionController | None) -> bool:
-        # A missing/stale controller cannot turn hosted state back on. Checking
-        # the environment here also covers requests that race startup.
+        # Only the explicit PostgreSQL facade can satisfy the hosted gate; the
+        # legacy file-backed controller remains paused on Vercel/Blob.
+        if controller is not None and getattr(controller, "uses_atomic_state_backend", False):
+            return not bool(getattr(controller, "state_backend_ready", False))
         return shared_state_coordination_required() or (
             controller is not None and not getattr(controller, "state_backend_ready", True)
         )
@@ -557,7 +560,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 "service": "autonomous-ai-scout",
             }
             if paused:
-                payload["mission_control"] = "paused: atomic shared-state coordination required"
+                payload["mission_control"] = (
+                    getattr(controller, "state_backend_error", "")
+                    or "paused: atomic shared-state coordination required"
+                )
             # On a public bind, the health endpoint is deliberately path-free.
             # Local loopback development retains the helpful workspace diagnostic.
             if not getattr(self.server, "require_auth", False):
@@ -590,6 +596,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             if self._state_paused(controller):
                 self._json(503, {"error": "persistent shared state is unavailable; mission control is paused"})
                 return
+            if getattr(controller, "uses_atomic_state_backend", False):
+                self._json(404, {"error": "direct /run is disabled for hosted PostgreSQL; submit through /api/missions"})
+                return
             query = parse_qs(parsed.query)
             task = query.get("task", [os.getenv("TASK_REQUEST", "inspect repository")])[0]
             if len(task) > MAX_TASK_LENGTH:
@@ -613,9 +622,13 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             })
             return
         if parsed.path == "/api/approvals":
-            queue_path, _, _ = self._approval_paths()
-            actions = pending_actions(queue_path)
-            self._json(200, {"approvals": [self._approval_payload(item) for item in actions]})
+            controller = self._controller()
+            if getattr(controller, "uses_atomic_state_backend", False):
+                self._json(200, {"approvals": list(controller.pending_approvals())})
+            else:
+                queue_path, _, _ = self._approval_paths()
+                actions = pending_actions(queue_path)
+                self._json(200, {"approvals": [self._approval_payload(item) for item in actions]})
             return
         if parsed.path == "/api/missions":
             controller = self._controller()
@@ -641,6 +654,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             record = controller.store.get(mission_id)
             if record is None:
                 self._json(404, {"error": "mission not found"})
+                return
+            if is_memory and getattr(controller, "uses_atomic_state_backend", False):
+                self._json(200, {"memory": list(controller.mission_memory(mission_id))})
                 return
             if is_memory:
                 # Recall by task alone can confuse two independent missions
@@ -720,6 +736,16 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 if not action_id or "/" in action_id:
                     self._json(404, {"error": "approval not found"})
                     return
+                if getattr(controller, "uses_atomic_state_backend", False):
+                    try:
+                        controller.approve_action(action_id)
+                    except KeyError:
+                        self._json(404, {"error": "approval not found"})
+                    except ValueError as exc:
+                        self._json(409, {"error": str(exc)})
+                    else:
+                        self._json(409, {"error": "approval activation is not enabled in this Preview pilot"})
+                    return
                 queue_path, approval_dir, audit_path = self._approval_paths()
                 try:
                     record = create_approval(queue_path, approval_dir, action_id, audit_path=audit_path)
@@ -742,6 +768,20 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 action_id = raw[:-len("/reject")].strip("/")
                 if not action_id or "/" in action_id:
                     self._json(404, {"error": "approval not found"})
+                    return
+                if getattr(controller, "uses_atomic_state_backend", False):
+                    try:
+                        mission = controller.reject_action(action_id)
+                    except KeyError:
+                        self._json(404, {"error": "approval not found"})
+                        return
+                    except ValueError as exc:
+                        self._json(409, {"error": str(exc)})
+                        return
+                    self._json(200, {"approval": {
+                        "action_id": action_id, "status": "rejected",
+                        "mission": self._mission_payload(mission),
+                    }})
                     return
                 queue_path, _, audit_path = self._approval_paths()
                 try:
@@ -779,9 +819,17 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            # User input is now validated. Failures in the controller/storage
-            # are not malformed requests and must never become HTTP 400.
-            record = controller.submit_plan(task, steps) if steps is not None else controller.submit(task)
+            # User input is now validated. Backend/policy failures are not malformed requests.
+            try:
+                if getattr(controller, "uses_atomic_state_backend", False):
+                    if steps is not None:
+                        raise ValueError("hosted PostgreSQL Preview currently accepts only validated local read-only missions")
+                    record = controller.submit(task, idempotency_key=self.headers.get("Idempotency-Key", ""))
+                else:
+                    record = controller.submit_plan(task, steps) if steps is not None else controller.submit(task)
+            except ValueError as exc:
+                self._json(422 if getattr(controller, "uses_atomic_state_backend", False) else 400, {"error": str(exc)})
+                return
             # A mission record was successfully created even when policy blocks execution.
             # Return the resource state in JSON; reserve HTTP errors for malformed or rejected requests.
             self._json(202, {"mission": self._mission_payload(record)})
@@ -825,7 +873,29 @@ def serve(host: str = "127.0.0.1", port: int = 8000, root: str | Path | None = N
     server.require_auth = require_auth
     server.server_token = token
     server.workspace_root = workspace_root
-    server.mission_controller = MissionController(root=workspace_root)
+    dsn = os.getenv("SCOUT_STATE_DATABASE_URL", "").strip()
+    namespace = os.getenv("SCOUT_STATE_NAMESPACE", "").strip()
+    if (
+        os.getenv("VERCEL_ENV", "").strip().lower() == "preview"
+        and os.getenv("SCOUT_STATE_BACKEND", "").strip().lower() == "postgres"
+        and dsn and namespace
+    ):
+        try:
+            server.mission_controller = PostgresHostedMissionController(
+                dsn=dsn, namespace=namespace, root=workspace_root
+            )
+        except Exception as exc:
+            # Never fall back to per-container JSON or Blob if PG readiness fails.
+            controller = MissionController(root=workspace_root)
+            controller.state_backend_error = "PostgreSQL coordinator readiness failed; Mission Control remains paused"
+            server.mission_controller = controller
+            print(f"PostgreSQL Mission Control readiness failed ({type(exc).__name__}); hosted state remains paused", flush=True)
+    else:
+        server.mission_controller = MissionController(root=workspace_root)
+        if os.getenv("VERCEL_ENV", "").strip().lower() == "preview":
+            server.mission_controller.state_backend_error = (
+                "PostgreSQL runtime configuration is incomplete; Mission Control remains paused"
+            )
     server.approval_queue_path = workspace_root / "state" / "approval_queue.json"
     server.approval_dir = workspace_root / "state" / "approvals"
     server.approval_audit_path = workspace_root / "state" / "approval_audit.jsonl"

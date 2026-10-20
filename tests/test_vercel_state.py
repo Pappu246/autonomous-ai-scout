@@ -456,3 +456,16 @@ def test_hosted_http_sso_backend_token_does_not_bypass_paused_state(tmp_path: Pa
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+
+def test_ready_postgres_facade_is_the_only_hosted_state_gate_exception(monkeypatch):
+    from types import SimpleNamespace
+    from autonomous_agent.server import RuntimeHandler
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "synthetic-only-token")
+    handler = object.__new__(RuntimeHandler)
+    assert not handler._state_paused(SimpleNamespace(uses_atomic_state_backend=True, state_backend_ready=True))
+    assert handler._state_paused(SimpleNamespace(uses_atomic_state_backend=True, state_backend_ready=False))
+    assert handler._state_paused(SimpleNamespace(state_backend_ready=True))

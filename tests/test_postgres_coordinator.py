@@ -911,3 +911,56 @@ def test_uncertain_approval_commit_still_enqueues_once(coordinator, postgres_dsn
     assert query(postgres_dsn, "SELECT count(*) FROM scout_state.work_items WHERE namespace = %s",
                  (coordinator.namespace,)) == [(1,)]
     assert coordinator.claim_next("worker") is not None
+
+
+
+def test_coordinator_list_returns_durable_mission_metadata(coordinator):
+    submitted = submit(coordinator, key="list-mission")
+    listed = coordinator.list_missions()
+    assert len(listed) == 1
+    assert listed[0]["mission_id"] == submitted.mission_id
+    assert listed[0]["task_id"] == submitted.task_id
+    assert listed[0]["state"] == "pending"
+    assert listed[0]["payload"]["task"] == "Read a harmless temporary README"
+    detail = coordinator.mission(submitted.mission_id)
+    assert detail is not None
+    assert detail["state"] == "pending"
+    assert detail["created_at"] and detail["updated_at"]
+
+
+def test_cancel_pending_mission_updates_queue_mission_and_audit_atomically(coordinator):
+    submitted = submit(coordinator, key="cancel-before-claim")
+    coordinator.cancel_pending(submitted.mission_id)
+    detail = coordinator.mission(submitted.mission_id)
+    assert detail is not None and detail["state"] == "cancelled"
+    assert coordinator.claim_next("must-not-claim") is None
+    assert [event.kind for event in coordinator.timeline(submitted.mission_id)] == ["mission_cancelled"]
+
+
+def test_running_mission_cannot_be_cancelled_as_if_worker_stopped(coordinator):
+    submitted = submit(coordinator, key="cancel-running")
+    claim = coordinator.claim_next("active-worker")
+    assert claim is not None
+    with pytest.raises(ValueError, match="only pending missions"):
+        coordinator.cancel_pending(submitted.mission_id)
+    detail = coordinator.mission(submitted.mission_id)
+    assert detail is not None and detail["state"] == "running"
+    coordinator.finish(claim, "failed")
+
+
+def test_pending_approval_list_and_rejection_use_database_state(coordinator):
+    from datetime import datetime, timedelta, timezone
+
+    submitted = submit(coordinator, key="approval-db", approval=True)
+    coordinator.propose_approval(
+        "approval-db-action", submitted.mission_id,
+        datetime.now(timezone.utc) + timedelta(hours=1),
+        {"task": "A harmless approval placeholder", "risk": "low", "reason": "test only", "steps": ["inspect"]},
+    )
+    approvals = coordinator.pending_approvals()
+    assert len(approvals) == 1
+    assert approvals[0]["id"] == "approval-db-action"
+    coordinator.reject_approval("approval-db-action")
+    detail = coordinator.mission(submitted.mission_id)
+    assert detail is not None and detail["state"] == "rejected"
+    assert coordinator.pending_approvals() == ()
