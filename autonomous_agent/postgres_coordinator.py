@@ -931,16 +931,169 @@ class PostgresMissionCoordinator:
                                "approval_consumed", mission[1], {"action_id": action})
             return True
 
-    def mission(self, mission_id: str) -> dict[str, object] | None:
+    def list_missions(self, *, limit: int = 100) -> tuple[dict[str, object], ...]:
+        """Return namespace-owned missions with their latest durable outcome."""
+        if not 1 <= limit <= 100:
+            raise ValueError("mission list limit must be between 1 and 100")
+        with self._transaction() as conn:
+            rows = conn.execute(
+                """SELECT m.mission_id, m.task_id, m.execution_id, m.state,
+                          m.claim_generation, m.revision, m.payload,
+                          m.updated_at, s.submitted_at,
+                          COALESCE(r.reason, ''), COALESCE(r.attempts, 0),
+                          COALESCE(r.result_count, 0)
+                   FROM scout_state.missions AS m
+                   JOIN scout_state.submissions AS s
+                     ON s.namespace = m.namespace AND s.mission_id = m.mission_id
+                   LEFT JOIN LATERAL (
+                     SELECT reason, attempts, result_count
+                     FROM scout_state.run_journal
+                     WHERE namespace = m.namespace AND mission_id = m.mission_id
+                     ORDER BY claim_generation DESC LIMIT 1
+                   ) AS r ON TRUE
+                   WHERE m.namespace = %s
+                   ORDER BY s.submitted_at DESC, m.mission_id DESC
+                   LIMIT %s""",
+                (self.namespace, limit),
+            ).fetchall()
+        return tuple({
+            "mission_id": row[0], "task_id": row[1], "execution_id": row[2],
+            "state": row[3], "generation": row[4], "revision": row[5],
+            "payload": row[6], "updated_at": row[7].isoformat(),
+            "created_at": row[8].isoformat(), "reason": row[9],
+            "attempts": row[10], "result_count": row[11],
+        } for row in rows)
+
+    def pending_approvals(self, *, limit: int = 100) -> tuple[dict[str, object], ...]:
+        """List only live pending approvals from this namespace."""
+        if not 1 <= limit <= 100:
+            raise ValueError("approval list limit must be between 1 and 100")
+        with self._transaction() as conn:
+            rows = conn.execute(
+                """SELECT action_id, mission_id, expires_at, payload
+                   FROM scout_state.approvals
+                   WHERE namespace = %s AND state = 'pending'
+                     AND expires_at > clock_timestamp()
+                   ORDER BY expires_at, action_id LIMIT %s""",
+                (self.namespace, limit),
+            ).fetchall()
+        result = []
+        for action_id, mission_id, expires_at, payload in rows:
+            proposal = payload if isinstance(payload, dict) else {}
+            raw_steps = proposal.get("steps", [])
+            result.append({
+                "id": action_id, "action_id": action_id, "mission_id": mission_id,
+                "expires_at": expires_at.isoformat(),
+                "task": str(proposal.get("task", ""))[:4000],
+                "risk": str(proposal.get("risk", "unknown"))[:80],
+                "reason": str(proposal.get("reason", ""))[:1000],
+                "steps": [str(item)[:500] for item in raw_steps if isinstance(item, str)][:64]
+                if isinstance(raw_steps, list) else [],
+                "created_at": str(proposal.get("created_at", ""))[:64],
+            })
+        return tuple(result)
+
+    def cancel_pending(self, mission_id: str) -> None:
+        """Atomically cancel only work that has not been claimed by a worker."""
+        mission = _id(mission_id, "mission ID")
+        with self._transaction() as conn:
+            current = conn.execute(
+                """SELECT task_id, execution_id, state FROM scout_state.missions
+                   WHERE namespace = %s AND mission_id = %s FOR UPDATE""",
+                (self.namespace, mission),
+            ).fetchone()
+            if current is None:
+                raise KeyError(mission_id)
+            task_id, execution_id, state = current
+            if state != "pending":
+                raise ValueError("only pending missions can be cancelled; running or recovery-required work needs reconciliation")
+            queued = conn.execute(
+                """UPDATE scout_state.work_items SET state = 'cancelled', worker_id = NULL,
+                   updated_at = clock_timestamp()
+                   WHERE namespace = %s AND task_id = %s AND mission_id = %s
+                     AND execution_id = %s AND state = 'pending'
+                   RETURNING task_id""",
+                (self.namespace, task_id, mission, execution_id),
+            ).fetchone()
+            if queued is None:
+                raise StaleGeneration("mission queue item is no longer pending")
+            changed = conn.execute(
+                """UPDATE scout_state.missions SET state = 'cancelled',
+                   revision = revision + 1, updated_at = clock_timestamp()
+                   WHERE namespace = %s AND mission_id = %s AND state = 'pending'
+                   RETURNING mission_id""",
+                (self.namespace, mission),
+            ).fetchone()
+            if changed is None:
+                raise StaleGeneration("mission changed while cancelling pending work")
+            self._append_event(
+                conn, mission, f"cancel:{task_id}", "mission_cancelled", execution_id,
+                {"state": "cancelled", "reason": "cancelled before worker claim"},
+            )
+
+    def reject_approval(self, action_id: str) -> str:
+        """Reject a pending approval and its mission atomically."""
+        action = _id(action_id, "approval action")
         with self._transaction() as conn:
             row = conn.execute(
-                """SELECT state, revision, claim_generation, payload
-                   FROM scout_state.missions WHERE namespace = %s AND mission_id = %s""",
-                (self.namespace, _id(mission_id, "mission ID")),
+                """UPDATE scout_state.approvals SET state = 'rejected', token_digest = NULL
+                   WHERE namespace = %s AND action_id = %s AND state = 'pending'
+                     AND expires_at > clock_timestamp()
+                   RETURNING mission_id""",
+                (self.namespace, action),
+            ).fetchone()
+            if row is None:
+                exists = conn.execute(
+                    "SELECT 1 FROM scout_state.approvals WHERE namespace = %s AND action_id = %s",
+                    (self.namespace, action),
+                ).fetchone()
+                if exists is None:
+                    raise KeyError(action_id)
+                raise ValueError("approval is missing, expired or already decided")
+            mission_id = row[0]
+            changed = conn.execute(
+                """UPDATE scout_state.missions SET state = 'rejected',
+                   revision = revision + 1, updated_at = clock_timestamp()
+                   WHERE namespace = %s AND mission_id = %s AND state = 'requires_approval'
+                   RETURNING execution_id""",
+                (self.namespace, mission_id),
+            ).fetchone()
+            if changed is None:
+                raise StaleGeneration("approval mission is no longer awaiting approval")
+            self._append_event(
+                conn, mission_id, f"approval_rejected:{action}", "approval_decision",
+                changed[0], {"decision": "rejected", "action_id": action},
+            )
+            return mission_id
+
+    def mission(self, mission_id: str) -> dict[str, object] | None:
+        mission = _id(mission_id, "mission ID")
+        with self._transaction() as conn:
+            row = conn.execute(
+                """SELECT m.task_id, m.execution_id, m.state, m.revision,
+                          m.claim_generation, m.payload, m.updated_at, s.submitted_at,
+                          COALESCE(r.reason, ''), COALESCE(r.attempts, 0),
+                          COALESCE(r.result_count, 0)
+                   FROM scout_state.missions AS m
+                   JOIN scout_state.submissions AS s
+                     ON s.namespace = m.namespace AND s.mission_id = m.mission_id
+                   LEFT JOIN LATERAL (
+                     SELECT reason, attempts, result_count
+                     FROM scout_state.run_journal
+                     WHERE namespace = m.namespace AND mission_id = m.mission_id
+                     ORDER BY claim_generation DESC LIMIT 1
+                   ) AS r ON TRUE
+                   WHERE m.namespace = %s AND m.mission_id = %s""",
+                (self.namespace, mission),
             ).fetchone()
             if row is None:
                 return None
-            return {"state": row[0], "revision": row[1], "generation": row[2], "payload": row[3]}
+            return {
+                "task_id": row[0], "execution_id": row[1], "state": row[2],
+                "revision": row[3], "generation": row[4], "payload": row[5],
+                "updated_at": row[6].isoformat(), "created_at": row[7].isoformat(),
+                "reason": row[8], "attempts": row[9], "result_count": row[10],
+            }
 
     def memory(self, mission_id: str) -> tuple[dict[str, object], ...]:
         with self._transaction() as conn:

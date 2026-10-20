@@ -7,6 +7,7 @@ hosted readiness gate remains closed until every state path is migrated.
 from __future__ import annotations
 
 import hashlib
+import os
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -23,7 +24,7 @@ from .postgres_execution_checkpoint import PostgresExecutionCheckpointStore
 from .run_journal import _safe_text, make_run_record
 from .task_core import AutonomousTaskCore, CanonicalTask
 from .task_queue import _safe_task
-from .vercel_state import require_atomic_state_coordinator
+from .vercel_state import hosted_runtime, require_atomic_state_coordinator
 
 
 # Keep a live, fenced worker claim fresh well before the coordinator's minimum
@@ -48,9 +49,11 @@ class PostgresMissionRunner:
         worker_id: str | None = None,
         core: AutonomousTaskCore | None = None,
         workspace_connector: WorkspaceConnector | None = None,
+        allow_hosted: bool = False,
     ) -> None:
         self.coordinator = coordinator
         self.root = Path(root).resolve()
+        self.allow_hosted = bool(allow_hosted)
         self.worker_id = _id(worker_id or "worker-" + uuid.uuid4().hex, "worker ID")
         self.core = core or AutonomousTaskCore()
         self.workspace_connector = workspace_connector or WorkspaceConnector(self.root)
@@ -58,9 +61,20 @@ class PostgresMissionRunner:
         self._require_available()
 
     def _require_available(self) -> None:
-        # The coordinator is explicit, but this pilot must not become a hidden
-        # bypass around the existing hosted/Blob fail-closed gate.
-        require_atomic_state_coordinator()
+        # The default runner remains local-only. Hosted mode is allowed only
+        # through the explicit PG facade with an exact configured DSN/namespace.
+        if self.allow_hosted:
+            configured_dsn = os.getenv("SCOUT_STATE_DATABASE_URL", "").strip()
+            if (
+                not hosted_runtime()
+                or os.getenv("SCOUT_STATE_BACKEND", "").strip().lower() != "postgres"
+                or not configured_dsn
+                or configured_dsn != getattr(self.coordinator, "_dsn", None)
+                or not os.getenv("SCOUT_STATE_NAMESPACE", "").strip()
+            ):
+                raise CoordinatorUnavailable("hosted PostgreSQL coordinator configuration is incomplete")
+        else:
+            require_atomic_state_coordinator()
         self.coordinator.check_ready()
 
     @contextmanager
