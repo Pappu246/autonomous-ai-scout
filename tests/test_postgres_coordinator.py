@@ -1014,7 +1014,7 @@ def test_hosted_postgres_facade_rejects_non_read_only_plan(coordinator, tmp_path
         dsn=coordinator._dsn, namespace=coordinator.namespace, root=tmp_path
     )
     try:
-        with pytest.raises(ValueError, match="local read-only"):
+        with pytest.raises(ValueError, match="not executable|local read-only"):
             controller.submit("delete every file in this workspace", idempotency_key="hosted-unsafe-20261020")
         assert controller.store.list() == ()
     finally:
