@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from autonomous_agent.computer.policy import is_windows
 from autonomous_agent.digital import build_agent
 from autonomous_agent.digital.builtins import BUILTIN_DECLARATIONS, declared_capability_ids
 from autonomous_agent.digital.catalog import CapabilityCatalog
@@ -165,10 +166,12 @@ def test_documentation_model_covers_every_declared_domain():
             assert entry.capability_ids == ()
 
 
-def test_domain_status_marks_reserved_domains_unusable(tmp_path: Path):
+def test_domain_status_reflects_host_capability_availability(tmp_path: Path):
     agent = build_agent(root=tmp_path)
     status = {item["domain"]: item for item in agent.domain_status()}
-    assert status["computer"]["usable"] is False
+    # Desktop computer control is registered on Windows and intentionally
+    # unavailable on hosts that cannot provide the native Windows backend.
+    assert status["computer"]["usable"] is is_windows()
     assert status["application"]["usable"] is False
     assert status["documents"]["usable"] is False
     assert status["filesystem"]["usable"] is True

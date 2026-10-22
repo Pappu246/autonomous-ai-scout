@@ -1,16 +1,27 @@
 from __future__ import annotations
-import hashlib,json,re
+
+import hashlib
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
 MAX_FILE_BYTES=128*1024; MAX_OUTPUT_BYTES=64*1024; MAX_ENTRIES=500; MAX_RETRIES=2; MAX_TIMEOUT_SECONDS=30
-_SECRET=re.compile(r"(?i)(api[_-]?key|access[_-]?token|authorization|password|secret|cookie|session|credential)\s*[:=]\s*[^\s,;]+")
-_CREDENTIAL_NAMES={".npmrc",".pypirc",".netrc","credentials.json","service-account.json","id_rsa","id_ed25519"}
+_SENSITIVE_FIELD_PATTERN = r"(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|authorization|password|secret|cookie|session|credential)"
+_SECRET = re.compile(rf"(?i)(?<![\w-])([\"']?{_SENSITIVE_FIELD_PATTERN}[\"']?\s*[:=]\s*[\"']?)(?:(?:Bearer|Basic|Token)\s+)?([^\s,;\"'\}}\]]+)")
+_CREDENTIAL_NAMES={".npmrc",".pypirc",".netrc",".git-credentials","credentials.json","service-account.json","id_rsa","id_ed25519"}
+def _forbidden(parts):
+    return bool(parts and parts[0] == "state") or any(
+        part in {".git", ".env", ".ssh"} or part.startswith(".env.")
+        or part in _CREDENTIAL_NAMES or part.endswith((".pem", ".key"))
+        for part in parts
+    )
 class WorkspaceError(ValueError):pass
 @dataclass(frozen=True)
 class WorkspaceEvidence:
     operation:str; relative_path:str; fingerprint:str; content:str=""; entries:tuple[str,...]=(); redacted:bool=False
     def safe_dict(self):return {"operation":self.operation,"relative_path":self.relative_path,"fingerprint":self.fingerprint,"content":_redact(self.content),"entries":self.entries,"redacted":self.redacted}
-def _redact(text):return _SECRET.sub(lambda m:m.group(1)+"=[REDACTED]",text)
+def _redact(text):return _SECRET.sub(lambda m:m.group(1)+"[REDACTED]",text)
 def _digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,default=str).encode()).hexdigest()
 class WorkspaceConnector:
     def __init__(self,root:Path,*,max_file_bytes=MAX_FILE_BYTES,max_output_bytes=MAX_OUTPUT_BYTES,max_entries=MAX_ENTRIES,max_retries=MAX_RETRIES,timeout_seconds=10):
@@ -24,16 +35,16 @@ class WorkspaceConnector:
         try:candidate.relative_to(self.root)
         except ValueError as exc:raise WorkspaceError("workspace path escapes authorized root") from exc
         parts=candidate.relative_to(self.root).parts
-        if any(part in {".git",".env",".ssh"} or part in _CREDENTIAL_NAMES or part.endswith((".pem",".key")) for part in parts):raise WorkspaceError("credential or VCS paths are not authorized")
+        if _forbidden(parts):raise WorkspaceError("credential or private runtime paths are not authorized")
         return candidate
     def list(self,relative="."):
         path=self._path(relative)
         if not path.is_dir():raise WorkspaceError("workspace target is not a directory")
         entries=[]
         for item in sorted(path.iterdir(),key=lambda p:p.name):
-            if item.name in {".git",".env",".ssh"} or item.name in _CREDENTIAL_NAMES or item.name.endswith((".pem",".key")):continue
-            try:resolved=item.resolve();resolved.relative_to(self.root)
+            try:resolved=item.resolve();relative_parts=resolved.relative_to(self.root).parts
             except (OSError,ValueError):continue
+            if _forbidden(relative_parts):continue
             entries.append(str(resolved.relative_to(self.root)))
             if len(entries)>=self.max_entries:break
         return WorkspaceEvidence("list",str(path.relative_to(self.root)),_digest(entries),entries=tuple(entries))

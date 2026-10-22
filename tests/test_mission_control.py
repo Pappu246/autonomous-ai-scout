@@ -5,8 +5,11 @@ from autonomous_agent.action_queue import load_queue
 import json
 from pathlib import Path
 
+import pytest
+
 from autonomous_agent.execution_engine import ExecutionState
 from autonomous_agent.mission_control import MissionController
+from autonomous_agent.vercel_state import SharedStateCoordinationUnavailable
 
 
 def test_submit_persists_safe_mission_and_queue(tmp_path: Path) -> None:
@@ -287,3 +290,238 @@ def test_cancel_approval_pending_mission_invalidates_pending_approval(tmp_path: 
         if item.id == mission.approval_action_id
     )
     assert action.status == "rejected"
+
+def test_read_only_workspace_mission_uses_bounded_filesystem_connector(tmp_path: Path) -> None:
+    import json
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "README.md").write_text(
+        "# Isolated fixture\\nThe workspace is temporary.\\nIt contains no real user data or credentials.\\n",
+        encoding="utf-8",
+    )
+    task = (
+        "Read file docs/README.md in the isolated workspace. "
+        "Do not change any file. Do not execute shell commands. "
+        "Do not use network, browser, GitHub, email, calendar, applications, or computer control."
+    )
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit(task)
+    assert mission.state == "pending"
+
+    result = controller.run_once()
+
+    assert result is not None
+    assert result.state == "verified", result.reason
+    records = [
+        json.loads(line)
+        for line in controller.audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    executed_tools = [
+        record.get("tool")
+        for record in records
+        if record.get("event") == "tool_result"
+    ]
+    assert executed_tools == ["filesystem.read"]
+
+
+
+def test_read_only_project_status_task_is_queued_without_mutation_approval(tmp_path: Path) -> None:
+    task = (
+        "Inspect the current project status and provide a brief read-only summary of the project's "
+        "structure, recent status, and any visible issues. Do not edit or delete files, execute "
+        "commands, access external accounts, send messages, or perform any action that changes data. "
+        "If information is unavailable, clearly report that."
+    )
+    controller = MissionController(root=tmp_path)
+    mission = controller.submit(task)
+
+    assert mission.state == "pending", mission.reason
+    assert mission.approval_action_id == ""
+    assert len(controller.queue.list()) == 1
+    assert load_queue(controller.approval_queue_path) == []
+
+
+def test_project_status_without_provider_returns_honest_partial_inventory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from autonomous_agent.specialist_provider import SpecialistProviderRouter
+
+    (tmp_path / "README.md").write_text(
+        "# Scout Fixture Project\n\nA read-only inventory fixture.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "scout-fixture"\nversion = "1.2.3"\n',
+        encoding="utf-8",
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_example.py").write_text(
+        "def test_example():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    controller = MissionController(root=tmp_path)
+    controller.provider_router = SpecialistProviderRouter(())
+
+    def should_not_run_task(*args, **kwargs):
+        raise AssertionError("fallback must not claim a model-generated analysis")
+
+    monkeypatch.setattr("autonomous_agent.mission_control.run_task", should_not_run_task)
+    task = (
+        "Inspect the current project status and provide a brief read-only summary of the "
+        "project's structure, recent status, and any visible issues. Do not edit or delete "
+        "files, execute commands, access external accounts, send messages, or perform any "
+        "action that changes data. If information is unavailable, clearly report that."
+    )
+    mission = controller.submit(task)
+    result = controller.run_once()
+
+    assert result is not None
+    assert result.state == "partial"
+    assert "PARTIAL RESULT" in result.reason
+    assert "deterministic read-only inventory" in result.reason
+    assert "README heading: Scout Fixture Project" in result.reason
+    assert "package=scout-fixture" in result.reason
+    assert "no eligible configured provider for specialist role general" in result.reason
+    assert "Recent Git status/commits: NOT AVAILABLE" in result.reason
+
+    history = controller.memory.history(controller.MEMORY_PROJECT, kind="episode")
+    task_entries = [entry for entry in history if entry.get("data", {}).get("task") == task]
+    assert len(task_entries) == 1
+    assert task_entries[0]["outcome"] == "partial"
+    assert "Scout Fixture Project" in task_entries[0]["data"]["summary"]
+
+    timeline = controller.timeline(mission.mission_id)
+    assert any(item.get("event") == "project_status_fallback" for item in timeline)
+    assert any(item.get("event") == "mission_state" and item.get("state") == "partial" for item in timeline)
+
+
+def test_vercel_without_shared_state_token_does_not_start_worker(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    controller = MissionController(root=tmp_path)
+
+    assert controller.shared_state_required is True
+    assert controller.shared_state_enabled is False
+    assert controller.state_backend_ready is False
+
+    controller.start()
+    assert controller._thread is None
+
+
+def test_shared_state_submit_defers_serial_memory_io(tmp_path: Path, monkeypatch) -> None:
+    controller = MissionController(root=tmp_path)
+    controller.shared_state_enabled = True
+
+    def forbidden_history(_task: str) -> str:
+        raise AssertionError("hosted submission must not synchronously read memory")
+
+    def forbidden_memory_write(*_args, **_kwargs):
+        raise AssertionError("hosted submission must defer queued memory writes")
+
+    monkeypatch.setattr(controller, "_history_hint", forbidden_history)
+    monkeypatch.setattr(controller.memory, "record_episode", forbidden_memory_write)
+
+    mission = controller.submit("inspect repository")
+
+    assert mission.state == "pending"
+    assert "history recall deferred until execution" in mission.reason
+    assert controller.queue.list()[0].task_id == mission.task_id
+    assert controller.store.get(mission.mission_id) == mission
+
+
+def test_submit_persists_mission_record_before_queue_becomes_visible(tmp_path: Path, monkeypatch) -> None:
+    controller = MissionController(root=tmp_path)
+    enqueue = controller.queue.enqueue
+    observed: list[str] = []
+
+    def checked_enqueue(task: str, *, task_id: str, execution_id: str, available_at=None):
+        existing = controller.store.get(task_id)
+        assert existing is not None
+        assert existing.state == "pending"
+        observed.append(existing.mission_id)
+        return enqueue(task, task_id=task_id, execution_id=execution_id, available_at=available_at)
+
+    monkeypatch.setattr(controller.queue, "enqueue", checked_enqueue)
+    mission = controller.submit("inspect repository")
+
+    assert observed == [mission.mission_id]
+    assert mission.state == "pending"
+    assert controller.queue.list()[0].task_id == mission.task_id
+
+
+
+def test_shared_worker_startup_retries_recovery_without_failing_service(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from threading import Event
+
+    controller = MissionController(root=tmp_path)
+    monkeypatch.setattr(controller, "shared_state_enabled", True)
+    monkeypatch.setattr(controller, "state_backend_ready", True)
+
+    recovery_attempts = {"count": 0}
+    worker_started = Event()
+
+    def flaky_recovery(*, stale_after_seconds=600.0):
+        recovery_attempts["count"] += 1
+        if recovery_attempts["count"] == 1:
+            raise TimeoutError("simulated shared Blob lease contention")
+        return ()
+
+    def fake_run_forever(stop_event):
+        worker_started.set()
+        stop_event.wait(2)
+
+    monkeypatch.setattr(controller, "recover_stale_running", flaky_recovery)
+    monkeypatch.setattr(controller.worker, "run_forever", fake_run_forever)
+
+    # start() must not perform remote recovery synchronously and raise.
+    controller.start()
+    assert worker_started.wait(timeout=3)
+    controller.stop()
+
+    assert recovery_attempts["count"] >= 2
+
+
+
+def test_hosted_controller_entry_points_fail_closed_before_local_state_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Isolate the Vercel marker so this remains deterministic on developer machines.
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+
+    controller = MissionController(root=tmp_path)
+    assert controller.state_backend_ready is False
+
+    operations = (
+        lambda: controller.submit("inspect repository"),
+        lambda: controller.submit_plan("inspect repository", []),
+        lambda: controller.run_once(),
+        lambda: controller.recover(),
+        lambda: controller.recover_stale_running(),
+        lambda: controller.timeline("missing-mission"),
+        lambda: controller.cancel("missing-mission"),
+        lambda: controller.resume("missing-mission"),
+        lambda: controller.activate_approved_action("missing-action"),
+        lambda: controller.reject_approved_action("missing-action"),
+    )
+    for operation in operations:
+        with pytest.raises(SharedStateCoordinationUnavailable):
+            operation()
+
+    # Fail-closed means no synthetic per-container mission/queue/memory record.
+    for filename in (
+        "missions.json",
+        "mission_queue.json",
+        "mission_memory.json",
+        "approval_queue.json",
+        "runtime_execution.jsonl",
+    ):
+        assert not (tmp_path / "state" / filename).exists()

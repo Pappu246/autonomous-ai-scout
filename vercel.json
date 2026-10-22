@@ -1,0 +1,33 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "gateway_next": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Dockerfile.vercel",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "runtime_next",
+          "format": "url",
+          "env": "SCOUT_API_ORIGIN"
+        }
+      ]
+    },
+    "runtime_next": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Dockerfile"
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": { "service": "gateway_next", "path": "/" } },
+    { "source": "/login", "destination": { "service": "gateway_next", "path": "/login" } },
+    { "source": "/logout", "destination": { "service": "gateway_next", "path": "/logout" } },
+    { "source": "/health", "destination": { "service": "gateway_next", "path": "/health" } },
+    { "source": "/api/missions", "destination": { "service": "gateway_next", "path": "/api/missions" } },
+    { "source": "/api/missions/:path*", "destination": { "service": "gateway_next", "path": "/api/missions/:path*" } },
+    { "source": "/api/approvals", "destination": { "service": "gateway_next", "path": "/api/approvals" } },
+    { "source": "/api/approvals/:path*", "destination": { "service": "gateway_next", "path": "/api/approvals/:path*" } }
+  ]
+}

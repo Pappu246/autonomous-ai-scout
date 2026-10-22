@@ -10,7 +10,7 @@ class FileLockTimeout(TimeoutError):
 
 
 class InterProcessFileLock:
-    """Portable advisory lock for coordinating file-backed state across processes."""
+    """Single-host advisory lock; remote/Blob-configured use fails closed."""
 
     def __init__(
         self,
@@ -31,6 +31,12 @@ class InterProcessFileLock:
         self._handle = None
 
     def __enter__(self):
+        # A local flock/Windows byte lock cannot coordinate Vercel containers.
+        # Reject before creating a local lock or modifying any state file. Blob
+        # has no conditional lease delete/fenced write in the pinned SDK.
+        from .vercel_state import require_atomic_state_coordinator
+
+        require_atomic_state_coordinator()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "a+b")
         try:
@@ -38,9 +44,23 @@ class InterProcessFileLock:
                 self._acquire_windows()
             else:
                 self._acquire_posix()
+
         except Exception:
-            self._handle.close()
-            self._handle = None
+            if self._handle is not None:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        self._handle.seek(0)
+                        try:
+                            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        except OSError:
+                            pass
+                    else:
+                        import fcntl
+                        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+                finally:
+                    self._handle.close()
+                    self._handle = None
             raise
         return self
 
@@ -79,24 +99,23 @@ class InterProcessFileLock:
                 time.sleep(self.poll_interval_seconds)
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if self._handle is None:
-            return
-        try:
-            if os.name == "nt":
-                import msvcrt
+        if self._handle is not None:
+            try:
+                if os.name == "nt":
+                    import msvcrt
 
-                self._handle.seek(0)
-                try:
-                    msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-                except OSError:
-                    pass
-            else:
-                import fcntl
+                    self._handle.seek(0)
+                    try:
+                        msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+                else:
+                    import fcntl
 
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            self._handle.close()
-            self._handle = None
+                    fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._handle.close()
+                self._handle = None
 
 
 __all__ = ["FileLockTimeout", "InterProcessFileLock"]

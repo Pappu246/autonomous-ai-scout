@@ -1,5 +1,7 @@
 from __future__ import annotations
 import hashlib,json
+from contextvars import ContextVar
+from functools import wraps
 from dataclasses import dataclass
 from datetime import datetime,timezone
 from time import monotonic
@@ -10,9 +12,10 @@ from .capability_policy import Capability
 from .consequence_policy import ApprovalMode, ConsequenceAwareApprovalPolicy
 from .prompt_injection_guard import TrustLevel
 from .cross_project_memory import CrossProjectMemory
-from .execution_checkpoint import ExecutionCheckpointStore
-from .execution_audit import append_execution_record,verify_execution_audit
+from .execution_checkpoint import CheckpointStore, ExecutionCheckpointStore
+from .execution_audit import ExecutionAuditStore, append_execution_record,verify_execution_audit
 from .sandbox import MAX_OUTPUT_BYTES,MAX_TIMEOUT_SECONDS,SandboxResult,run_safe_operation
+from .task_completion import MAX_ARTIFACT_LENGTH, CompletionCriteria, assess_completion, criteria_for
 from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY,ToolRegistry
 from .admission import AdmissionRequest, evaluate_admission
@@ -20,17 +23,37 @@ from .production_audit import ProductionAudit
 from .readiness import ReadinessReport
 from .budget import BudgetExceededError, BudgetLedger
 from .observability import TelemetryBuffer
-class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
+class ExecutionState(str,Enum):BLOCKED="blocked";RUNNING="running";PARTIAL="partial";VERIFIED="verified";FAILED="failed";RECOVERY_REQUIRED="recovery_required"
 @dataclass(frozen=True)
-class ExecutionResult:state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
+class ExecutionResult:
+    state:ExecutionState;reason:str;attempts:int;results:tuple[SandboxResult,...];audit_path:str
+    output:str=""  # only a validated, bounded requested deliverable (never raw tool output)
 _CAPABILITY_TO_OPERATION={Capability.INSPECT:"inspect",Capability.TEST:"test",Capability.LINT:"lint",Capability.METRICS:"metrics",Capability.READ_FILE:"read_file",Capability.BENCHMARK:"benchmark",Capability.WEB_RESEARCH:"web_research",Capability.REST_API:"rest",Capability.FILES_WORKSPACE:"filesystem_workspace",Capability.WORKSPACE_SHELL:"workspace_shell",Capability.EMAIL:"gmail",Capability.CALENDAR:"calendar",Capability.BROWSER:"browser",Capability.COMPUTER:"computer",Capability.DOCUMENTS:"documents",Capability.APPLICATION:"application"}
 MAX_RETRIES=2
+_ACTIVE_AUDIT_STORE: ContextVar[ExecutionAuditStore | None] = ContextVar("scout_execution_audit_store", default=None)
+
+
+def _use_audit_store(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        token = _ACTIVE_AUDIT_STORE.set(kwargs.get("audit_store"))
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _ACTIVE_AUDIT_STORE.reset(token)
+    return wrapped
+
+
 def _now():return datetime.now(timezone.utc).isoformat()
 def _telemetry(buffer,name,**fields):
     if buffer is None:return
     try:buffer.record(name,**fields)
     except Exception:return
-def _audit(path,execution_id,state,**extra):append_execution_record(path,{"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}})
+def _audit(path,execution_id,state,**extra):
+    record={"execution_id":execution_id,"timestamp":_now(),"state":state.value,**{k:str(v) for k,v in extra.items()}}
+    store=_ACTIVE_AUDIT_STORE.get()
+    if store is None:append_execution_record(path,record)
+    else:store.append(record)
 def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGISTRY):
     values=sorted({str(item.value if isinstance(item,Capability) else item).strip().lower() for item in granted})
     tools=[]
@@ -56,6 +79,8 @@ def _authorization_digest(granted, explicitly_approved, plan=None, registry=REGI
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
 def _audit_events(path,execution_id):
+    store=_ACTIVE_AUDIT_STORE.get()
+    if store is not None:return store.events(execution_id)
     if not path.exists():return ()
     events=[]
     try:lines=path.read_text(encoding="utf-8").splitlines()
@@ -66,21 +91,53 @@ def _audit_events(path,execution_id):
         if isinstance(item,dict) and item.get("execution_id")==execution_id:events.append(item)
     return tuple(events)
 
-def _audit_has_verified_completion(path,execution_id,plan):
+def _validated_audit_output(events,criteria:CompletionCriteria,*,require_terminal:bool) -> str | None:
+    """Recover only a deliverable already validated in the hash-chained audit."""
+    if not criteria.requires_output:
+        return ""
+    for event in reversed(events):
+        if event.get("event") != "output_validated" or event.get("criteria_digest") != criteria.digest:
+            continue
+        output = event.get("output")
+        if not isinstance(output,str) or not output or len(output)>MAX_ARTIFACT_LENGTH:
+            continue
+        digest = hashlib.sha256(output.encode()).hexdigest()
+        if event.get("output_sha256") != digest or not event.get("source_fingerprint"):
+            continue
+        if require_terminal and not any(
+            item.get("event")=="checkpoint_verified"
+            and item.get("state")==ExecutionState.VERIFIED.value
+            and item.get("output_sha256")==digest
+            for item in events
+        ):
+            continue
+        return output
+    return None
+
+def validated_output_from_audit(path:Path,execution_id:str,criteria:CompletionCriteria,*,audit_store:ExecutionAuditStore|None=None) -> str | None:
+    """Return a requested artifact only when its terminal audit chain verifies."""
+    if not criteria.requires_output:return None
+    store=audit_store if audit_store is not None else _ACTIVE_AUDIT_STORE.get()
+    if store is not None:
+        if not store.verify():return None
+        events=store.events(execution_id)
+    else:
+        if not verify_execution_audit(path):return None
+        events=_audit_events(path,execution_id)
+    return _validated_audit_output(events,criteria,require_terminal=True)
+
+def _audit_has_verified_completion(path,execution_id,plan,criteria:CompletionCriteria):
     events=_audit_events(path,execution_id)
     verified_steps={str(item.get("step_id")) for item in events if item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id")}
     terminal=any(item.get("event")=="checkpoint_verified" and item.get("state")==ExecutionState.VERIFIED.value for item in events)
-    return all(step.step_id in verified_steps for step in plan.steps) and terminal
+    output=_validated_audit_output(events,criteria,require_terminal=True)
+    return (all(step.step_id in verified_steps for step in plan.steps) and terminal and output is not None),output
 
 def _verified_steps_from_audit(path,execution_id):
     completed=set()
-    if not path.exists():return completed
-    try:lines=path.read_text(encoding="utf-8").splitlines()
-    except OSError:return completed
-    for line in lines:
-        try:item=json.loads(line)
-        except (TypeError,ValueError):continue
-        if isinstance(item,dict) and item.get("execution_id")==execution_id and item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id"):completed.add(str(item["step_id"]))
+    for item in _audit_events(path,execution_id):
+        if item.get("event")=="tool_result" and item.get("result")=="success" and item.get("verification")=="verified" and item.get("step_id"):
+            completed.add(str(item["step_id"]))
     return completed
 
 def _remember(memory,project,*,task=None,tool=None,execution_id="",outcome="",attempts=0):
@@ -90,19 +147,18 @@ def _remember(memory,project,*,task=None,tool=None,execution_id="",outcome="",at
         if tool is not None:memory.record_tool_execution(project,tool,execution_id=execution_id,outcome=outcome,attempts=attempts)
     except Exception:return
 def _has_unfinished_execution(path,execution_id):
-    if not path.exists():return False
-    terminal={ExecutionState.VERIFIED.value,ExecutionState.FAILED.value,ExecutionState.BLOCKED.value};last=None
-    try:
-        lines=path.read_text(encoding="utf-8").splitlines()
-        for line in lines:
-            if not line.strip():continue
-            item=json.loads(line)
-            if isinstance(item,dict) and item.get("execution_id")==execution_id:last=str(item.get("state",""))
-    except (OSError,UnicodeError,json.JSONDecodeError):
-        raise ValueError("execution audit contains an invalid record")
+    terminal={ExecutionState.VERIFIED.value,ExecutionState.PARTIAL.value,ExecutionState.FAILED.value,ExecutionState.BLOCKED.value}
+    try:events=_audit_events(path,execution_id)
+    except (OSError,UnicodeError,json.JSONDecodeError):raise ValueError("execution audit contains an invalid record")
+    last=None
+    for item in events:
+        if item.get("event")=="specialist_provider_route":continue
+        last=str(item.get("state",""))
     return last==ExecutionState.RUNNING.value or (last is not None and last not in terminal)
-def recover_execution(execution_id,audit_path):
-    if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
+@_use_audit_store
+def recover_execution(execution_id,audit_path,*,audit_store:ExecutionAuditStore|None=None):
+    store=_ACTIVE_AUDIT_STORE.get()
+    if not (store.verify() if store is not None else verify_execution_audit(audit_path)):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
     try:unfinished=_has_unfinished_execution(audit_path,execution_id)
     except ValueError as exc:return ExecutionResult(ExecutionState.BLOCKED,str(exc),0,(),str(audit_path))
     if unfinished:return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"interrupted execution requires fresh authorization; automatic replay is disabled",0,(),str(audit_path))
@@ -125,18 +181,21 @@ def _validate_application_tool(tool):
     return tool.capability==Capability.APPLICATION.value and tool.network_requirement.value=="none" and tool.authentication_requirement.value=="none" and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name in {"application.list","application.inspect","application.observe","application.command.execute"}
 def _validate_computer_tool(tool):
     return tool.capability==Capability.COMPUTER.value and tool.network_requirement.value in {"none","required"} and tool.sandbox_requirement.value=="required" and tool.audit_requirement.value=="required" and tool.name.startswith("computer.")
-def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
+@_use_audit_store
+def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),explicitly_approved=False,origin_trust:TrustLevel=TrustLevel.USER,sandbox_available=True,audit_path:Path,execution_id:str,registry:ToolRegistry=REGISTRY,max_retries=0,timeout_seconds=30,output_limit=MAX_OUTPUT_BYTES,memory:CrossProjectMemory|None=None,project="local",web_connector:Any=None,web_request:Mapping[str,Any]|None=None,workspace_connector:Any=None,workspace_request:Mapping[str,Any]|None=None,gmail_connector:Any=None,gmail_request:Mapping[str,Any]|None=None,calendar_connector:Any=None,calendar_request:Mapping[str,Any]|None=None,browser_connector:Any=None,browser_request:Mapping[str,Any]|None=None,documents_connector:Any=None,documents_request:Mapping[str,Any]|None=None,application_connector:Any=None,application_request:Mapping[str,Any]|None=None,computer_connector:Any=None,computer_request:Mapping[str,Any]|None=None,checkpoint_path:Path|None=None,checkpoint_store:CheckpointStore|None=None,audit_store:ExecutionAuditStore|None=None,rest_connector:Any=None,rest_request:Mapping[str,Any]|None=None,budget_ledger:BudgetLedger|None=None,telemetry:TelemetryBuffer|None=None,admission_request:AdmissionRequest|None=None,readiness_report:ReadinessReport|None=None,production_audit:ProductionAudit|None=None)->ExecutionResult:
     started_monotonic=monotonic()
     last_budget_monotonic=started_monotonic
     granted=tuple(granted)
     if not execution_id.strip():return ExecutionResult(ExecutionState.BLOCKED,"execution identity is required",0,(),str(audit_path))
     if not plan.executable:return ExecutionResult(ExecutionState.BLOCKED,"task plan is not executable",0,(),str(audit_path))
     if not sandbox_available:return ExecutionResult(ExecutionState.BLOCKED,"sandbox is unavailable",0,(),str(audit_path))
-    if not verify_execution_audit(audit_path):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
-    checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
+    audit_backend=_ACTIVE_AUDIT_STORE.get()
+    if not (audit_backend.verify() if audit_backend is not None else verify_execution_audit(audit_path)):return ExecutionResult(ExecutionState.BLOCKED,"execution audit chain is invalid",0,(),str(audit_path))
+    if checkpoint_store is None:checkpoint_store=ExecutionCheckpointStore(checkpoint_path or audit_path.with_suffix(".checkpoint.json"))
     task_digest=hashlib.sha256(plan.task.encode()).hexdigest()
     plan_digest=plan.audit.plan_digest
     authorization_digest=_authorization_digest(granted, explicitly_approved, plan, registry)
+    criteria=criteria_for(plan.task,root=root)
     if admission_request is not None:
         if readiness_report is None or production_audit is None:
             _audit(audit_path,execution_id,ExecutionState.BLOCKED,reason="admission evidence is incomplete",event="admission_blocked")
@@ -154,11 +213,13 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
         if checkpoint.execution_id!=execution_id or checkpoint.task_digest!=task_digest or checkpoint.plan_digest!=plan_digest or checkpoint.authorization_digest!=authorization_digest:
             return ExecutionResult(ExecutionState.BLOCKED,"execution checkpoint does not match this task",0,(),str(audit_path))
         if checkpoint.state=="verified":
-            try:verified=_audit_has_verified_completion(audit_path,execution_id,plan)
+            try:verified,stored_output=_audit_has_verified_completion(audit_path,execution_id,plan,criteria)
             except (OSError,UnicodeError,json.JSONDecodeError,ValueError) as exc:return ExecutionResult(ExecutionState.BLOCKED,f"execution audit cannot verify checkpoint: {type(exc).__name__}",checkpoint.total_attempts,(),str(audit_path))
             if verified:
-                return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by trusted audit and durable checkpoint",checkpoint.total_attempts,(),str(audit_path))
-            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims verified execution without matching trusted audit evidence",checkpoint.total_attempts,(),str(audit_path))
+                return ExecutionResult(ExecutionState.VERIFIED,"execution already verified by trusted audit and durable checkpoint",checkpoint.total_attempts,(),str(audit_path),stored_output or "")
+            return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"checkpoint claims verified execution without matching trusted audit and requested-output evidence",checkpoint.total_attempts,(),str(audit_path))
+        if checkpoint.state=="partial":
+            return ExecutionResult(ExecutionState.PARTIAL,"requested output was not validated; use a new authorized execution to retry",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="failed":
             return ExecutionResult(ExecutionState.RECOVERY_REQUIRED,"failed execution checkpoint requires explicit recovery; automatic replay is disabled",checkpoint.total_attempts,(),str(audit_path))
         if checkpoint.state=="blocked":
@@ -267,5 +328,25 @@ def execute_plan(plan:TaskPlan,root:Path,*,granted:Iterable[Capability|str]=(),e
     if not completed_step_ids or len(completed_step_ids)<len(plan.steps):
         checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.FAILED.value,completed_step_ids=tuple(s.step_id for s in plan.steps if s.step_id in completed_step_ids),total_attempts=total_attempts)
         return ExecutionResult(ExecutionState.FAILED,"post-action verification failed",total_attempts,tuple(results),str(audit_path))
+    assessment=assess_completion(criteria,tuple(s.tool_name for s in plan.steps),tuple(results),workspace_request)
+    stored_output=None
+    if criteria.requires_output and not assessment.accepted:
+        # After a crash between writing the validated artifact and the terminal
+        # checkpoint, resume from hash-chained evidence, not a fresh read.
+        stored_output=_validated_audit_output(_audit_events(audit_path,execution_id),criteria,require_terminal=False)
+    if criteria.requires_output and not assessment.accepted and stored_output is None:
+        checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.PARTIAL.value,completed_step_ids=tuple(s.step_id for s in plan.steps),total_attempts=total_attempts)
+        _audit(audit_path,execution_id,ExecutionState.PARTIAL,event="output_not_produced",reason=assessment.reason,criteria_digest=criteria.digest)
+        _remember(memory,project,execution_id=execution_id,outcome="partial",attempts=total_attempts)
+        return ExecutionResult(ExecutionState.PARTIAL,assessment.reason,total_attempts,tuple(results),str(audit_path))
+    validated_output=assessment.output if assessment.accepted else (stored_output or "")
+    output_sha256=hashlib.sha256(validated_output.encode()).hexdigest() if validated_output else ""
+    if validated_output and stored_output is None:
+        _audit(audit_path,execution_id,ExecutionState.RUNNING,event="output_validated",criteria_digest=criteria.digest,
+               source_fingerprint=assessment.source_fingerprint,output_sha256=output_sha256,output=validated_output)
     checkpoint_store.save(execution_id=execution_id,task_digest=task_digest,plan_digest=plan_digest,authorization_digest=authorization_digest,state=ExecutionState.VERIFIED.value,completed_step_ids=tuple(s.step_id for s in plan.steps),total_attempts=total_attempts)
-    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts,event="checkpoint_verified");_remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts);return ExecutionResult(ExecutionState.VERIFIED,"all planned actions executed and verified through the existing sandbox",total_attempts,tuple(results),str(audit_path))
+    _audit(audit_path,execution_id,ExecutionState.VERIFIED,attempts=total_attempts,event="checkpoint_verified",output_sha256=output_sha256)
+    _remember(memory,project,execution_id=execution_id,outcome="verified",attempts=total_attempts)
+    return ExecutionResult(ExecutionState.VERIFIED,
+                           assessment.reason if validated_output else "all planned actions executed and verified through the existing sandbox",
+                           total_attempts,tuple(results),str(audit_path),validated_output)

@@ -75,7 +75,7 @@ def pending_action(status: str = "pending"):
         "high",
         "reviewed candidate",
         status,
-        "2026-09-21T00:00:00+00:00",
+        datetime.now(timezone.utc).isoformat(),
     )
 
 
