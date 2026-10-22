@@ -1099,6 +1099,7 @@ def test_hosted_postgres_http_routes_use_only_coordinated_state(coordinator, tmp
 
         status, timeline = request("/api/missions/" + mission_id + "/timeline")
         assert status == 200 and timeline["timeline"]
+        assert all(item.get("timestamp") for item in timeline["timeline"])
         status, memory = request("/api/missions/" + mission_id + "/memory")
         assert status == 200 and memory["memory"]
         

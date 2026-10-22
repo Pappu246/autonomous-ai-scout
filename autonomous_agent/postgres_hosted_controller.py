@@ -139,7 +139,7 @@ class PostgresHostedMissionController:
                 "sequence": item.sequence,
                 "event": item.kind,
                 "state": str(payload.get("state", payload.get("decision", ""))),
-                "timestamp": "",
+                "timestamp": item.created_at,
                 "execution_id": item.execution_id,
                 "reason": _safe_text(payload.get("reason", ""), 1000),
                 "output": _safe_text(payload.get("output", ""), 8192),

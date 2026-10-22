@@ -106,6 +106,7 @@ class AuditEvent:
     previous_hash: str
     event_hash: str
     payload: dict[str, object]
+    created_at: str = ""
 
 
 class PostgresMissionCoordinator:
@@ -423,14 +424,14 @@ class PostgresMissionCoordinator:
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                      (self.namespace + ":" + event,))
         prior = conn.execute(
-            """SELECT stream_id, sequence, event_kind, execution_id, previous_hash, event_hash, payload
+            """SELECT stream_id, sequence, event_kind, execution_id, previous_hash, event_hash, payload, created_at
                FROM scout_state.audit_events WHERE namespace = %s AND event_id = %s""",
             (self.namespace, event),
         ).fetchone()
         if prior is not None:
             if prior[0] != stream or prior[2] != event_kind or prior[3] != execution or prior[6] != document:
                 raise IdentityConflict("audit event ID was reused with different content")
-            return AuditEvent(prior[1], event, event_kind, execution, prior[4], prior[5], prior[6])
+            return AuditEvent(prior[1], event, event_kind, execution, prior[4], prior[5], prior[6], prior[7].isoformat())
         conn.execute(
             """INSERT INTO scout_state.audit_heads (namespace, stream_id) VALUES (%s, %s)
                ON CONFLICT (namespace, stream_id) DO NOTHING""", (self.namespace, stream),
@@ -445,20 +446,21 @@ class PostgresMissionCoordinator:
                              previous, document], sort_keys=True, separators=(",", ":"),
                             ensure_ascii=True).encode("utf-8")
         event_hash = hashlib.sha256(sealed).hexdigest()
-        conn.execute(
+        created_at = conn.execute(
             """INSERT INTO scout_state.audit_events
                (namespace, stream_id, sequence, event_id, event_kind, execution_id,
                 previous_hash, event_hash, payload)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING created_at""",
             (self.namespace, stream, sequence, event, event_kind, execution,
              previous, event_hash, Jsonb(document)),
-        )
+        ).fetchone()[0].isoformat()
         conn.execute(
             """UPDATE scout_state.audit_heads SET sequence = %s, event_hash = %s
                WHERE namespace = %s AND stream_id = %s""",
             (sequence, event_hash, self.namespace, stream),
         )
-        return AuditEvent(sequence, event, event_kind, execution, previous, event_hash, document)
+        return AuditEvent(sequence, event, event_kind, execution, previous, event_hash, document, created_at)
 
     def append_event(self, stream_id: str, event_id: str, kind: str,
                      execution_id: str, payload: Mapping[str, object]) -> AuditEvent:
@@ -486,7 +488,7 @@ class PostgresMissionCoordinator:
             # corrupt audit head while verifying the whole bounded chain.
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             rows = conn.execute(
-                """SELECT sequence, event_id, event_kind, execution_id, previous_hash, event_hash, payload
+                """SELECT sequence, event_id, event_kind, execution_id, previous_hash, event_hash, payload, created_at
                    FROM scout_state.audit_events WHERE namespace = %s AND stream_id = %s
                    ORDER BY sequence LIMIT %s""", (self.namespace, stream, _MAX_AUDIT_EVENTS + 1),
             ).fetchall()
@@ -498,7 +500,7 @@ class PostgresMissionCoordinator:
             raise CoordinatorUnavailable("audit stream exceeds the bounded verifier; archive under review")
         result: list[AuditEvent] = []
         previous = ""
-        for sequence, event_id, kind, execution, prior, saved_hash, payload in rows:
+        for sequence, event_id, kind, execution, prior, saved_hash, payload, created_at in rows:
             if sequence != len(result) + 1 or prior != previous:
                 raise CoordinatorUnavailable("audit sequence is corrupt")
             sealed = json.dumps([self.namespace, stream, sequence, event_id, kind, execution,
@@ -506,7 +508,7 @@ class PostgresMissionCoordinator:
                                 ensure_ascii=True).encode("utf-8")
             if hashlib.sha256(sealed).hexdigest() != saved_hash:
                 raise CoordinatorUnavailable("audit hash chain is corrupt")
-            result.append(AuditEvent(sequence, event_id, kind, execution, prior, saved_hash, payload))
+            result.append(AuditEvent(sequence, event_id, kind, execution, prior, saved_hash, payload, created_at.isoformat()))
             previous = saved_hash
         if (head is None and rows) or (head is not None and head != (len(result), previous)):
             raise CoordinatorUnavailable("audit head disagrees with committed event chain")
