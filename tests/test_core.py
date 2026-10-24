@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from autonomous_agent.action_queue import PendingAction, build_action_proposal, enqueue_proposal, load_queue, prioritize_queue
 from autonomous_agent.approved_executor import ApprovalRecord, authorize_execution, execute_approved_action
 from autonomous_agent.benchmark import BenchmarkResult, benchmark_groq
@@ -232,11 +234,20 @@ def test_approval_queue_prioritizes_risk_without_auto_approval():
 
 def test_approval_queue_caps_pending_actions(tmp_path: Path):
     path = tmp_path / "approval_queue.json"
+    accepted_ids = set()
     for i in range(60):
         proposal = build_action_proposal(f"fix bug {i}", ("edit the source",))
-        enqueue_proposal(path, proposal, "low")
+        if i < 50:
+            accepted = enqueue_proposal(path, proposal, "low")
+            assert accepted is not None
+            accepted_ids.add(accepted.id)
+        else:
+            # A full queue must not return a nonexistent approval ID.
+            with pytest.raises(RuntimeError, match="full"):
+                enqueue_proposal(path, proposal, "low")
     queue = load_queue(path)
     assert len(queue) == 50
+    assert {item.id for item in queue} == accepted_ids
 
 
 def test_opportunity_history_records_score_delta_and_caps_length(tmp_path: Path):

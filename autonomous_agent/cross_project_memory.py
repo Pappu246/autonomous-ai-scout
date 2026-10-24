@@ -162,24 +162,65 @@ class CrossProjectMemory:
             return False
         return True
 
-    def _record_unlocked(self, event: MemoryEvent) -> bool:
+    def _record_unlocked(self, event: MemoryEvent, *, strict: bool = False) -> bool:
         entries, valid = self._load()
         if not valid:
+            if strict:
+                raise RuntimeError("memory store is unreadable")
             return False
-        entries.append(
-            {
-                "project": _safe_text(event.project),
-                "kind": _safe_text(event.kind),
-                "fingerprint": _digest(event.project, event.kind, event.fingerprint),
-                "outcome": _safe_text(event.outcome),
-                "data": _safe_data(event.data),
-            }
-        )
-        return self._save(entries)
 
-    def record(self, event: MemoryEvent) -> bool:
+        def persist(updated: list[dict[str, Any]]) -> bool:
+            saved = self._save(updated)
+            if strict and not saved:
+                raise RuntimeError("memory store could not be persisted")
+            return saved
+
+        project = _safe_text(event.project)
+        kind = _safe_text(event.kind)
+        fingerprint = _digest(event.project, event.kind, event.fingerprint)
+        replacement = {
+            "project": project,
+            "kind": kind,
+            "fingerprint": fingerprint,
+            "outcome": _safe_text(event.outcome),
+            "data": _safe_data(event.data),
+        }
+        matches = [
+            index
+            for index, item in enumerate(entries)
+            if item.get("project") == project
+            and item.get("kind") == kind
+            and item.get("fingerprint") in {fingerprint, _safe_text(event.fingerprint)}
+        ]
+
+        if not matches:
+            entries.append(replacement)
+            return persist(entries)
+
+        # A fingerprint identifies one logical memory item. Update it in place
+        # rather than appending duplicate copies when the same task is recorded
+        # on submission, completion, or retry.
+        target = matches[-1]
+        existing = entries[target]
+        unchanged = (
+            existing.get("outcome") == replacement["outcome"]
+            and existing.get("data") == replacement["data"]
+        )
+        if unchanged and len(matches) == 1:
+            return False
+
+        duplicate_indices = set(matches)
+        updated: list[dict[str, Any]] = []
+        for index, item in enumerate(entries):
+            if index not in duplicate_indices:
+                updated.append(item)
+            elif index == target:
+                updated.append(replacement)
+        return persist(updated)
+
+    def record(self, event: MemoryEvent, *, strict: bool = False) -> bool:
         with self._process_lock:
-            return self._record_unlocked(event)
+            return self._record_unlocked(event, strict=strict)
 
     def _has_unlocked(self, *, project, kind, fingerprint) -> bool:
         entries, valid = self._load()
@@ -319,10 +360,12 @@ class CrossProjectMemory:
             MemoryEvent(project, "change", fingerprint, "detected", {"subject": subject})
         )
 
-    def learn(self, project, *, kind=None):
+    def learn(self, project, *, kind=None, strict: bool = False):
         with self._process_lock:
             entries, valid = self._load()
             if not valid:
+                if strict:
+                    raise RuntimeError("memory store is unreadable")
                 return ()
             p = _safe_text(project)
             k = _safe_text(kind) if kind is not None else None

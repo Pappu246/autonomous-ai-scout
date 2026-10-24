@@ -99,6 +99,7 @@ print(result.state, result.reason)
 ```
 
 Full design, guarantees and limitations:
+- [Vercel Services deployment](docs/DEPLOYMENT_VERCEL_SERVICES.md)
 - [Phase 1 — Universal Digital Agent Foundation](PHASE1_UNIVERSAL_DIGITAL_AGENT.md)
 - [Phase 2 — Bounded Windows Computer Control](PHASE2_WINDOWS_COMPUTER_CONTROL.md)
 - [Phase 4 — Bounded Application and Documents Domains](PHASE4_APPLICATION_DOCUMENTS.md)
@@ -304,7 +305,8 @@ The HTTP interface returns a mission record with its mission ID, execution ID, s
 | `pending` | accepted and waiting for the worker |
 | `running` | currently executing |
 | `requires_approval` | blocked until a human approves the proposed side effect |
-| `verified` | execution completed and verification succeeded |
+| `verified` | the requested outcome has execution and verification evidence |
+| `partial` | bounded tool evidence exists, but the requested synthesis or mission memory was not completed; no full-success claim |
 | `failed` | execution failed; inspect Timeline and use Resume when allowed |
 | `recovery_required` | external outcome is uncertain and requires reconciliation/recovery |
 | `blocked` | the requested goal cannot safely execute with the currently available capabilities |
@@ -961,69 +963,21 @@ runs remain terminal. A process interruption leaves an execution marker and does
 not retry automatically. The worker creates only a draft PR and observes CI; it
 never auto-merges or deploys.
 
-## Current status
+## Current status — 2026-10-17 audit snapshot
 
-**Current mainline baseline:** `d68ec62d335a5ebfb474ba928c73eb2f01f7d905`
+The operational-readiness notes below include a historical 2026-09-30 snapshot. Use the dated [security and validation reports](reports/SECURITY_AUDIT.md), current pull request and exact-head checks for release status; do not treat an earlier green run as evidence for later code.
 
-The current repository is **implementation-complete for the audited autonomy/control layers**, with
-the remaining gaps explicitly separated into live-environment and GitHub-administration boundaries.
+### Current deployment candidate
 
-### Verified repository state
+- PR [#280 — Mission Control and Vercel deployment](https://github.com/Pappu246/autonomous-ai-scout/pull/280) was OPEN at head `ddacb45a0bba386ed0d6b0a9887f1600be608e32` when audited. The last READY Vercel Preview's metadata names that commit; Production was not verified as deployed.
+- Exact-head historical checks: [CI](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205590), [Windows Computer Smoke](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205794), and [Container Build](https://github.com/Pappu246/autonomous-ai-scout/actions/runs/38777205652) passed for that PR head. These do **not** validate the additional changes on this Arena review branch.
+- The [flagged branch hostname](https://autonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app/) redirected unauthenticated GETs to Vercel SSO rather than showing the former workspace password form. No authenticated live mission/browser session was available to this audit.
+- [Google's official Safe Browsing status for the exact fully qualified URL](https://transparencyreport.google.com/safe-browsing/search?url=https%3A%2F%2Fautonomous-ai-scout-git-fix-rebased-m-d1475b-pappu246s-projects.vercel.app%2F) still said **unsafe** (site info updated Oct 16, 2026). An app-side change or green build cannot clear Google's classification by itself.
+- [Review PR #282](https://github.com/Pappu246/autonomous-ai-scout/pull/282) adds validated two-fact output, a fenced PostgreSQL coordinator, and a limited `PostgresHostedMissionController` behind Preview-only backend/DSN/namespace checks. The pilot supports **local read-only missions only**; network tools, mutations, approval activation, explicit plans/DAGs and automatic resume stay disabled. `BLOB_READ_WRITE_TOKEN` alone does not provide fenced leases, and legacy hosted JSON/Blob state remains blocked. Exact-head CI, Windows smoke, and container build are green, and isolated PostgreSQL E2E tests cover submit → execute → verified output → durable timeline/memory readback. The hosted pilot is **not live-verified**: a dedicated DB and scoped runtime connection are still blocked by Supabase project quota/billing and need an owner-approved provisioning path. PR #282 remains open/unmerged; Production must not be promoted without separate explicit approval.
 
-- Core canonical autonomous lifecycle: **verified**
-- Durable queue/lease/side-effect/trigger/audit/lifecycle/memory coordination: **verified**
-- Native Windows computer control: **verified**
-- Adaptive computer execution: **verified**
-- Bounded provider failure/retry handling: **verified**
-- Dedicated computer final visual verification: **verified**
-- Automatic Windows computer smoke workflow: **verified**
-- Open pull requests: **0**
-- Open issues: **0**
-- Latest mainline CI: **PASS** on exact SHA `d68ec62d335a5ebfb474ba928c73eb2f01f7d905` (run **36748455217**)
-- Latest post-merge Windows smoke: **5 passed, 1 skipped**
+### Historical operational readiness
 
-### Live evidence already established
-
-- Scheduled Scout generation + publication path: **live-verified**
-- Approval-gated GitHub worker branch/commit/draft-PR path: **live-verified**
-- Normal pull-request CI path after worker-created change: **live-verified**
-- Scheduled publication revalidated on **2026-09-30** (workflow run **36684385846**); Scout and Publish both succeeded and state branch advanced to **72e823d**.
-
-### Still requiring real external evidence
-
-- Coding-provider execution needs operator credentials and a legitimate target workspace.
-- Gmail/Calendar/application/document external-account smoke tests need legitimate connected accounts.
-- Main branch protection and required-check administration require GitHub repository administration.
-- No formal GitHub release/tag is currently published.
-
-These boundaries are deliberately reported as **not verified**, rather than being represented as
-completed by deterministic tests alone.
-
-### Readiness gate
-
-The authoritative current gate matrix is:
-[Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md)
-
-The 2026-09-30 Scout secret-scan finding was traced to deliberate PEM test-fixture text. The fixture was rewritten without changing the security assertion, and the reproducibility gap was closed with the checked-in dependency snapshot. The next scheduled Scout report is the independent operational confirmation point for those findings.
-
-
-The Python CI and scheduled Scout workflows now consume the checked-in `requirements.lock` resolution snapshot after editable installation, so the tested dependency set is explicit rather than resolved from floating ranges at runtime.
-
-Do not start another feature phase by skipping a gate. Finish the current gate, verify it with
-evidence, then advance.
-
-### Runtime readiness check
-
-Run the local prerequisite doctor before attempting an external coding run:
-
-```bash
-autonomous-scout-doctor --root .
-```
-
-The doctor reports whether coding-provider routes are configured and whether each configured
-credential environment variable is present. It never prints credential values. A missing
-provider route or credential is reported as unavailable instead of being replaced with an
-implicit fallback.
+The readiness reconciliation dated 2026-09-30 is retained as historical evidence in [Operational Readiness — 2026-09-30](docs/OPERATIONAL_READINESS_20260930.md). Its commit IDs, pull-request counts, and run IDs describe that dated snapshot only; they are not current-state claims.
 
 ## Documentation
 - [Phase 13 — Live GitHub Worker Evidence](PHASE13_LIVE_WORKER_EVIDENCE.md)
@@ -1095,7 +1049,7 @@ The local runtime now exposes a Mission Control surface at:
 
 http://127.0.0.1:8000/
 
-It accepts a natural-language mission, persists it in the durable queue, executes it through the canonical runtime worker, and exposes mission status through /api/missions. It does not introduce a second authorization system.
+In local single-host mode without Blob/Vercel markers, it accepts a natural-language mission, persists it in the file-backed queue, executes it through the canonical runtime worker, and exposes status through `/api/missions`. Hosted/Blob-configured execution is paused pending atomic coordination; it does not introduce a second authorization system.
 
 
 ### Specialist provider routing

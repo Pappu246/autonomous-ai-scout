@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+
+from .file_lock import InterProcessFileLock
 
 
 class ActionStatus(str, Enum):
@@ -52,6 +55,10 @@ MAX_PENDING_ACTIONS = 50
 MAX_PENDING_AGE = timedelta(days=7)
 
 
+class ApprovalQueueCorruptError(RuntimeError):
+    """Existing approval state is unreadable; never treat it as an empty queue."""
+
+
 def _sensitive(text: str) -> bool:
     lowered = text.lower()
     markers = (
@@ -81,37 +88,58 @@ def _id(proposal: ActionProposal, risk: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def load_queue(path: Path) -> list[PendingAction]:
+def _load_queue_unlocked(path: Path) -> list[PendingAction]:
     if not path.exists():
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
+    except (OSError, ValueError) as exc:
+        raise ApprovalQueueCorruptError("approval queue is unreadable") from exc
     if not isinstance(data, list):
-        return []
+        raise ApprovalQueueCorruptError("approval queue has an invalid schema")
     result = []
     for item in data:
         if not isinstance(item, dict):
-            continue
+            raise ApprovalQueueCorruptError("approval queue contains an invalid action")
         try:
-            result.append(PendingAction(str(item["id"]), str(item["task"]), tuple(item.get("steps", [])),
-                                       str(item["risk"]), str(item["reason"]), str(item.get("status", "pending")),
-                                       str(item.get("created_at", ""))))
-        except (KeyError, TypeError):
-            continue
+            action_id, task, steps = item["id"], item["task"], item["steps"]
+            risk, reason = item["risk"], item["reason"]
+            status = item.get("status", "pending")
+            created_at = item.get("created_at", "")
+        except KeyError as exc:
+            raise ApprovalQueueCorruptError("approval queue contains an invalid action") from exc
+        if (not isinstance(action_id, str) or not action_id
+                or not isinstance(task, str) or not task
+                or not isinstance(steps, list) or not all(isinstance(step, str) for step in steps)
+                or not isinstance(risk, str) or not isinstance(reason, str)
+                or status not in {"pending", "approved", "rejected", "blocked", "completed", "proposed", "executed"}
+                or not isinstance(created_at, str)):
+            raise ApprovalQueueCorruptError("approval queue contains an invalid action")
+        result.append(PendingAction(action_id, task, tuple(steps), risk, reason, status, created_at))
     return result
 
 
+def load_queue(path: Path) -> list[PendingAction]:
+    # This lock protects one local host. Hosted/Blob-configured calls fail
+    # closed before reading per-container state until fencing is available.
+    # Call _load_queue_unlocked only while the same path lock is held.
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        return _load_queue_unlocked(path)
+
+
 def _is_stale(item: PendingAction, now: datetime) -> bool:
-    if item.status != "pending" or not item.created_at:
+    if item.status != "pending":
         return False
+    if not item.created_at:
+        return True  # An undated approval cannot establish its validity window.
     try:
         created = datetime.fromisoformat(item.created_at.replace("Z", "+00:00"))
     except ValueError:
-        return False
+        return True
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
+    if created > now + timedelta(minutes=5):
+        return True
     return now - created > MAX_PENDING_AGE
 
 
@@ -136,14 +164,27 @@ def enqueue_proposal(path: Path, proposal: ActionProposal, risk: str = "medium")
     normalized_risk = risk.lower() if risk.lower() in RISK_PRIORITY else "medium"
     action = PendingAction(_id(proposal, normalized_risk), _safe_text(proposal.task), tuple(_safe_text(step, 2048) for step in proposal.steps[:12]), normalized_risk,
                            _safe_text(proposal.reason, 2048), "pending", datetime.now(timezone.utc).isoformat())
-    queue = expire_stale_actions(load_queue(path))
-    for item in queue:
-        if item.id == action.id and item.status == "pending":
-            return item
-    queue.append(action)
-    pending = prioritize_queue([item for item in queue if item.status == "pending"])
-    non_pending = [item for item in queue if item.status != "pending"]
-    queue = pending[:MAX_PENDING_ACTIONS] + non_pending
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps([asdict(item) for item in queue], indent=2) + "\n", encoding="utf-8")
+    with InterProcessFileLock(path.with_name(path.name + ".lock")):
+        queue = expire_stale_actions(_load_queue_unlocked(path))
+        for item in queue:
+            if (item.status == "pending" and (item.task, item.steps, item.risk, item.reason)
+                    == (action.task, action.steps, action.risk, action.reason)):
+                return item
+        if sum(item.status == "pending" for item in queue) >= MAX_PENDING_ACTIONS:
+            raise RuntimeError("approval queue is full; no new action was persisted")
+        # A decided action's ID and private approval record must never be
+        # recycled for a later request with identical text. Pending requests
+        # remain idempotent by definition, not by reusing an old decision.
+        used_ids = {item.id for item in queue}
+        if action.id in used_ids:
+            base = action.id
+            while action.id in used_ids:
+                action = PendingAction(f"{base}-{secrets.token_hex(8)}", action.task,
+                                       action.steps, action.risk, action.reason,
+                                       action.status, action.created_at)
+        queue.append(action)
+        pending = prioritize_queue([item for item in queue if item.status == "pending"])
+        non_pending = [item for item in queue if item.status != "pending"]
+        path.write_text(json.dumps([asdict(item) for item in pending + non_pending], indent=2) + "\n", encoding="utf-8")
     return action

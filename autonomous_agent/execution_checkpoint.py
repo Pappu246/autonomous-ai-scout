@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Protocol
 
 
 SCHEMA_VERSION = 2
@@ -25,6 +26,24 @@ class ExecutionCheckpoint:
     @property
     def next_step_index(self) -> int:
         return len(self.completed_step_ids)
+
+
+class CheckpointStore(Protocol):
+    """Storage contract shared by local and claim-fenced checkpoint backends."""
+
+    def load(self) -> ExecutionCheckpoint | None: ...
+
+    def save(
+        self,
+        *,
+        execution_id: str,
+        task_digest: str,
+        plan_digest: str,
+        authorization_digest: str,
+        state: str,
+        completed_step_ids: tuple[str, ...],
+        total_attempts: int,
+    ) -> ExecutionCheckpoint: ...
 
 
 class ExecutionCheckpointStore:
@@ -109,4 +128,4 @@ class ExecutionCheckpointStore:
         return checkpoint
 
 
-__all__ = ["ExecutionCheckpoint", "ExecutionCheckpointStore", "SCHEMA_VERSION"]
+__all__ = ["CheckpointStore", "ExecutionCheckpoint", "ExecutionCheckpointStore", "SCHEMA_VERSION"]

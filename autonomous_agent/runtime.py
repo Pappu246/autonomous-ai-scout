@@ -7,11 +7,14 @@ from typing import Any, Iterable, Mapping
 
 from .capability_policy import Capability
 from .cross_project_memory import CrossProjectMemory
+from .execution_audit import ExecutionAuditStore
+from .execution_checkpoint import CheckpointStore
 from .execution_engine import ExecutionResult, ExecutionState
 from .run_journal import append_run_record, make_run_record, read_run_records, summarize_run_records
 from .task_core import AutonomousTaskCore
 from .task_plan_models import TaskPlan
 from .tool_registry import REGISTRY, ToolRegistry
+from .vercel_state import require_atomic_state_coordinator
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "state" / "runtime_execution.jsonl"
@@ -32,6 +35,8 @@ def run_task(
     journal_path: Path = JOURNAL_PATH,
     execution_id: str | None = None,
     checkpoint_path: Path | None = None,
+    checkpoint_store: CheckpointStore | None = None,
+    audit_store: ExecutionAuditStore | None = None,
     registry: ToolRegistry = REGISTRY,
     browser_connector: Any = None,
     browser_request: Mapping[str, Any] | None = None,
@@ -50,6 +55,9 @@ def run_task(
     granted: Iterable[Capability | str] | None = None,
     explicitly_approved: bool = False,
 ) -> ExecutionResult:
+    # A direct CLI/function caller must not bypass the HTTP/worker readiness
+    # gate and perform tools before discovering that Blob state is unfenced.
+    require_atomic_state_coordinator()
     execution_id = execution_id or os.urandom(8).hex()
     checkpoint_path = checkpoint_path or root / "state" / "runtime_checkpoints" / f"{execution_id}.json"
     core = AutonomousTaskCore(registry=registry)
@@ -81,6 +89,8 @@ def run_task(
         audit_path=audit_path,
         execution_id=execution_id,
         checkpoint_path=checkpoint_path,
+        checkpoint_store=checkpoint_store,
+        audit_store=audit_store,
         memory=memory,
         project=project,
         browser_connector=browser_connector,
