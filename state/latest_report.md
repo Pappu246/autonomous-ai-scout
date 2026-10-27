@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-10-27T01:02:33.330091+00:00
+Generated: 2026-10-27T06:54:36.679195+00:00
 Meaningful change: YES
 
 ## Verified free candidates
