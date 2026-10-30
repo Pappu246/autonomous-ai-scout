@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-10-30T09:08:01.238833+00:00
+Generated: 2026-10-30T16:18:17.213818+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -27,6 +27,6 @@ Meaningful change: YES
 - Project intelligence performs read-only dependency, secret-pattern, test, and license checks; it never modifies source files.
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
-- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — October 27, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
+- Official release change: gemini — Release notes | Gemini API | Google AI for Developers — October 30, 2026 (https://ai.google.dev/gemini-api/docs/changelog)
 - Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
