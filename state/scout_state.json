@@ -1,25 +1,26 @@
 {
   "dashboard_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/dashboard.md",
-  "fingerprint": "dc83bdcc017b91c6cbc172fa405c05b009d3d8157b17fa20b2814281b042e0cf",
+  "fingerprint": "94f240b4624b9e4acef885fef3b8157f7381a4e69aa775cbb0a4efe4f85de525",
   "improvement_proposals": [],
-  "last_run": "2026-11-06T11:39:04.325066+00:00",
+  "last_run": "2026-11-06T18:34:36.831979+00:00",
   "last_task": "",
   "meaningful_change": true,
   "opportunity_history_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/opportunity_history.json",
   "pr_proposals": [],
   "release_hashes": {
-    "https://ai.google.dev/gemini-api/docs/changelog": "8130743e0f63bba10f14bb35a88c5e39049285347204f7c709f980cfebce849a",
-    "https://console.groq.com/docs/changelog": "51e9da6b7e7dfb98db5413df9808498b707a3dd182e2f0bc95ee342aff57ad52",
-    "https://openrouter.ai/blog/announcements/": "8ff04ba5a9b8d8362510a5625f6454992241e767352a3a3ab6e17b8ad4d23887",
+    "https://ai.google.dev/gemini-api/docs/changelog": "9904ee8f8dab34f1316beafc6a30da6be3bbd4666ac651ed5c3bd180926b51c0",
+    "https://console.groq.com/docs/changelog": "4c17b7c7994a5d9dec32b070d990ff925236071e7fcab39e10c9be450547b10f",
+    "https://openrouter.ai/blog/announcements/": "d545341061aaec1912529237dd55695c0eb5ae05d7623f8dd2cb55f8737c7531",
     "https://openrouter.ai/models?pricing=free": "0ef2caa18e72f2c0ef4063bfda3e441fd0a2c17e96fa8add627b461f26b5413c"
   },
   "report_path": "/home/runner/work/autonomous-ai-scout/autonomous-ai-scout/state/latest_report.md",
   "source_hashes": {
-    "https://ai.google.dev/gemini-api/docs/pricing": "f6432fb8ef40a7f9995caeb6fe428d513cf97b8e983434662a4412e0620891bf",
-    "https://console.groq.com/docs/rate-limits": "3adaf469f9fc149d71779d175b9a8a01092d7283eb8b88bc91985222c3e9c57b",
-    "https://openrouter.ai/pricing": "245c97fbdc5ffc7a3f7e4fc118a7e4eab3937cdab9e89a67f9329290e926a2d5"
+    "https://ai.google.dev/gemini-api/docs/pricing": "9e31b2b32df7e3a3916456c02cc38553bdc3825bcdc7816fcc779cc9a331ebcf",
+    "https://console.groq.com/docs/rate-limits": "1ddcc4845b2429afac1ea4fd7f9ce6ba02f222e057208e4a404d62e3abf05e8f",
+    "https://openrouter.ai/pricing": "45f7359bee6dc3fd1803426bbd3219c465f7a2b78fa1977dc8cc0e93ab29ce18"
   },
   "verified_free_models": [
+    "gemini/gemini-3.8-flash",
     "groq/openai/gpt-oss-120b",
     "groq/openai/gpt-oss-20b"
   ]
