@@ -1,6 +1,6 @@
 # Autonomous AI Scout Report
 
-Generated: 2026-11-16T07:24:30.519037+00:00
+Generated: 2026-11-16T17:33:21.855858+00:00
 Meaningful change: YES
 
 ## Verified free candidates
@@ -28,5 +28,5 @@ Meaningful change: YES
 - Dependency security analysis is deterministic and offline; it flags reproducibility and install-hook risks without changing dependencies.
 - Release discovery reads configured official provider changelogs only; it never activates newly discovered models or paid services automatically.
 - Official release change: gemini — Release notes - Gemini API | Google AI Studio (https://ai.google.dev/gemini-api/docs/changelog)
-- Official release change: groq — Changelog - GroqDocs — May 29, 2025 (https://console.groq.com/docs/changelog)
+- Official release change: groq — Changelog - GroqDocs — September 14, 2026 (https://console.groq.com/docs/changelog)
 - Opportunity trend history starts on the first completed run; score deltas will appear on later runs.
